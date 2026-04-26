@@ -1,8 +1,10 @@
 <script lang="ts">
 	import { Button, Tag } from 'carbon-components-svelte';
-	import Document from 'carbon-icons-svelte/lib/Document.svelte';
-	import DocumentTasks from 'carbon-icons-svelte/lib/DocumentTasks.svelte';
-	import type { WorkbenchData } from '$lib/types/workbench';
+	import Settings from 'carbon-icons-svelte/lib/Settings.svelte';
+	import Task from 'carbon-icons-svelte/lib/Task.svelte';
+	import { onMount } from 'svelte';
+	import type { AppSnapshot, ProjectRecord, PromptMode, ThreadRecord } from '$lib/types/workbench';
+	import { createWorkbenchController } from '$lib/workbench/controller';
 	import { filterProjects } from '$lib/workbench/filter';
 	import ComposerPanel from './ComposerPanel.svelte';
 	import ContextRail from './ContextRail.svelte';
@@ -10,49 +12,103 @@
 	import ProjectRail from './ProjectRail.svelte';
 	import ThemeToggle from './ThemeToggle.svelte';
 
-	let { data }: { data: WorkbenchData } = $props();
+	function buildStatusMessage(snapshot: AppSnapshot, thread: ThreadRecord | null) {
+		if (!thread) {
+			return 'Add a project and create a thread to start the desktop workflow.';
+		}
 
-	let draft = $state('Sketch the persistence boundary and wire the first durable shell state.');
+		if (snapshot.models.length === 0) {
+			return 'No configured models are available yet. Save at least one provider key in the right rail.';
+		}
+
+		if (thread.status === 'running') {
+			return 'The current thread is running. Use Queue steer or Queue follow-up for live guidance.';
+		}
+
+		return 'Ctrl+V can stage pasted files and images when the desktop runtime exposes them.';
+	}
+
+	function findActiveProject(projects: ProjectRecord[], selectedProjectId: string) {
+		return projects.find((project) => project.id === selectedProjectId) ?? projects[0] ?? null;
+	}
+
+	function findActiveThread(project: ProjectRecord | null, selectedThreadId: string) {
+		if (!project) {
+			return null;
+		}
+
+		return (
+			project.threads.find((thread) => thread.id === selectedThreadId) ?? project.threads[0] ?? null
+		);
+	}
+
+	function resolveProjectSelection(snapshot: AppSnapshot, currentSelection: string) {
+		if (!snapshot.projects[0]) {
+			return '';
+		}
+
+		if (!currentSelection) {
+			return snapshot.selectedProjectId ?? snapshot.projects[0].id;
+		}
+
+		return snapshot.projects.some((project) => project.id === currentSelection)
+			? currentSelection
+			: snapshot.projects[0].id;
+	}
+
+	function resolveThreadSelection(
+		snapshot: AppSnapshot,
+		project: ProjectRecord | null,
+		currentSelection: string
+	) {
+		if (!project?.threads[0]) {
+			return '';
+		}
+
+		if (!currentSelection) {
+			return snapshot.selectedThreadId ?? project.threads[0].id;
+		}
+
+		return project.threads.some((thread) => thread.id === currentSelection)
+			? currentSelection
+			: project.threads[0].id;
+	}
+
+	const controller = createWorkbenchController();
+
+	let draft = $state('');
+	let projectPathDraft = $state('');
+	let providerDrafts = $state<Record<string, string>>({});
 	let query = $state('');
-	let selectedModelId = $state('');
 	let selectedProjectId = $state('');
 	let selectedThreadId = $state('');
-	let statusMessage = $state(
-		'The shell is interactive and theme-aware. Next step is wiring the Pi transport behind the desktop boundary.'
-	);
+	let threadTitleDraft = $state('New Pi thread');
 
-	const visibleProjects = $derived(filterProjects(data.projects, query));
-	const activeProject = $derived(
-		data.projects.find((project) => project.id === selectedProjectId) ?? data.projects[0]
+	const workbenchState = $derived($controller);
+	const snapshot = $derived(workbenchState.snapshot);
+	const visibleProjects = $derived(filterProjects(snapshot.projects, query));
+	const activeProject = $derived(findActiveProject(visibleProjects, selectedProjectId));
+	const activeThread = $derived(findActiveThread(activeProject, selectedThreadId));
+	const selectedModelKey = $derived(activeThread?.modelKey ?? snapshot.models[0]?.key ?? '');
+	const stagedAttachments = $derived(
+		activeThread?.attachments.filter((attachment) => attachment.stage === 'staged') ?? []
 	);
-	const activeThread = $derived(
-		activeProject.threads.find((thread) => thread.id === selectedThreadId) ??
-			activeProject.threads[0]
-	);
+	const statusMessage = $derived(buildStatusMessage(snapshot, activeThread));
+
+	onMount(() => {
+		void controller.initialize();
+		return () => controller.destroy();
+	});
 
 	$effect(() => {
-		if (!selectedModelId && data.models[0]) {
-			selectedModelId = data.models[0].id;
-		}
-
-		if (!selectedProjectId && data.projects[0]) {
-			selectedProjectId = data.projects[0].id;
-		}
-
-		if (!selectedThreadId && data.projects[0]?.threads[0]) {
-			selectedThreadId = data.projects[0].threads[0].id;
-		}
+		selectedProjectId = resolveProjectSelection(snapshot, selectedProjectId);
+		selectedThreadId = resolveThreadSelection(snapshot, activeProject, selectedThreadId);
 	});
 
 	function handleProjectSelect(projectId: string) {
-		const project = data.projects.find((entry) => entry.id === projectId);
-
-		if (!project) {
-			return;
-		}
-
-		selectedProjectId = project.id;
-		selectedThreadId = project.threads[0]?.id ?? '';
+		selectedProjectId = projectId;
+		const project = snapshot.projects.find((entry) => entry.id === projectId);
+		selectedThreadId = project?.threads[0]?.id ?? '';
 	}
 
 	function handleThreadSelect(projectId: string, threadId: string) {
@@ -60,15 +116,109 @@
 		selectedThreadId = threadId;
 	}
 
-	function handleSend() {
-		statusMessage =
-			'Prompt staged in the shell scaffold. The next implementation slice is a typed Pi transport in the Rust core.';
-		draft = '';
+	async function runAction(action: () => Promise<void>) {
+		try {
+			await action();
+		} catch {
+			return;
+		}
 	}
 
-	function handleStop() {
-		statusMessage =
-			'Stop is represented in the UI. Process lifecycle control will become real once the Tauri command layer is wired.';
+	async function handleAddProject() {
+		if (!projectPathDraft.trim()) {
+			return;
+		}
+
+		await runAction(async () => {
+			await controller.addProject(projectPathDraft.trim());
+			projectPathDraft = '';
+		});
+	}
+
+	async function handleCreateThread() {
+		if (!activeProject) {
+			return;
+		}
+
+		await runAction(async () => {
+			await controller.createThread(activeProject.id, threadTitleDraft.trim() || 'New Pi thread');
+			threadTitleDraft = 'New Pi thread';
+		});
+	}
+
+	async function handleModelChange(modelKey: string) {
+		if (!activeThread) {
+			return;
+		}
+
+		await runAction(async () => {
+			await controller.selectModel(activeThread.id, modelKey);
+		});
+	}
+
+	async function handleFilesSelected(files: FileList | null) {
+		if (!activeThread || !files) {
+			return;
+		}
+
+		await runAction(async () => {
+			for (const file of Array.from(files)) {
+				await controller.stageAttachment(activeThread.id, file);
+			}
+		});
+	}
+
+	async function handleRemoveAttachment(attachmentId: string) {
+		if (!activeThread) {
+			return;
+		}
+
+		await runAction(async () => {
+			await controller.removeAttachment(activeThread.id, attachmentId);
+		});
+	}
+
+	async function handleSend(mode: PromptMode) {
+		if (!activeThread || !draft.trim()) {
+			return;
+		}
+
+		await runAction(async () => {
+			await controller.sendPrompt(activeThread.id, draft.trim(), mode);
+			draft = '';
+		});
+	}
+
+	async function handleStop() {
+		if (!activeThread) {
+			return;
+		}
+
+		await runAction(async () => {
+			await controller.abortThread(activeThread.id);
+		});
+	}
+
+	function handleProviderDraftChange(provider: string, value: string) {
+		providerDrafts = { ...providerDrafts, [provider]: value };
+	}
+
+	async function handleSaveProvider(provider: string) {
+		await runAction(async () => {
+			await controller.setProviderKey(provider, providerDrafts[provider] ?? '');
+		});
+	}
+
+	async function handleToggleDocparser(enabled: boolean) {
+		await runAction(async () => {
+			await controller.setFeatureToggle('docparser', enabled);
+		});
+	}
+
+	function handleFileDialogOpen() {
+		if (!activeThread) {
+			return;
+		}
 	}
 </script>
 
@@ -83,42 +233,62 @@
 		</div>
 
 		<div class="topbar__thread">
-			<Tag type="blue">Active thread</Tag>
-			<span>{activeThread.title}</span>
+			<Tag type="blue">{snapshot.health.bridgeStatus}</Tag>
+			<span>{activeThread?.title ?? 'No active thread'}</span>
 		</div>
 
 		<div class="topbar__actions">
-			<Button icon={DocumentTasks} kind="ghost" size="small">Spec mode</Button>
-			<Button icon={Document} kind="ghost" size="small">Review state</Button>
+			<Button icon={Task} kind="ghost" size="small">Queue aware</Button>
+			<Button icon={Settings} kind="ghost" size="small">Local runtime</Button>
 			<ThemeToggle />
 		</div>
 	</header>
 
 	<div class="workbench-grid">
 		<ProjectRail
+			onAddProject={handleAddProject}
+			onCreateThread={handleCreateThread}
+			onProjectPathChange={(value) => (projectPathDraft = value)}
 			onQueryChange={(value) => (query = value)}
 			onSelectProject={handleProjectSelect}
 			onSelectThread={handleThreadSelect}
+			onThreadTitleChange={(value) => (threadTitleDraft = value)}
+			{projectPathDraft}
 			projects={visibleProjects}
 			{query}
 			{selectedProjectId}
 			{selectedThreadId}
+			{threadTitleDraft}
 		/>
 
 		<div class="center-column">
-			<ConversationPane thread={activeThread} />
+			<ConversationPane runtimeError={workbenchState.error} thread={activeThread} />
 			<ComposerPanel
+				attachments={stagedAttachments}
 				{draft}
-				models={data.models}
+				models={snapshot.models}
 				onDraftChange={(value) => (draft = value)}
-				onModelChange={(modelId) => (selectedModelId = modelId)}
-				{selectedModelId}
+				onFileDialogOpen={handleFileDialogOpen}
+				onFilesSelected={handleFilesSelected}
+				onModelChange={handleModelChange}
+				onRemoveAttachment={handleRemoveAttachment}
 				onSend={handleSend}
 				onStop={handleStop}
+				{selectedModelKey}
 				{statusMessage}
+				threadStatus={activeThread?.status ?? 'idle'}
 			/>
 		</div>
 
-		<ContextRail thread={activeThread} />
+		<ContextRail
+			health={snapshot.health}
+			docparserEnabled={snapshot.settings.features.docparserEnabled}
+			onProviderDraftChange={handleProviderDraftChange}
+			onSaveProvider={handleSaveProvider}
+			onToggleDocparser={handleToggleDocparser}
+			{providerDrafts}
+			providers={snapshot.settings.providers}
+			thread={activeThread}
+		/>
 	</div>
 </div>

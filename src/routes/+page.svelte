@@ -1,6 +1,5 @@
 <script lang="ts">
 	import AppShell from '$lib/components/workbench/AppShell.svelte';
-	import { referenceWorkbenchData } from '$lib/data/reference-workspace';
 </script>
 
 <svelte:head>
@@ -11,4 +10,4 @@
 	/>
 </svelte:head>
 
-<AppShell data={referenceWorkbenchData} />
+<AppShell />

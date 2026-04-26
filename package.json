@@ -21,7 +21,9 @@
 		"rust:check": "node scripts/run-rust-check.mjs",
 		"test:unit": "vitest --project server --run",
 		"test": "pnpm test:unit && pnpm test:component && pnpm test:e2e",
-		"test:e2e": "playwright test",
+		"test:e2e": "pnpm test:e2e:browser && pnpm test:e2e:desktop",
+		"test:e2e:browser": "playwright test --config playwright.config.ts",
+		"test:e2e:desktop": "node scripts/run-desktop-e2e.mjs",
 		"storybook": "storybook dev -p 6006",
 		"build-storybook": "storybook build",
 		"setup:playwright": "playwright install chromium",
@@ -70,9 +72,11 @@
 		"vitest-browser-svelte": "^2.1.0"
 	},
 	"dependencies": {
+		"@mariozechner/pi-coding-agent": "^0.70.2",
 		"@tauri-apps/api": "^2.10.1",
 		"carbon-components-svelte": "^0.106.2",
-		"carbon-icons-svelte": "^13.10.0"
+		"carbon-icons-svelte": "^13.10.0",
+		"pi-docparser": "^1.1.1"
 	},
 	"engines": {
 		"node": ">=24.0.0",

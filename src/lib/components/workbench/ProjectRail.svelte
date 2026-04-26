@@ -1,31 +1,39 @@
 <script lang="ts">
-	import { Button, Search } from 'carbon-components-svelte';
+	import { Button, Search, TextInput } from 'carbon-components-svelte';
 	import type { ProjectRecord } from '$lib/types/workbench';
+	import { readEventValue } from '$lib/workbench/read-event-value';
 	import StatusTag from './StatusTag.svelte';
 
 	type Props = {
+		onAddProject: () => void;
+		onCreateThread: () => void;
+		onProjectPathChange: (value: string) => void;
 		onQueryChange: (value: string) => void;
 		onSelectProject: (projectId: string) => void;
 		onSelectThread: (projectId: string, threadId: string) => void;
+		onThreadTitleChange: (value: string) => void;
+		projectPathDraft: string;
 		projects: ProjectRecord[];
 		query: string;
 		selectedProjectId: string;
 		selectedThreadId: string;
+		threadTitleDraft: string;
 	};
 
-	function handleSearchInput(event: Event) {
-		const input = event.target as HTMLInputElement;
-		onQueryChange(input.value);
-	}
-
 	let {
+		onAddProject,
+		onCreateThread,
+		onProjectPathChange,
 		onQueryChange,
 		onSelectProject,
 		onSelectThread,
+		onThreadTitleChange,
+		projectPathDraft,
 		projects,
 		query,
 		selectedProjectId,
-		selectedThreadId
+		selectedThreadId,
+		threadTitleDraft
 	}: Props = $props();
 </script>
 
@@ -35,23 +43,43 @@
 			<p class="eyebrow">Projects</p>
 			<h2>Workspace</h2>
 		</div>
-
-		<Button kind="ghost" size="small">New thread</Button>
 	</div>
 
 	<Search
 		labelText="Search projects and threads"
-		placeholder="Search threads, branches, specs"
+		placeholder="Search threads, branches, messages"
 		size="lg"
 		value={query}
-		on:input={handleSearchInput}
+		on:input={(event) => onQueryChange(readEventValue(event))}
 	/>
+
+	<div class="stack-form">
+		<TextInput
+			labelText="Repository path"
+			placeholder="C:\\Repos\\project"
+			size="sm"
+			value={projectPathDraft}
+			on:input={(event) => onProjectPathChange(readEventValue(event))}
+		/>
+		<Button kind="primary" size="small" on:click={onAddProject}>Add project</Button>
+	</div>
+
+	<div class="stack-form">
+		<TextInput
+			labelText="New thread"
+			placeholder="Describe the thread"
+			size="sm"
+			value={threadTitleDraft}
+			on:input={(event) => onThreadTitleChange(readEventValue(event))}
+		/>
+		<Button kind="ghost" size="small" on:click={onCreateThread}>Create thread</Button>
+	</div>
 
 	<div class="project-list">
 		{#if projects.length === 0}
 			<div class="empty-panel">
-				<p>No matching projects.</p>
-				<span>Try a thread title, branch, or status.</span>
+				<p>No projects yet.</p>
+				<span>Add a repository path to start a tracked workspace.</span>
 			</div>
 		{:else}
 			{#each projects as project (project.id)}
@@ -80,10 +108,10 @@
 								>
 									<div class="thread-row__meta">
 										<StatusTag status={thread.status} />
-										<span>{thread.updatedAt}</span>
+										<span>{new Date(thread.updatedAtMs).toLocaleTimeString()}</span>
 									</div>
 									<h4>{thread.title}</h4>
-									<p>{thread.summary}</p>
+									<p>{thread.branch}</p>
 								</button>
 							</li>
 						{/each}

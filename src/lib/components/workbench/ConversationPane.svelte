@@ -1,57 +1,129 @@
 <script lang="ts">
-	import { Button, InlineNotification } from 'carbon-components-svelte';
-	import DocumentView from 'carbon-icons-svelte/lib/DocumentView.svelte';
-	import FolderDetails from 'carbon-icons-svelte/lib/FolderDetails.svelte';
+	import { InlineNotification, Tag } from 'carbon-components-svelte';
 	import type { ThreadRecord } from '$lib/types/workbench';
 	import MessageCard from './MessageCard.svelte';
 	import StatusTag from './StatusTag.svelte';
+	import ThreadMessage from './ThreadMessage.svelte';
 
 	function buildNotice(thread: ThreadRecord) {
-		switch (thread.status) {
-			case 'completed':
-				return { kind: 'success' as const, title: 'Thread complete' };
-			case 'failed':
-				return { kind: 'error' as const, title: 'Thread failed' };
-			case 'waiting':
-				return { kind: 'warning' as const, title: 'Awaiting input' };
-			default:
-				return { kind: 'info' as const, title: 'Work in progress' };
+		if (thread.status === 'failed') {
+			return {
+				kind: 'error' as const,
+				subtitle: thread.lastError ?? 'Pi reported a runtime failure for this thread.',
+				title: 'Run failed'
+			};
 		}
+
+		if (thread.status === 'running') {
+			return {
+				kind: 'info' as const,
+				subtitle: 'Pi is currently working this thread.',
+				title: 'Run in progress'
+			};
+		}
+
+		return {
+			kind: 'success' as const,
+			subtitle: 'Thread state is durable and ready for the next turn.',
+			title: 'Thread ready'
+		};
 	}
 
-	let { thread }: { thread: ThreadRecord } = $props();
+	let { runtimeError, thread }: { runtimeError: string | null; thread: ThreadRecord | null } =
+		$props();
 
-	const notice = $derived(buildNotice(thread));
+	const notice = $derived(thread ? buildNotice(thread) : null);
 </script>
 
 <section class="conversation-pane surface">
 	<header class="pane-header">
 		<div>
 			<p class="eyebrow">Active thread</p>
-			<div class="pane-header__title">
-				<h2>{thread.title}</h2>
-				<StatusTag status={thread.status} />
-			</div>
-			<p class="pane-header__summary">{thread.summary}</p>
+			{#if thread}
+				<div class="pane-header__title">
+					<h2>{thread.title}</h2>
+					<StatusTag status={thread.status} />
+				</div>
+				<p class="pane-header__summary">{thread.branch}</p>
+			{:else}
+				<div class="pane-header__title">
+					<h2>No thread selected</h2>
+				</div>
+				<p class="pane-header__summary">Add a project or choose a thread to begin.</p>
+			{/if}
 		</div>
 
-		<div class="pane-header__actions">
-			<Button icon={DocumentView} kind="ghost" size="small">Latest diff</Button>
-			<Button icon={FolderDetails} kind="ghost" size="small">Files touched</Button>
-		</div>
+		{#if thread && thread.queue.length > 0}
+			<div class="queue-summary">
+				<Tag type="blue">{thread.queue.length} queued</Tag>
+			</div>
+		{/if}
 	</header>
 
-	<InlineNotification
-		hideCloseButton
-		kind={notice.kind}
-		lowContrast
-		subtitle={thread.note}
-		title={notice.title}
-	/>
+	{#if runtimeError}
+		<InlineNotification
+			hideCloseButton
+			kind="warning"
+			lowContrast
+			subtitle={runtimeError}
+			title="Desktop runtime unavailable"
+		/>
+	{:else if notice}
+		<InlineNotification
+			hideCloseButton
+			kind={notice.kind}
+			lowContrast
+			subtitle={notice.subtitle}
+			title={notice.title}
+		/>
+	{/if}
+
+	{#if thread && thread.queue.length > 0}
+		<section class="queue-panel">
+			<div class="queue-panel__header">
+				<p class="eyebrow">Queue</p>
+				<span>{thread.queue.length} pending items</span>
+			</div>
+			<ul class="queue-list">
+				{#each thread.queue as item (item.id)}
+					<li class="context-card">
+						<div class="context-card__header">
+							<Tag size="sm" type={item.mode === 'steer' ? 'purple' : 'blue'}>{item.mode}</Tag>
+							<Tag size="sm" type="outline">{item.status}</Tag>
+						</div>
+						<p>{item.text}</p>
+					</li>
+				{/each}
+			</ul>
+		</section>
+	{/if}
 
 	<div class="activity-list">
-		{#each thread.activities as entry (entry.id)}
-			<MessageCard {entry} />
-		{/each}
+		{#if thread}
+			{#if thread.messages.length === 0}
+				<div class="empty-panel">
+					<p>No messages yet.</p>
+					<span>Configure a provider and send the first prompt from the composer.</span>
+				</div>
+			{:else}
+				{#each thread.messages as message (message.id)}
+					<ThreadMessage {message} />
+				{/each}
+			{/if}
+		{/if}
 	</div>
+
+	{#if thread && thread.activities.length > 0}
+		<section class="activity-panel">
+			<div class="queue-panel__header">
+				<p class="eyebrow">Activity</p>
+				<span>{thread.activities.length} recent events</span>
+			</div>
+			<div class="activity-feed">
+				{#each thread.activities as entry (entry.id)}
+					<MessageCard {entry} />
+				{/each}
+			</div>
+		</section>
+	{/if}
 </section>

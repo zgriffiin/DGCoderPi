@@ -29,9 +29,9 @@ export function filterProjects(projects: ProjectRecord[], query: string) {
 			const matchingThreads = project.threads.filter((thread) => {
 				return (
 					includesQuery(thread.title, normalizedQuery) ||
-					includesQuery(thread.summary, normalizedQuery) ||
 					includesQuery(thread.branch, normalizedQuery) ||
-					includesQuery(thread.status, normalizedQuery)
+					includesQuery(thread.status, normalizedQuery) ||
+					thread.messages.some((message) => includesQuery(message.text, normalizedQuery))
 				);
 			});
 

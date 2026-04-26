@@ -6,5 +6,5 @@ export default defineConfig({
 		port: 4173,
 		reuseExistingServer: !process.env.CI
 	},
-	testMatch: '**/*.e2e.{ts,js}'
+	testMatch: '**/*.browser.e2e.{ts,js}'
 });

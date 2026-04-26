@@ -1,27 +1,72 @@
 import { describe, expect, it } from 'vitest';
-import { referenceWorkbenchData } from '$lib/data/reference-workspace';
-import { filterProjects } from '$lib/workbench/filter';
+import { filterProjects } from './filter';
+import type { ProjectRecord } from '$lib/types/workbench';
+
+function buildProject(): ProjectRecord {
+	return {
+		branch: 'main',
+		id: 'project-1',
+		name: 'Desktop Workbench',
+		path: 'C:\\Repos\\desktop-workbench',
+		threads: [
+			{
+				activities: [],
+				attachments: [],
+				branch: 'feature/queue-aware-ui',
+				id: 'thread-1',
+				lastError: null,
+				messages: [
+					{
+						id: 'message-1',
+						role: 'assistant',
+						status: 'ready',
+						text: 'Queue state is durable across restarts.',
+						timestampMs: 1
+					}
+				],
+				modelKey: null,
+				queue: [],
+				status: 'completed',
+				title: 'Queue-aware thread',
+				updatedAtMs: 1
+			},
+			{
+				activities: [],
+				attachments: [],
+				branch: 'feature/attachments',
+				id: 'thread-2',
+				lastError: null,
+				messages: [
+					{
+						id: 'message-2',
+						role: 'user',
+						status: 'ready',
+						text: 'Parse the attached spreadsheet.',
+						timestampMs: 2
+					}
+				],
+				modelKey: null,
+				queue: [],
+				status: 'idle',
+				title: 'Attachment parsing',
+				updatedAtMs: 2
+			}
+		]
+	};
+}
 
 describe('filterProjects', () => {
-	it('returns all projects for an empty query', () => {
-		expect(filterProjects(referenceWorkbenchData.projects, '')).toHaveLength(
-			referenceWorkbenchData.projects.length
-		);
+	it('returns the original projects when the query is blank', () => {
+		const projects = [buildProject()];
+
+		expect(filterProjects(projects, '   ')).toEqual(projects);
 	});
 
-	it('keeps only matching threads when the project itself does not match', () => {
-		const results = filterProjects(referenceWorkbenchData.projects, 'specification');
+	it('keeps only matching threads when the project matches through thread content', () => {
+		const filtered = filterProjects([buildProject()], 'spreadsheet');
 
-		expect(results).toHaveLength(1);
-		expect(results[0].threads).toHaveLength(1);
-		expect(results[0].threads[0].id).toBe('spec-mode');
-	});
-
-	it('returns the full project when the project metadata matches', () => {
-		const results = filterProjects(referenceWorkbenchData.projects, 'prompt-lab');
-
-		expect(results).toHaveLength(1);
-		expect(results[0].id).toBe('prompt-lab');
-		expect(results[0].threads).toHaveLength(1);
+		expect(filtered).toHaveLength(1);
+		expect(filtered[0]?.threads).toHaveLength(1);
+		expect(filtered[0]?.threads[0]?.id).toBe('thread-2');
 	});
 });

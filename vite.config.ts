@@ -8,20 +8,18 @@ export default defineConfig({
 	optimizeDeps: {
 		include: [
 			'carbon-components-svelte/src/Button/Button.svelte',
-			'carbon-components-svelte/src/ContentSwitcher/ContentSwitcher.svelte',
-			'carbon-components-svelte/src/ContentSwitcher/Switch.svelte',
 			'carbon-components-svelte/src/Dropdown/Dropdown.svelte',
 			'carbon-components-svelte/src/Notification/InlineNotification.svelte',
-			'carbon-components-svelte/src/ProgressBar/ProgressBar.svelte',
 			'carbon-components-svelte/src/Search/Search.svelte',
 			'carbon-components-svelte/src/Tag/Tag.svelte',
 			'carbon-components-svelte/src/TextArea/TextArea.svelte',
+			'carbon-components-svelte/src/TextInput/TextInput.svelte',
 			'carbon-components-svelte/src/Toggle/Toggle.svelte',
+			'carbon-icons-svelte/lib/Add.svelte',
 			'carbon-icons-svelte/lib/ArrowRight.svelte',
-			'carbon-icons-svelte/lib/Document.svelte',
-			'carbon-icons-svelte/lib/DocumentTasks.svelte',
-			'carbon-icons-svelte/lib/DocumentView.svelte',
-			'carbon-icons-svelte/lib/FolderDetails.svelte'
+			'carbon-icons-svelte/lib/Settings.svelte',
+			'carbon-icons-svelte/lib/StopFilledAlt.svelte',
+			'carbon-icons-svelte/lib/Task.svelte'
 		]
 	},
 	test: {
