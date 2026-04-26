@@ -1,0 +1,4 @@
+interface:
+  display_name: 'Pi Carbon UI'
+  short_description: 'Carbon-styled Svelte desktop workbench UI'
+  default_prompt: 'Use $pi-carbon-workbench-ui to design or implement a Carbon-styled desktop workbench screen in Svelte.'

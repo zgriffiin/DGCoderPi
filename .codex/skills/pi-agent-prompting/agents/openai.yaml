@@ -1,0 +1,4 @@
+interface:
+  display_name: 'Pi Agent Prompting'
+  short_description: 'OpenAI and Anthropic prompt workflow guide'
+  default_prompt: 'Use $pi-agent-prompting to draft or refine spec and implementation prompts for coding agents.'

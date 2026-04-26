@@ -1,0 +1,14 @@
+{
+	"$schema": "https://raw.githubusercontent.com/fallow-rs/fallow/main/schema.json",
+	"health": {
+		"maxCyclomatic": 15,
+		"maxCognitive": 15,
+		"maxCrap": 999
+	},
+	"ignoreDependencies": ["@tauri-apps/api", "simple-git-hooks"],
+	"production": {
+		"deadCode": true,
+		"dupes": true,
+		"health": true
+	}
+}

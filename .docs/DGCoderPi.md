@@ -17,8 +17,10 @@ The system should let a user:
 - prompt a coding agent against a real repository
 - create structured feature specifications before implementation work begins
 - watch progress and inspect intermediate activity while work is running
+- queue follow-up messages and steering instructions while work is still running
 - review code changes, diffs, checkpoints, and file impact after each turn
 - handle approvals, follow-up questions, and retries without losing context
+- paste clipboard content and attach common files directly into the active thread
 - manage task workflows around the coding work
 - run quality and review workflows before important git actions
 - return to the app later and still understand the state of every active or completed thread
@@ -69,7 +71,7 @@ The app should support:
 - starting a new thread for a task or problem
 - continuing an existing thread over many turns
 - preserving the full conversational history of the thread
-- keeping thread-local context such as chosen model, branch, working directory, and recent activity
+- keeping thread-local context such as chosen model, branch, working directory, recent activity, queued follow-ups, and pending steer actions
 - retrying or continuing work without forcing the user to start over
 
 ### Specification Mode
@@ -163,8 +165,25 @@ The app should support:
 - streamed assistant output while a turn is running
 - multi-turn back-and-forth within the same thread
 - explicit send, stop, and retry actions
+- composing follow-up messages while a turn is active
 - protection against accidental duplicate sends while a turn is active
 - user-visible distinction between active agent work and post-run processing
+
+### Queued Turns And Steering
+
+The app should support queued follow-up work and explicit steering inside a thread.
+
+This capability should include:
+
+- a visible per-thread queue of pending user messages and steer actions
+- creating follow-up messages while the current turn is still running
+- editing, reordering, or deleting queued entries before they execute
+- attaching queue entries to the current run, the next turn, or a specific assistant output when that distinction matters
+- a first-class Steer action on assistant output, plans, or other thread elements where mid-course correction is useful
+- applying a steer request to an in-progress run when the runtime supports it
+- automatically queueing the steer request for the next turn when live steering is not supported
+- clear status for each queued or steer entry such as pending, sent, applied live, deferred, failed, canceled, or expired
+- durable history showing what was queued, what actually ran, and how the thread state changed afterward
 
 ### Model Selection
 
@@ -196,14 +215,55 @@ The app should support:
 - letting the user answer those requests without breaking thread continuity
 - keeping pending approvals and pending user input visible until resolved
 
+### Desktop Input And Windows Conventions
+
+The app should follow standard Windows desktop input behavior anywhere the user writes or edits thread content.
+
+This capability should include:
+
+- `Ctrl+V` paste in the main composer, follow-up input boxes, steer inputs, settings editors, and specification artifact editors
+- standard Windows editing shortcuts where they make sense, such as `Ctrl+C`, `Ctrl+X`, `Ctrl+Z`, `Ctrl+Y`, `Ctrl+A`, and keyboard-driven focus movement
+- paste behavior that feels native whether the clipboard contains plain text, rich text, images, file references, or Explorer-copied files
+- clear user feedback about what was pasted and how it will be attached or interpreted before send
+- keyboard-first handling that does not require drag-and-drop for normal attachment workflows
+
 ### Attachments And Context
 
 The app should support:
 
 - image attachments in conversation flows
+- file attachments in conversation flows
+- clipboard paste of images directly into the active thread
+- clipboard paste of files copied from Windows Explorer
+- drag-and-drop as a complement to paste, not the only path
+- staging pasted or attached content before send
+- removing or replacing staged attachments before send
 - displaying attachment previews where relevant
+- showing file type, file size, attachment source, and extraction status where relevant
 - showing contextual thread metadata such as repository, branch, or worktree
 - showing terminal or environment context associated with the thread
+
+### Rich File Handling And Extension Pipeline
+
+The app should support broad first-party file ingestion plus an extension model for richer type-specific behavior.
+
+This capability should include:
+
+- a handler pipeline that can identify file type, extract usable content, render previews, and surface file-specific actions
+- first-party support for common office and document formats instead of requiring user-installed extensions for the basics
+- extension points for deeper handlers such as spreadsheet-aware inspection, PDF extraction improvements, slide parsing, OCR, or domain-specific document tools
+- safe pass-through handling for unsupported files so the user can still attach them even when preview or extraction is limited
+- clear fallback behavior when a file is accepted as an attachment but not fully parsed
+
+The default baseline should include first-party handlers for:
+
+- images such as `png`, `jpg`, `jpeg`, `gif`, `webp`, `bmp`, `svg`, and `ico`
+- documents such as `pdf`, `doc`, `docx`, `rtf`, `ppt`, `pptx`, `xls`, and `xlsx`
+- tabular files such as `csv` and `tsv`
+- plain text and notes such as `txt`, `md`, and `log`
+- structured text such as `json`, `yaml`, `yml`, `xml`, `toml`, `ini`, and `sql`
+- common source-code and web files such as `js`, `jsx`, `ts`, `tsx`, `svelte`, `html`, `css`, `go`, `rs`, `py`, `sh`, `ps1`, and `bat`
+- a generic fallback for other attachment types that preserves the file, metadata, and any safe preview that can be produced
 
 ### Git-Aware Change Review
 
@@ -239,6 +299,9 @@ The app should support a post-run quality gate for file-changing work.
 This capability should include:
 
 - running formatting, linting, and typechecking checks
+- running `fallow` analysis as part of the local quality gate
+- supporting local CodeRabbit CLI review before branch pushes
+- treating unresolved CodeRabbit findings as blocking for commit, push, or merge workflows when policy requires it
 - recording pass or fail status in the thread timeline
 - surfacing code-shape or policy failures when configured
 - making quality-gate behavior configurable per user or project
@@ -263,6 +326,11 @@ The app should support repository-level review helpers around important git acti
 This capability should include:
 
 - pre-action review workflows before commit, push, or pull request creation when configured
+- running the local CodeRabbit CLI review before push
+- surfacing and tracking CodeRabbit findings that must be addressed before merge
+- supporting incremental CodeRabbit re-review on each push to an open pull request
+- ensuring pull requests do not silently skip review because they are drafts or because they target a non-default base branch
+- supporting CodeRabbit request-changes style workflows so unresolved hosted review findings remain clearly blocking
 - local review-tool integration such as CodeRabbit-style review commands
 - project-tracked review policy that can block certain git actions until checks pass
 - PR helper flows that assist users in preparing code for review
@@ -280,7 +348,7 @@ The app should support:
 
 The app should support:
 
-- durable storage of projects, threads, messages, activities, plans, and diffs
+- durable storage of projects, threads, messages, queued entries, steer actions, attachments, activities, plans, and diffs
 - resuming the app after restart without losing thread context
 - preserving completed and in-progress work across interruptions
 - restoring enough state that the user can continue without manual reconstruction

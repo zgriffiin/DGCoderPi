@@ -1,0 +1,4 @@
+interface:
+  display_name: 'Pi Tauri Stack'
+  short_description: 'Tauri 2 + SvelteKit + Rust build guide'
+  default_prompt: 'Use $pi-tauri-svelte-stack to scaffold or extend this desktop app with Tauri, SvelteKit, Rust, and Carbon.'
