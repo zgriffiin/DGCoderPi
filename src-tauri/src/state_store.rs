@@ -271,9 +271,9 @@ fn parse_git_status_line(line: &str) -> Option<ProjectDiffEntry> {
         return None;
     }
 
-    if matches!(code.chars().next(), Some('R' | 'C')) {
-        if let Some((_, target_path)) = path.rsplit_once(" -> ") {
-            path = target_path.trim().to_string();
+    if code.chars().any(|status| matches!(status, 'R' | 'C')) {
+        if let Some(separator_index) = path.rfind(" -> ") {
+            path = path[separator_index + 4..].trim().to_string();
         }
     }
 
