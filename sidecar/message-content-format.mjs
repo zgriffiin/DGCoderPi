@@ -9,7 +9,8 @@ export function flattenUserContent(content) {
 		return content;
 	}
 
-	return content
+	const entries = Array.isArray(content) ? content : [];
+	return entries
 		.map((entry) => {
 			if (entry.type === 'text') {
 				return entry.text;

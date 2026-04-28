@@ -158,13 +158,8 @@ impl AppRuntime {
                 return Ok(());
             }
 
-            let desired_target = if current_index < input.target_index && input.target_index > 0 {
-                input.target_index - 1
-            } else {
-                input.target_index
-            };
             let project = state.projects.remove(current_index);
-            let target_index = desired_target.min(state.projects.len());
+            let target_index = input.target_index.min(state.projects.len());
             state.projects.insert(target_index, project);
             Ok(())
         })
