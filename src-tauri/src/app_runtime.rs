@@ -738,8 +738,9 @@ fn derive_thread_title(text: &str) -> String {
         return "New thread".to_string();
     }
 
-    let mut title = normalized.chars().take(MAX_TITLE_CHARS).collect::<String>();
-    if normalized.chars().count() > MAX_TITLE_CHARS {
+    let mut chars = normalized.chars();
+    let mut title = chars.by_ref().take(MAX_TITLE_CHARS).collect::<String>();
+    if chars.next().is_some() {
         title.push_str("...");
     }
 
