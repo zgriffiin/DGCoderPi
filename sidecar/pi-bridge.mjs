@@ -30,7 +30,7 @@ const UNSUPPORTED_CHATGPT_CODEX_MODELS = new Set([
 	'gpt-5.1-codex-max',
 	'gpt-5.1-codex-mini'
 ]);
-
+const SUPPORTED_THINKING_LEVELS = ['off', 'minimal', 'low', 'medium', 'high', 'xhigh'];
 const PREFERRED_MODEL_KEYS = ['openai-codex::gpt-5.4'];
 
 class BridgeRuntime {
@@ -139,9 +139,7 @@ class BridgeRuntime {
 						)
 				)
 				.map((model) => ({
-					availableThinkingLevels: model.reasoning
-						? ['off', 'minimal', 'low', 'medium', 'high', 'xhigh']
-						: ['off'],
+					availableThinkingLevels: model.reasoning ? SUPPORTED_THINKING_LEVELS : ['off'],
 					configured: true,
 					id: model.id,
 					key: `${model.provider}::${model.id}`,
