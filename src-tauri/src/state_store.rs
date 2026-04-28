@@ -338,14 +338,18 @@ fn decode_git_path(path: &str) -> String {
                 index += 2;
             }
             b'0'..=b'7' => {
-                let mut value: u16 = 0;
+                let mut value: u8 = 0;
                 let mut octal_length = 0;
                 while index + 1 + octal_length < bytes.len() && octal_length < 3 {
                     let digit = bytes[index + 1 + octal_length];
                     if !(b'0'..=b'7').contains(&digit) {
                         break;
                     }
-                    value = value * 8 + u16::from(digit - b'0');
+                    let next_value = u32::from(value) * 8 + u32::from(digit - b'0');
+                    if next_value > 0xFF {
+                        break;
+                    }
+                    value = next_value as u8;
                     octal_length += 1;
                 }
 
@@ -355,7 +359,7 @@ fn decode_git_path(path: &str) -> String {
                     continue;
                 }
 
-                decoded.push(value.min(0xFF) as u8);
+                decoded.push(value);
                 index += 1 + octal_length;
             }
             other => {
