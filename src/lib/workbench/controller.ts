@@ -208,6 +208,7 @@ function applyEventToSnapshot(snapshot: AppSnapshot, event: AppEvent) {
 
 	if (event.type === 'integrations-updated') {
 		snapshot.integrations = event.integrations;
+		return;
 	}
 }
 
@@ -232,6 +233,7 @@ function createHealthApplier(store: ReturnType<typeof writable<WorkbenchState>>)
 	return (health: AppHealth) => {
 		store.update((state) => ({
 			...state,
+			error: null,
 			heartbeatPending: false,
 			lastSnapshotAtMs: Date.now(),
 			runtimeAvailable: true,
@@ -269,7 +271,13 @@ async function initializeRuntime(
 		return null;
 	}
 
+	const pendingUpdates: AppUpdate[] = [];
+	let readyForLiveUpdates = false;
 	const unlisten = await listen<AppUpdate>(UPDATE_EVENT, (event) => {
+		if (!readyForLiveUpdates) {
+			pendingUpdates.push(event.payload);
+			return;
+		}
 		applyUpdate(event.payload);
 	});
 
@@ -279,6 +287,11 @@ async function initializeRuntime(
 			window.__PI_DEBUG__ = { invoke };
 		}
 		applySnapshot(snapshot);
+		readyForLiveUpdates = true;
+		for (const update of pendingUpdates) {
+			applyUpdate(update);
+		}
+		pendingUpdates.length = 0;
 		return unlisten;
 	} catch (error) {
 		await unlisten();

@@ -12,7 +12,7 @@ export function sessionManagerForPayload(existing, cwd) {
 }
 
 export function recordSessionPreferences(existing, nextModel, nextThinkingLevel) {
-	if (!existing) {
+	if (!existing || !nextModel) {
 		return;
 	}
 

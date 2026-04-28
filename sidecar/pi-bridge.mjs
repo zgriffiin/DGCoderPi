@@ -232,7 +232,6 @@ class BridgeRuntime {
 	}
 
 	async ensureSession(payload) {
-		evictDormantSessions(this.sessions);
 		const existing = this.sessions.get(payload.threadId);
 		const model = this.resolveModel(payload.modelKey);
 		if (
