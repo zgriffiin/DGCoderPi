@@ -97,6 +97,8 @@ Make the agent mode explicit at the thread level so the UI, prompts, and validat
 #### Acceptance Criteria
 
 - The active thread intent is always visible.
+- Intent switches append a timestamped `intent_switch` activity record containing `thread_id`, `previous_intent`, `new_intent`, `actor`, and optional `reason`.
+- The activity history UI renders each intent switch as a discrete entry, and the thread header always shows the current active intent.
 - The agent prompt framing changes based on intent.
 - `Review` threads produce findings-first output by default.
 - `Plan` threads do not immediately execute code changes unless the user switches intent or explicitly requests execution.
@@ -132,6 +134,7 @@ Give users direct lifecycle tools for conversation management instead of forcing
 
 - A cloned thread is independently editable.
 - Compacting reduces prompt context size while retaining user-visible continuity.
+- Attachments and generated artifacts referenced by compacted sections remain valid after compaction and export, either through preserved thread storage or an archived compacted-artifact bundle.
 - Exported threads include timestamps, intent, model, and message content.
 
 ### 3. Sandbox Workspaces
@@ -169,6 +172,19 @@ Run risky work in an isolated lane so the user can inspect agent changes before 
 - Starting a sandbox never mutates the parent worktree unexpectedly.
 - The agent can run end-to-end in the sandbox path.
 - Sandbox cleanup is explicit and reversible where possible.
+
+#### Sandbox Promotion Workflow
+
+- Promotion is a distinct workflow from sandbox creation and cleanup.
+- Before promotion, the app must verify:
+  - required local validations pass
+  - the sandbox branch is in sync with the intended target branch or can be merged cleanly
+  - there are no unresolved blocking review findings
+- Promotion should attempt an automated three-way merge first.
+- If the automated merge fails, the app must stop and hand the user an explicit conflict-resolution path, including a conflict editor or repo handoff instructions.
+- Promotion should be atomic from the user's perspective: either the branch lands cleanly or the sandbox stays intact for retry.
+- The app should record promotion attempts, validation results, merge outcomes, and any rollback action in structured activity history.
+- Phase 2 delivers sandbox creation and cleanup. Phase 3 extends that work with the full promotion and compare UX, including conflict handling and rollback affordances.
 
 ### 4. Local Code Indexing
 
@@ -209,6 +225,12 @@ Remote indexing should not be the default product path because:
   - `search_symbols`
   - `search_code_chunks`
   - `search_related_to_selection`
+- These indexed search tools supplement existing file open, read, and list operations rather than replacing them.
+- Priority rules:
+  - prefer indexed search results when an index is available and fresh
+  - fall back to direct file or repo scanning when the index is absent, stale, or incomplete
+  - use direct open or read operations after retrieval to inspect the authoritative file contents before editing or citing line-level details
+- Workspace navigation should integrate both modes so agents can jump from indexed results into normal file-open and read flows without maintaining a separate navigation model.
 - The user can see indexing state:
   - not indexed
   - indexing
@@ -244,7 +266,9 @@ This is likely the right split because:
 
 - Index ownership should live in Rust services.
 - The frontend should only request indexing status and search results.
-- The sidecar may be used only if a local embedding model or existing JS indexing library materially reduces implementation cost.
+- Durable index storage, merge logic, filesystem writes, git integration, lifecycle management, and query serving stay in Rust.
+- A sidecar is allowed only for ephemeral, on-device embedding inference if a local model or existing JS inference library materially reduces implementation cost.
+- Any sidecar use for indexing must be optional, non-durable, and disposable. It must not own index state, project metadata, or background indexing orchestration.
 - Any local model used for embeddings should be optional and run on-device.
 
 #### Data Model
@@ -295,7 +319,7 @@ Make the merge workflow fast, but not opaque.
   - validations to run
   - pending commit message
   - pending PR title and summary
-  - whether sandbox mode is active
+  - sandbox status, with `N/A in Phase 1` until sandbox workspaces land in Phase 2
   - blocking review status if available
 - The user can edit the proposed commit message and PR summary before execution.
 - The app records the ship run as structured activity in the thread.
@@ -307,7 +331,7 @@ Make the merge workflow fast, but not opaque.
 
 #### Acceptance Criteria
 
-- The user can see exactly what `Ship` intends to do.
+- The user can see exactly what `Ship` intends to do, including an explicit `Sandbox status: N/A` state in Phase 1 before sandbox workspaces exist.
 - The user can stop before commit or push.
 - The agent does not merge while validations or blocking review findings remain unresolved.
 
@@ -319,6 +343,7 @@ Make the merge workflow fast, but not opaque.
 - clone thread
 - compact thread
 - ship preview
+  - sandbox status is explicitly `N/A` in this phase
 
 ### Phase 2
 

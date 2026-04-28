@@ -1264,11 +1264,10 @@ mod tests {
 
 #[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
 fn launch_codex_login() -> Result<(), String> {
-    Command::new("codex")
-        .arg("login")
-        .spawn()
-        .map_err(|error| error.to_string())?;
-    Ok(())
+    Err(
+        "Automatic Codex login is not supported on this platform. Run `codex login` in a terminal to complete authentication."
+            .to_string(),
+    )
 }
 
 #[cfg(target_os = "macos")]
