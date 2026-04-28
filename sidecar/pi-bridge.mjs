@@ -35,6 +35,16 @@ const SUPPORTED_THINKING_LEVELS = ['off', 'minimal', 'low', 'medium', 'high', 'x
 const PREFERRED_MODEL_KEYS = ['openai-codex::gpt-5.4'];
 const MAX_IMAGE_ATTACHMENT_BYTES = 5 * 1024 * 1024;
 
+function formatBytes(bytes) {
+	if (bytes >= 1024 * 1024) {
+		return `${Math.round((bytes / (1024 * 1024)) * 10) / 10} MB`;
+	}
+	if (bytes >= 1024) {
+		return `${Math.round((bytes / 1024) * 10) / 10} KB`;
+	}
+	return `${bytes} bytes`;
+}
+
 class BridgeRuntime {
 	constructor() {
 		this.agentDir = '';
@@ -365,7 +375,7 @@ class BridgeRuntime {
 			const metadata = await stat(attachment.path);
 			if (metadata.size > MAX_IMAGE_ATTACHMENT_BYTES) {
 				throw new Error(
-					`Image attachment exceeds ${MAX_IMAGE_ATTACHMENT_BYTES} bytes: ${attachment.name}`
+					`Image attachment exceeds ${formatBytes(MAX_IMAGE_ATTACHMENT_BYTES)}: ${attachment.name}`
 				);
 			}
 			const data = (await readFile(attachment.path)).toString('base64');

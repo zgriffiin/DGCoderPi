@@ -5,14 +5,32 @@ import { get, writable } from 'svelte/store';
 import type {
 	AppEvent,
 	AppHealth,
+	AppSettings,
 	AppSnapshot,
 	AppUpdate,
+	FeatureSettings,
 	ProjectDiffSnapshot,
 	PromptMode,
 	ThinkingLevel
 } from '$lib/types/workbench';
 
 const UPDATE_EVENT = 'app://update';
+
+const DEFAULT_FEATURE_SETTINGS: FeatureSettings = {
+	docparserEnabled: true
+};
+
+const DEFAULT_APP_SETTINGS: AppSettings = {
+	features: DEFAULT_FEATURE_SETTINGS,
+	providers: [
+		{ configured: false, label: 'Anthropic', provider: 'anthropic', source: null },
+		{ configured: false, label: 'ChatGPT Codex', provider: 'openai-codex', source: null },
+		{ configured: false, label: 'OpenAI', provider: 'openai', source: null },
+		{ configured: false, label: 'Google Gemini', provider: 'google', source: null },
+		{ configured: false, label: 'DeepSeek', provider: 'deepseek', source: null },
+		{ configured: false, label: 'OpenRouter', provider: 'openrouter', source: null }
+	]
+};
 
 declare global {
 	interface Window {
@@ -50,19 +68,7 @@ const EMPTY_SNAPSHOT: AppSnapshot = {
 	projects: [],
 	selectedProjectId: null,
 	selectedThreadId: null,
-	settings: {
-		features: {
-			docparserEnabled: true
-		},
-		providers: [
-			{ configured: false, label: 'Anthropic', provider: 'anthropic', source: null },
-			{ configured: false, label: 'ChatGPT Codex', provider: 'openai-codex', source: null },
-			{ configured: false, label: 'OpenAI', provider: 'openai', source: null },
-			{ configured: false, label: 'Google Gemini', provider: 'google', source: null },
-			{ configured: false, label: 'DeepSeek', provider: 'deepseek', source: null },
-			{ configured: false, label: 'OpenRouter', provider: 'openrouter', source: null }
-		]
-	}
+	settings: DEFAULT_APP_SETTINGS
 };
 
 async function runCommand<T>(command: string, args?: Record<string, unknown>) {

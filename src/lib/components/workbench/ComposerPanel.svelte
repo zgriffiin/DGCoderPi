@@ -124,16 +124,15 @@
 	let lastRequestedReasoningLevel = $state<ThinkingLevel | null>(null);
 
 	$effect(() => {
-		if (
-			selectedReasoningLevel !== effectiveReasoningLevel &&
-			lastRequestedReasoningLevel !== effectiveReasoningLevel
-		) {
-			lastRequestedReasoningLevel = effectiveReasoningLevel;
-			onReasoningChange(effectiveReasoningLevel);
+		if (selectedReasoningLevel === effectiveReasoningLevel) {
+			lastRequestedReasoningLevel = null;
 			return;
 		}
 
-		lastRequestedReasoningLevel = null;
+		if (lastRequestedReasoningLevel !== effectiveReasoningLevel) {
+			lastRequestedReasoningLevel = effectiveReasoningLevel;
+			onReasoningChange(effectiveReasoningLevel);
+		}
 	});
 </script>
 

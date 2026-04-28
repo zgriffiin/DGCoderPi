@@ -42,12 +42,12 @@ interface AppIntegrations {
 	codex: CodexStatus;
 }
 
-interface AppSettings {
+export interface AppSettings {
 	features: FeatureSettings;
 	providers: ProviderStatus[];
 }
 
-interface FeatureSettings {
+export interface FeatureSettings {
 	docparserEnabled: boolean;
 }
 
