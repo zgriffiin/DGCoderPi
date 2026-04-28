@@ -11,6 +11,8 @@ use uuid::Uuid;
 
 #[cfg(target_os = "linux")]
 use std::io::ErrorKind;
+#[cfg(target_os = "windows")]
+use std::os::windows::process::CommandExt;
 
 use crate::{
     model::{
@@ -751,7 +753,8 @@ fn derive_thread_title(text: &str) -> String {
 #[cfg(target_os = "windows")]
 fn launch_codex_login() -> Result<(), String> {
     Command::new("cmd")
-        .args(["/C", "start", "", "cmd", "/K", "codex login"])
+        .args(["/C"])
+        .raw_arg(r#"start "" cmd /K codex login"#)
         .spawn()
         .map_err(|error| error.to_string())?;
     Ok(())
