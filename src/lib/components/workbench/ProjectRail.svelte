@@ -41,7 +41,7 @@
 		draggedProjectId = projectId;
 	}
 
-	function handleDrop(projectId: string, targetIndex: number) {
+	function handleDrop(projectId: string | null, targetIndex: number) {
 		if (!draggedProjectId || draggedProjectId === projectId) {
 			draggedProjectId = null;
 			return;
@@ -112,6 +112,13 @@
 					</ul>
 				</section>
 			{/each}
+			<div
+				class="project-section project-section--drop-target"
+				aria-hidden="true"
+				role="presentation"
+				ondragover={(event) => event.preventDefault()}
+				ondrop={() => handleDrop(null, projects.length)}
+			></div>
 		{/if}
 	</div>
 </aside>

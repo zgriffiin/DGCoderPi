@@ -195,23 +195,25 @@
 	}
 
 	async function handleBrowseProjectFolder() {
-		if (!workbenchState.runtimeAvailable) {
-			return;
-		}
+		await runAction(async () => {
+			if (!workbenchState.runtimeAvailable) {
+				return;
+			}
 
-		const { open } = await import('@tauri-apps/plugin-dialog');
-		const selection = await open({
-			directory: true,
-			multiple: false,
-			title: 'Open project folder'
+			const { open } = await import('@tauri-apps/plugin-dialog');
+			const selection = await open({
+				directory: true,
+				multiple: false,
+				title: 'Open project folder'
+			});
+
+			if (typeof selection !== 'string' || !selection.trim()) {
+				return;
+			}
+
+			addProjectDraft = selection.trim();
+			await handleAddProject();
 		});
-
-		if (typeof selection !== 'string' || !selection.trim()) {
-			return;
-		}
-
-		addProjectDraft = selection.trim();
-		await handleAddProject();
 	}
 
 	async function handleAddProject() {
@@ -433,7 +435,7 @@
 			/>
 			<ComposerPanel
 				attachments={stagedAttachments}
-				canSend={Boolean(activeThread)}
+				canSend={Boolean(activeThread) && snapshot.models.length > 0}
 				{draft}
 				hint={composerHint}
 				models={snapshot.models}

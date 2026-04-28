@@ -33,7 +33,7 @@ export function flattenUserContent(content) {
 }
 
 export function flattenAssistantContent(content) {
-	if (!content) {
+	if (content == null) {
 		return 'Pi is preparing the next step.';
 	}
 
@@ -61,6 +61,10 @@ export function flattenAssistantContent(content) {
 }
 
 export function flattenToolResultContent(content) {
+	if (typeof content === 'string') {
+		return content;
+	}
+
 	const entries = Array.isArray(content) ? content : [];
 	return entries
 		.map((entry) => readEntryLine(entry, 'Image result'))

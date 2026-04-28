@@ -42,6 +42,7 @@ pub struct CodexStatus {
     pub display_status: String,
     pub auth_mode: Option<String>,
     pub available: bool,
+    #[serde(rename = "canImportOpenAiKey")]
     pub can_import_openai_key: bool,
     pub cli_path: Option<String>,
 }
@@ -117,7 +118,7 @@ pub struct ThreadRecord {
     pub updated_at_ms: u64,
 }
 
-#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum ThinkingLevel {
     #[default]

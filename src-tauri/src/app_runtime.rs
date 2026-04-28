@@ -313,13 +313,14 @@ impl AppRuntime {
 
         self.mutate_thread(&input.thread_id, |thread| {
             if matches!(effective_mode, PromptMode::Prompt) {
-                mark_staged_attachments_sent(thread);
                 update_thread_title(thread, &input.text);
                 if let Some(message) = &pending_message {
                     thread.messages.push(message.clone());
+                    mark_staged_attachments_sent(thread);
                 }
             } else if let Some(queue_entry) = &pending_queue_entry {
                 thread.queue.push(queue_entry.clone());
+                mark_staged_attachments_sent(thread);
             }
             thread.status = ThreadStatus::Running;
             thread.last_error = None;
@@ -510,12 +511,12 @@ impl AppRuntime {
             locate_thread(&state, thread_id).ok_or_else(|| "Thread not found.".to_string())?;
         let project = &state.projects[project_index];
         let thread = &project.threads[thread_index];
+        let project_path = project.path.clone();
         let model_key = thread
             .model_key
             .clone()
             .ok_or_else(|| "Select a configured model before sending a prompt.".to_string())?;
-        let thinking_level = thread.reasoning_level.as_str().to_string();
-
+        let reasoning_level = thread.reasoning_level.clone();
         let attachments = thread
             .attachments
             .iter()
@@ -527,14 +528,34 @@ impl AppRuntime {
                 path: attachment.path.clone(),
                 preview_text: attachment.preview_text.clone(),
             })
-            .collect();
+            .collect::<Vec<_>>();
+        let thread_status = thread.status.clone();
+        drop(state);
+
+        let model_supports_reasoning = self
+            .inner
+            .models
+            .lock()
+            .map_err(|_| "Model cache lock was poisoned.".to_string())?
+            .iter()
+            .find(|model| model.key == model_key)
+            .map(|model| {
+                model.supports_reasoning
+                    && model.available_thinking_levels.contains(&reasoning_level)
+            })
+            .unwrap_or(false);
+        let thinking_level = if model_supports_reasoning {
+            reasoning_level.as_str().to_string()
+        } else {
+            "off".to_string()
+        };
 
         Ok((
-            project.path.clone(),
+            project_path,
             model_key,
             thinking_level,
             attachments,
-            thread.status.clone(),
+            thread_status,
         ))
     }
 

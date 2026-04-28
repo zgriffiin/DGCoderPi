@@ -81,7 +81,7 @@
 	}
 
 	function handleKeydown(event: KeyboardEvent) {
-		if (!canSend || !draft.trim() || event.key !== 'Enter' || event.shiftKey) {
+		if (!canSend || !draft.trim() || event.key !== 'Enter' || event.shiftKey || event.isComposing) {
 			return;
 		}
 
