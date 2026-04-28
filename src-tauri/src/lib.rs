@@ -27,6 +27,7 @@ fn data_dir(app: &tauri::AppHandle) -> tauri::Result<PathBuf> {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
             if cfg!(debug_assertions) {
                 app.handle().plugin(
@@ -46,12 +47,18 @@ pub fn run() {
             commands::abort_thread,
             commands::add_project,
             commands::create_thread,
+            commands::import_codex_openai_key,
             commands::load_app_state,
+            commands::load_project_diff,
+            commands::move_project,
             commands::remove_attachment,
             commands::select_model,
+            commands::select_reasoning,
             commands::send_prompt,
             commands::set_feature_toggle,
             commands::set_provider_key,
+            commands::snapshot_state,
+            commands::start_codex_login,
             commands::stage_attachment,
         ])
         .run(tauri::generate_context!())

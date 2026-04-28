@@ -16,6 +16,6 @@
 	let { status }: { status: ThreadRecord['status'] } = $props();
 </script>
 
-<Tag size="sm" type={toneByStatus[status]}>
+<Tag class="status-tag" size="sm" type={toneByStatus[status]}>
 	{formatStatus(status)}
 </Tag>

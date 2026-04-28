@@ -1,6 +1,8 @@
 use std::{
+    collections::HashSet,
     fs,
     path::{Path, PathBuf},
+    process::Command,
     sync::{Arc, Mutex},
 };
 
@@ -10,8 +12,9 @@ use uuid::Uuid;
 use crate::{
     model::{
         ActivityRecord, AddProjectInput, AppSnapshot, AttachmentParseStatus, AttachmentStage,
-        CreateThreadInput, MessageRecord, ModelOption, PersistedState, PromptMode,
-        ProviderKeyInput, RemoveAttachmentInput, SelectModelInput, SendPromptInput,
+        CreateThreadInput, MessageRecord, MessageRole, MessageStatus, ModelOption,
+        MoveProjectInput, PersistedState, ProjectDiffSnapshot, PromptMode, ProviderKeyInput,
+        RemoveAttachmentInput, SelectModelInput, SelectReasoningInput, SendPromptInput,
         StageAttachmentInput, ThreadRecord, ThreadStatus, ToggleFeatureInput,
     },
     pi_bridge::{
@@ -20,7 +23,7 @@ use crate::{
     },
     state_store::{
         attachment_directory, build_snapshot, load_state, make_attachment, new_project, new_thread,
-        now_ms, save_state,
+        now_ms, project_diff, read_codex_openai_key, read_codex_status, save_state,
     },
 };
 
@@ -42,7 +45,10 @@ struct AppRuntimeInner {
 
 impl AppRuntime {
     pub fn new(app: AppHandle, repo_root: &Path, data_dir: PathBuf) -> Result<Self, String> {
-        let state = load_state(&data_dir)?;
+        let mut state = load_state(&data_dir)?;
+        if normalize_state(&mut state) {
+            save_state(&data_dir, &state)?;
+        }
         let runtime = Self {
             inner: Arc::new(AppRuntimeInner {
                 app,
@@ -85,6 +91,24 @@ impl AppRuntime {
         self.snapshot()
     }
 
+    pub fn snapshot_state(&self) -> Result<AppSnapshot, String> {
+        self.snapshot()
+    }
+
+    pub fn load_project_diff(&self, project_id: &str) -> Result<ProjectDiffSnapshot, String> {
+        let state = self
+            .inner
+            .state
+            .lock()
+            .map_err(|_| "State lock was poisoned.".to_string())?;
+        let project = state
+            .projects
+            .iter()
+            .find(|project| project.id == project_id)
+            .ok_or_else(|| "Project not found.".to_string())?;
+        Ok(project_diff(&project.path, &project.branch))
+    }
+
     pub fn add_project(&self, input: AddProjectInput) -> Result<AppSnapshot, String> {
         let default_model = self.default_model_key();
         self.mutate_state(|state| {
@@ -116,15 +140,34 @@ impl AppRuntime {
         })
     }
 
+    pub fn move_project(&self, input: MoveProjectInput) -> Result<AppSnapshot, String> {
+        self.mutate_state(|state| {
+            let current_index = state
+                .projects
+                .iter()
+                .position(|project| project.id == input.project_id)
+                .ok_or_else(|| "Project not found.".to_string())?;
+            if state.projects.len() < 2 {
+                return Ok(());
+            }
+
+            let project = state.projects.remove(current_index);
+            let target_index = input.target_index.min(state.projects.len());
+            state.projects.insert(target_index, project);
+            Ok(())
+        })
+    }
+
     pub fn select_model(&self, input: SelectModelInput) -> Result<AppSnapshot, String> {
         self.mutate_thread(&input.thread_id, |thread| {
             thread.model_key = Some(input.model_key.clone());
-            append_activity(
-                thread,
-                "Model updated",
-                format!("Future runs will use {}.", input.model_key),
-                crate::model::ActivityTone::System,
-            );
+            Ok(())
+        })
+    }
+
+    pub fn select_reasoning(&self, input: SelectReasoningInput) -> Result<AppSnapshot, String> {
+        self.mutate_thread(&input.thread_id, |thread| {
+            thread.reasoning_level = input.reasoning_level.clone();
             Ok(())
         })
     }
@@ -134,6 +177,18 @@ impl AppRuntime {
             .bridge()?
             .set_provider_key(&input.provider, &input.key)?;
         self.sync_environment(environment)?;
+        self.snapshot()
+    }
+
+    pub fn import_codex_openai_key(&self) -> Result<AppSnapshot, String> {
+        let key = read_codex_openai_key()?;
+        let environment = self.bridge()?.set_provider_key("openai", &key)?;
+        self.sync_environment(environment)?;
+        self.snapshot()
+    }
+
+    pub fn start_codex_login(&self) -> Result<AppSnapshot, String> {
+        launch_codex_login()?;
         self.snapshot()
     }
 
@@ -209,39 +264,69 @@ impl AppRuntime {
     }
 
     pub fn send_prompt(&self, input: SendPromptInput) -> Result<AppSnapshot, String> {
-        let (cwd, model_key, attachments) = self.prepare_prompt(&input.thread_id)?;
-        let command_name = match input.mode {
+        let (cwd, model_key, thinking_level, attachments, thread_status) =
+            self.prepare_prompt(&input.thread_id)?;
+        let effective_mode = if matches!(input.mode, PromptMode::Prompt)
+            && matches!(thread_status, ThreadStatus::Running)
+        {
+            PromptMode::FollowUp
+        } else {
+            input.mode.clone()
+        };
+        let command_name = match effective_mode {
             PromptMode::Prompt => "send-prompt",
             PromptMode::FollowUp => "follow-up",
             PromptMode::Steer => "steer",
         };
 
-        self.bridge()?.send_prompt(
-            &input.thread_id,
-            &cwd,
-            &model_key,
-            &input.text,
-            &attachments,
-            command_name,
-        )?;
-
         self.mutate_thread(&input.thread_id, |thread| {
-            if matches!(input.mode, PromptMode::Prompt) {
+            if matches!(effective_mode, PromptMode::Prompt) {
                 mark_staged_attachments_sent(thread);
+                update_thread_title(thread, &input.text);
+                thread.messages.push(MessageRecord {
+                    id: Uuid::new_v4().to_string(),
+                    role: MessageRole::User,
+                    status: MessageStatus::Ready,
+                    text: input.text.clone(),
+                    timestamp_ms: now_ms(),
+                });
+            } else {
+                thread.queue.push(crate::model::QueueEntry {
+                    id: Uuid::new_v4().to_string(),
+                    mode: match effective_mode {
+                        PromptMode::FollowUp => crate::model::QueueMode::FollowUp,
+                        PromptMode::Steer => crate::model::QueueMode::Steer,
+                        PromptMode::Prompt => crate::model::QueueMode::FollowUp,
+                    },
+                    status: crate::model::QueueStatus::Pending,
+                    text: input.text.clone(),
+                });
             }
             thread.status = ThreadStatus::Running;
-            append_activity(
-                thread,
-                match input.mode {
-                    PromptMode::Prompt => "Prompt sent",
-                    PromptMode::FollowUp => "Follow-up queued",
-                    PromptMode::Steer => "Steer queued",
-                },
-                input.text.clone(),
-                crate::model::ActivityTone::Assistant,
-            );
+            thread.last_error = None;
             Ok(())
-        })
+        })?;
+
+        let bridge_input = crate::pi_bridge::BridgePromptRequest {
+            attachments: &attachments,
+            command_name,
+            cwd: &cwd,
+            model_key: &model_key,
+            text: &input.text,
+            thinking_level: &thinking_level,
+            thread_id: &input.thread_id,
+        };
+
+        if let Err(error) = self.bridge()?.send_prompt(bridge_input) {
+            self.mutate_thread(&input.thread_id, |thread| {
+                thread.last_error = Some(error.clone());
+                thread.status = ThreadStatus::Failed;
+                Ok(())
+            })?;
+            return Err(error);
+        }
+
+        self.snapshot()
     }
 
     pub fn abort_thread(&self, thread_id: &str) -> Result<AppSnapshot, String> {
@@ -270,7 +355,12 @@ impl AppRuntime {
             .state
             .lock()
             .map_err(|_| "State lock was poisoned.".to_string())?;
-        Ok(build_snapshot(&state, models, &self.bridge()?.status()))
+        Ok(build_snapshot(
+            &state,
+            models,
+            &self.bridge()?.status(),
+            read_codex_status(),
+        ))
     }
 
     fn refresh_environment(&self) -> Result<(), String> {
@@ -279,6 +369,12 @@ impl AppRuntime {
     }
 
     fn sync_environment(&self, environment: BridgeEnvironment) -> Result<(), String> {
+        let default_model_key = environment.models.first().map(|model| model.key.clone());
+        let available_model_keys = environment
+            .models
+            .iter()
+            .map(|model| model.key.clone())
+            .collect::<HashSet<_>>();
         {
             let mut models = self
                 .inner
@@ -290,6 +386,21 @@ impl AppRuntime {
 
         self.mutate_state(|state| {
             state.settings.providers = environment.providers;
+            if let Some(model_key) = &default_model_key {
+                for project in &mut state.projects {
+                    for thread in &mut project.threads {
+                        let model_is_unavailable = thread
+                            .model_key
+                            .as_ref()
+                            .map(|current| !available_model_keys.contains(current))
+                            .unwrap_or(true);
+
+                        if model_is_unavailable {
+                            thread.model_key = Some(model_key.clone());
+                        }
+                    }
+                }
+            }
             Ok(())
         })?;
         Ok(())
@@ -345,7 +456,16 @@ impl AppRuntime {
     fn prepare_prompt(
         &self,
         thread_id: &str,
-    ) -> Result<(String, String, Vec<BridgePromptAttachment>), String> {
+    ) -> Result<
+        (
+            String,
+            String,
+            String,
+            Vec<BridgePromptAttachment>,
+            ThreadStatus,
+        ),
+        String,
+    > {
         let state = self
             .inner
             .state
@@ -359,6 +479,7 @@ impl AppRuntime {
             .model_key
             .clone()
             .ok_or_else(|| "Select a configured model before sending a prompt.".to_string())?;
+        let thinking_level = format!("{:?}", thread.reasoning_level).to_ascii_lowercase();
 
         let attachments = thread
             .attachments
@@ -373,7 +494,13 @@ impl AppRuntime {
             })
             .collect();
 
-        Ok((project.path.clone(), model_key, attachments))
+        Ok((
+            project.path.clone(),
+            model_key,
+            thinking_level,
+            attachments,
+            thread.status.clone(),
+        ))
     }
 
     fn spawn_attachment_parse(&self, thread_id: &str, attachment_id: &str, path: PathBuf) {
@@ -458,6 +585,7 @@ impl AppRuntime {
                 })
                 .collect();
             thread.status = snapshot.status;
+            sync_thread_title_from_messages(thread);
 
             if let Some(detail) = activity {
                 append_activity(thread, &detail.title, detail.detail, detail.tone);
@@ -519,4 +647,83 @@ fn mark_staged_attachments_sent(thread: &mut ThreadRecord) {
             attachment.stage = AttachmentStage::Sent;
         }
     }
+}
+
+fn normalize_state(state: &mut PersistedState) -> bool {
+    let mut changed = false;
+
+    for project in &mut state.projects {
+        for thread in &mut project.threads {
+            if matches!(thread.status, ThreadStatus::Running) {
+                thread.status = ThreadStatus::Idle;
+                changed = true;
+            }
+
+            if !thread.queue.is_empty() {
+                thread.queue.clear();
+                changed = true;
+            }
+        }
+    }
+
+    changed
+}
+
+fn sync_thread_title_from_messages(thread: &mut ThreadRecord) {
+    if !should_derive_thread_title(&thread.title) {
+        return;
+    }
+
+    let Some(message) = thread
+        .messages
+        .iter()
+        .find(|message| matches!(message.role, MessageRole::User))
+    else {
+        return;
+    };
+
+    thread.title = derive_thread_title(&message.text);
+}
+
+fn update_thread_title(thread: &mut ThreadRecord, text: &str) {
+    if should_derive_thread_title(&thread.title) {
+        thread.title = derive_thread_title(text);
+    }
+}
+
+fn should_derive_thread_title(title: &str) -> bool {
+    let trimmed = title.trim();
+    trimmed.is_empty() || trimmed.eq_ignore_ascii_case("new thread")
+}
+
+fn derive_thread_title(text: &str) -> String {
+    const MAX_TITLE_CHARS: usize = 48;
+
+    let normalized = text.split_whitespace().collect::<Vec<_>>().join(" ");
+    if normalized.is_empty() {
+        return "New thread".to_string();
+    }
+
+    let mut title = normalized.chars().take(MAX_TITLE_CHARS).collect::<String>();
+    if normalized.chars().count() > MAX_TITLE_CHARS {
+        title.push_str("...");
+    }
+
+    title
+}
+
+fn launch_codex_login() -> Result<(), String> {
+    if cfg!(target_os = "windows") {
+        Command::new("cmd")
+            .args(["/C", "start", "", "cmd", "/K", "codex login"])
+            .spawn()
+            .map_err(|error| error.to_string())?;
+        return Ok(());
+    }
+
+    Command::new("codex")
+        .arg("login")
+        .spawn()
+        .map_err(|error| error.to_string())?;
+    Ok(())
 }

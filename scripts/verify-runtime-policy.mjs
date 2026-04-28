@@ -1,7 +1,7 @@
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { extname, join, relative } from 'node:path';
 
-const roots = ['src', 'src-tauri', 'e2e', '.storybook'];
+const roots = ['src', 'src-tauri', 'tests', '.storybook'];
 const extensions = new Set(['.ts', '.js', '.mjs', '.cjs', '.svelte', '.json', '.d.ts']);
 const ignoredDirectories = new Set(['.fallow', '.svelte-kit', 'gen', 'node_modules', 'target']);
 const bannedNames = [/mock/i, /shim/i, /fake/i, /stub/i, /fixture/i, /dummy/i, /temp/i];
@@ -18,6 +18,10 @@ const bannedPackages = ['msw', 'nock', 'fetch-mock', 'axios-mock-adapter', 'sino
 const failures = [];
 
 function walk(dir) {
+	if (!statExists(dir)) {
+		return;
+	}
+
 	for (const entry of readdirSync(dir)) {
 		if (ignoredDirectories.has(entry)) {
 			continue;
@@ -30,6 +34,15 @@ function walk(dir) {
 			continue;
 		}
 		checkFile(fullPath);
+	}
+}
+
+function statExists(targetPath) {
+	try {
+		statSync(targetPath);
+		return true;
+	} catch {
+		return false;
 	}
 }
 

@@ -1,6 +1,7 @@
 import { spawn, spawnSync } from 'node:child_process';
 import { setTimeout as delay } from 'node:timers/promises';
 const debugPort = '9333';
+const appPort = '5182';
 const runId = `${Date.now()}`;
 const runtimeEnv = {
 	...process.env,
@@ -12,16 +13,19 @@ function runWindowsPortCleanup() {
 		return;
 	}
 
-	spawnSync(
-		'cmd.exe',
-		[
-			'/d',
-			'/s',
-			'/c',
-			`for /f "tokens=5" %a in ('netstat -ano ^| findstr ":${debugPort}" ^| findstr "LISTENING"') do taskkill /PID %a /T /F >nul 2>nul`
-		],
-		{ stdio: 'ignore' }
-	);
+	spawnSync('taskkill', ['/IM', 'dgcoder-pi.exe', '/T', '/F'], { stdio: 'ignore' });
+	for (const port of [debugPort, appPort]) {
+		spawnSync(
+			'cmd.exe',
+			[
+				'/d',
+				'/s',
+				'/c',
+				`for /f "tokens=5" %a in ('netstat -ano ^| findstr ":${port}" ^| findstr "LISTENING"') do taskkill /PID %a /T /F >nul 2>nul`
+			],
+			{ stdio: 'ignore' }
+		);
+	}
 }
 
 function stopRuntime(runtimeProcess) {

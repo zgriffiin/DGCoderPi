@@ -5,7 +5,7 @@ import path from 'node:path';
 const repoRoot = process.cwd();
 const debugPort = '9333';
 const runId = process.env.DGCODER_PI_TEST_RUN_ID ?? 'default';
-const dataDir = path.join(repoRoot, `.playwright-desktop-${runId}`);
+const dataDir = path.join(repoRoot, 'tests', 'runtime', `playwright-desktop-${runId}`);
 
 rmSync(dataDir, { force: true, recursive: true });
 mkdirSync(dataDir, { recursive: true });

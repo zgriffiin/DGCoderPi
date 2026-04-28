@@ -1,13 +1,20 @@
 import { browser } from '$app/environment';
 import { isTauri, invoke } from '@tauri-apps/api/core';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
-import { writable } from 'svelte/store';
-import type { AppSnapshot, PromptMode } from '$lib/types/workbench';
+import { get, writable } from 'svelte/store';
+import type {
+	AppSnapshot,
+	ProjectDiffSnapshot,
+	PromptMode,
+	ThinkingLevel
+} from '$lib/types/workbench';
 
 const SNAPSHOT_EVENT = 'app://snapshot';
 
 type WorkbenchState = {
 	error: string | null;
+	heartbeatPending: boolean;
+	lastSnapshotAtMs: number | null;
 	runtimeAvailable: boolean;
 	snapshot: AppSnapshot;
 };
@@ -17,6 +24,16 @@ const EMPTY_SNAPSHOT: AppSnapshot = {
 		bridgeStatus: 'offline',
 		configuredProviderCount: 0,
 		modelCount: 0
+	},
+	integrations: {
+		codex: {
+			authMode: null,
+			authenticated: false,
+			available: false,
+			canImportOpenAiKey: false,
+			cliPath: null,
+			displayStatus: 'Codex CLI not installed'
+		}
 	},
 	models: [],
 	projects: [],
@@ -28,6 +45,7 @@ const EMPTY_SNAPSHOT: AppSnapshot = {
 		},
 		providers: [
 			{ configured: false, label: 'Anthropic', provider: 'anthropic', source: null },
+			{ configured: false, label: 'ChatGPT Codex', provider: 'openai-codex', source: null },
 			{ configured: false, label: 'OpenAI', provider: 'openai', source: null },
 			{ configured: false, label: 'Google Gemini', provider: 'google', source: null },
 			{ configured: false, label: 'DeepSeek', provider: 'deepseek', source: null },
@@ -47,7 +65,8 @@ async function fileToBytes(file: File) {
 function applyUnavailableState(store: ReturnType<typeof writable<WorkbenchState>>) {
 	store.update((state) => ({
 		...state,
-		error: 'Desktop runtime is only available inside the Tauri shell.',
+		error: 'Open the desktop shell with pnpm tauri:dev.',
+		heartbeatPending: false,
 		runtimeAvailable: false
 	}));
 }
@@ -57,6 +76,8 @@ function createSnapshotApplier(store: ReturnType<typeof writable<WorkbenchState>
 		store.update((state) => ({
 			...state,
 			error: null,
+			heartbeatPending: false,
+			lastSnapshotAtMs: Date.now(),
 			runtimeAvailable: true,
 			snapshot
 		}));
@@ -67,9 +88,16 @@ function createErrorApplier(store: ReturnType<typeof writable<WorkbenchState>>) 
 	return (error: unknown) => {
 		store.update((state) => ({
 			...state,
-			error: error instanceof Error ? error.message : String(error)
+			error: error instanceof Error ? error.message : String(error),
+			heartbeatPending: false
 		}));
 	};
+}
+
+function hasRunningThread(snapshot: AppSnapshot) {
+	return snapshot.projects.some((project) =>
+		project.threads.some((thread) => thread.status === 'running')
+	);
 }
 
 async function initializeRuntime(
@@ -113,6 +141,23 @@ function createWorkbenchActions(
 		async createThread(projectId: string, title: string) {
 			await runAndApply(runCommand<AppSnapshot>('create_thread', { input: { projectId, title } }));
 		},
+		async moveProject(projectId: string, targetIndex: number) {
+			await runAndApply(
+				runCommand<AppSnapshot>('move_project', { input: { projectId, targetIndex } })
+			);
+		},
+		async importCodexOpenAiKey() {
+			await runAndApply(runCommand<AppSnapshot>('import_codex_openai_key'));
+		},
+		async startCodexLogin() {
+			await runAndApply(runCommand<AppSnapshot>('start_codex_login'));
+		},
+		async loadProjectDiff(projectId: string) {
+			return runCommand<ProjectDiffSnapshot>('load_project_diff', { projectId });
+		},
+		async refreshState() {
+			await runAndApply(runCommand<AppSnapshot>('load_app_state'));
+		},
 		async removeAttachment(threadId: string, attachmentId: string) {
 			await runAndApply(
 				runCommand<AppSnapshot>('remove_attachment', { input: { attachmentId, threadId } })
@@ -120,6 +165,11 @@ function createWorkbenchActions(
 		},
 		async selectModel(threadId: string, modelKey: string) {
 			await runAndApply(runCommand<AppSnapshot>('select_model', { input: { modelKey, threadId } }));
+		},
+		async selectReasoning(threadId: string, reasoningLevel: ThinkingLevel) {
+			await runAndApply(
+				runCommand<AppSnapshot>('select_reasoning', { input: { reasoningLevel, threadId } })
+			);
 		},
 		async sendPrompt(threadId: string, text: string, mode: PromptMode) {
 			await runAndApply(
@@ -152,19 +202,46 @@ function createWorkbenchActions(
 export function createWorkbenchController() {
 	const store = writable<WorkbenchState>({
 		error: null,
+		heartbeatPending: false,
+		lastSnapshotAtMs: null,
 		runtimeAvailable: false,
 		snapshot: EMPTY_SNAPSHOT
 	});
 	const applySnapshot = createSnapshotApplier(store);
 	const applyError = createErrorApplier(store);
 	const actions = createWorkbenchActions(applySnapshot, applyError);
+	let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
+	let heartbeatInFlight = false;
 	let unlisten: UnlistenFn | null = null;
+
+	async function pollRunningThread() {
+		const state = get(store);
+		if (!state.runtimeAvailable || !hasRunningThread(state.snapshot) || heartbeatInFlight) {
+			return;
+		}
+
+		heartbeatInFlight = true;
+		store.update((current) => ({ ...current, heartbeatPending: true }));
+
+		try {
+			applySnapshot(await runCommand<AppSnapshot>('snapshot_state'));
+		} catch (error) {
+			applyError(error);
+		} finally {
+			heartbeatInFlight = false;
+		}
+	}
 
 	return {
 		...actions,
 		async initialize() {
 			try {
 				unlisten = await initializeRuntime(store, applySnapshot);
+				if (browser && isTauri()) {
+					heartbeatTimer = setInterval(() => {
+						void pollRunningThread();
+					}, 3_000);
+				}
 			} catch (error) {
 				applyError(error);
 			}
@@ -172,6 +249,10 @@ export function createWorkbenchController() {
 		destroy() {
 			unlisten?.();
 			unlisten = null;
+			if (heartbeatTimer) {
+				clearInterval(heartbeatTimer);
+				heartbeatTimer = null;
+			}
 		},
 		subscribe: store.subscribe
 	};

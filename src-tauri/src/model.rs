@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 #[serde(rename_all = "camelCase")]
 pub struct AppSnapshot {
     pub health: AppHealth,
+    pub integrations: AppIntegrations,
     pub models: Vec<ModelOption>,
     pub projects: Vec<ProjectRecord>,
     pub selected_project_id: Option<String>,
@@ -26,6 +27,23 @@ pub struct AppHealth {
     pub bridge_status: String,
     pub configured_provider_count: usize,
     pub model_count: usize,
+}
+
+#[derive(Clone, Debug, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AppIntegrations {
+    pub codex: CodexStatus,
+}
+
+#[derive(Clone, Debug, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CodexStatus {
+    pub authenticated: bool,
+    pub display_status: String,
+    pub auth_mode: Option<String>,
+    pub available: bool,
+    pub can_import_openai_key: bool,
+    pub cli_path: Option<String>,
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
@@ -61,12 +79,14 @@ pub struct ProviderStatus {
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ModelOption {
+    pub available_thinking_levels: Vec<ThinkingLevel>,
     pub configured: bool,
     pub id: String,
     pub key: String,
     pub label: String,
     pub provider: String,
     pub supports_images: bool,
+    pub supports_reasoning: bool,
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
@@ -90,9 +110,38 @@ pub struct ThreadRecord {
     pub messages: Vec<MessageRecord>,
     pub model_key: Option<String>,
     pub queue: Vec<QueueEntry>,
+    #[serde(default)]
+    pub reasoning_level: ThinkingLevel,
     pub status: ThreadStatus,
     pub title: String,
     pub updated_at_ms: u64,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum ThinkingLevel {
+    #[default]
+    Medium,
+    Off,
+    Minimal,
+    Low,
+    High,
+    Xhigh,
+}
+
+#[derive(Clone, Debug, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectDiffSnapshot {
+    pub branch: String,
+    pub files: Vec<ProjectDiffEntry>,
+    pub git_available: bool,
+}
+
+#[derive(Clone, Debug, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectDiffEntry {
+    pub code: String,
+    pub path: String,
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
@@ -238,6 +287,13 @@ pub struct CreateThreadInput {
 
 #[derive(Clone, Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct MoveProjectInput {
+    pub project_id: String,
+    pub target_index: usize,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ProviderKeyInput {
     pub key: String,
     pub provider: String,
@@ -287,5 +343,12 @@ pub enum PromptMode {
 #[serde(rename_all = "camelCase")]
 pub struct SelectModelInput {
     pub model_key: String,
+    pub thread_id: String,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SelectReasoningInput {
+    pub reasoning_level: ThinkingLevel,
     pub thread_id: String,
 }

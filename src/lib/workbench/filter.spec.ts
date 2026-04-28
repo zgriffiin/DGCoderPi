@@ -26,6 +26,7 @@ function buildProject(): ProjectRecord {
 				],
 				modelKey: null,
 				queue: [],
+				reasoningLevel: 'medium',
 				status: 'completed',
 				title: 'Queue-aware thread',
 				updatedAtMs: 1
@@ -47,6 +48,7 @@ function buildProject(): ProjectRecord {
 				],
 				modelKey: null,
 				queue: [],
+				reasoningLevel: 'medium',
 				status: 'idle',
 				title: 'Attachment parsing',
 				updatedAtMs: 2
