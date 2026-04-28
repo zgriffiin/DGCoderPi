@@ -1,9 +1,10 @@
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { extname, join, relative } from 'node:path';
 
-const roots = ['src', 'src-tauri', 'e2e', '.storybook'];
+const roots = ['src', 'src-tauri', 'tests', '.storybook'];
 const extensions = new Set(['.ts', '.js', '.mjs', '.cjs', '.svelte', '.json', '.d.ts']);
 const ignoredDirectories = new Set(['.fallow', '.svelte-kit', 'gen', 'node_modules', 'target']);
+const ignoredRelativeDirectories = ['tests/results', 'tests/runtime'];
 const bannedNames = [/mock/i, /shim/i, /fake/i, /stub/i, /fixture/i, /dummy/i, /temp/i];
 const bannedContent = [
 	{ pattern: /\b(mock|mocked|mocking|fake|stub|shim|fixture|dummy|temporary)\b/i, label: 'term' },
@@ -18,18 +19,43 @@ const bannedPackages = ['msw', 'nock', 'fetch-mock', 'axios-mock-adapter', 'sino
 const failures = [];
 
 function walk(dir) {
+	if (!statExists(dir)) {
+		return;
+	}
+
 	for (const entry of readdirSync(dir)) {
 		if (ignoredDirectories.has(entry)) {
 			continue;
 		}
 
 		const fullPath = join(dir, entry);
+		const relativePath = relative(process.cwd(), fullPath).replaceAll('\\', '/');
+		if (
+			ignoredRelativeDirectories.some(
+				(ignoredPath) => relativePath === ignoredPath || relativePath.startsWith(`${ignoredPath}/`)
+			)
+		) {
+			continue;
+		}
 		const stats = statSync(fullPath);
 		if (stats.isDirectory()) {
 			walk(fullPath);
 			continue;
 		}
 		checkFile(fullPath);
+	}
+}
+
+function statExists(targetPath) {
+	try {
+		statSync(targetPath);
+		return true;
+	} catch (error) {
+		if (error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT') {
+			return false;
+		}
+
+		throw error;
 	}
 }
 

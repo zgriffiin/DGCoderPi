@@ -10,16 +10,28 @@ import {
 	SessionManager,
 	SettingsManager
 } from '@mariozechner/pi-coding-agent';
-
+import { readCodexOauthCredential } from './codex-auth.mjs';
 import { parseAttachment } from './docparser.mjs';
-
+import {
+	flattenAssistantContent,
+	flattenToolResultContent,
+	flattenUserContent
+} from './message-content-format.mjs';
 const PROVIDERS = [
 	['anthropic', 'Anthropic'],
+	['openai-codex', 'ChatGPT Codex'],
 	['openai', 'OpenAI'],
 	['google', 'Google Gemini'],
 	['deepseek', 'DeepSeek'],
 	['openrouter', 'OpenRouter']
 ];
+const UNSUPPORTED_CHATGPT_CODEX_MODELS = new Set([
+	'gpt-5.1',
+	'gpt-5.1-codex-max',
+	'gpt-5.1-codex-mini'
+]);
+const SUPPORTED_THINKING_LEVELS = ['off', 'minimal', 'low', 'medium', 'high', 'xhigh'];
+const PREFERRED_MODEL_KEYS = ['openai-codex::gpt-5.4'];
 
 class BridgeRuntime {
 	constructor() {
@@ -54,11 +66,8 @@ class BridgeRuntime {
 		}
 
 		const key = payload.key?.trim() ?? '';
-		if (!key) {
-			this.authStorage.remove(provider);
-		} else {
-			this.authStorage.set(provider, { type: 'api_key', key });
-		}
+		if (key) this.authStorage.set(provider, { type: 'api_key', key });
+		else this.authStorage.remove(provider);
 
 		this.disposeSessions();
 		return this.buildEnvironment();
@@ -112,30 +121,79 @@ class BridgeRuntime {
 		return {};
 	}
 
-	buildEnvironment() {
+	async buildEnvironment() {
+		await this.syncCodexOauth();
 		this.modelRegistry.refresh();
+		const codexCredential = this.authStorage.get('openai-codex');
+		const usingChatGptSubscription = codexCredential?.type === 'oauth';
+		const modelRank = new Map(PREFERRED_MODEL_KEYS.map((key, index) => [key, index]));
 		return {
 			models: this.modelRegistry
 				.getAvailable()
+				.filter(
+					(model) =>
+						!(
+							usingChatGptSubscription &&
+							model.provider === 'openai-codex' &&
+							UNSUPPORTED_CHATGPT_CODEX_MODELS.has(model.id)
+						)
+				)
 				.map((model) => ({
+					availableThinkingLevels: model.reasoning ? SUPPORTED_THINKING_LEVELS : ['off'],
 					configured: true,
 					id: model.id,
 					key: `${model.provider}::${model.id}`,
 					label: model.name,
 					provider: model.provider,
-					supportsImages: model.input.includes('image')
+					supportsImages: Array.isArray(model.input) && model.input.includes('image'),
+					supportsReasoning: Boolean(model.reasoning)
 				}))
-				.sort((left, right) => left.label.localeCompare(right.label)),
+				.sort((left, right) => {
+					const leftRank = modelRank.get(left.key) ?? Number.MAX_SAFE_INTEGER;
+					const rightRank = modelRank.get(right.key) ?? Number.MAX_SAFE_INTEGER;
+					if (leftRank !== rightRank) {
+						return leftRank - rightRank;
+					}
+					return left.label.localeCompare(right.label);
+				}),
 			providers: PROVIDERS.map(([provider, label]) => {
 				const status = this.authStorage.getAuthStatus(provider);
+				const credential = this.authStorage.get(provider);
 				return {
 					configured: status.configured,
 					label,
 					provider,
-					source: status.source ?? null
+					source:
+						credential?.type === 'oauth' && provider === 'openai-codex'
+							? 'ChatGPT subscription'
+							: (status.source ?? null)
 				};
 			})
 		};
+	}
+
+	async syncCodexOauth() {
+		const current = this.authStorage.get('openai-codex');
+		if (current && current.type !== 'oauth') return;
+		const credential = await readCodexOauthCredential();
+		if (!credential) {
+			if (current?.type === 'oauth') {
+				this.authStorage.remove('openai-codex');
+				this.disposeSessions();
+			}
+			return;
+		}
+		if (
+			current?.type === 'oauth' &&
+			current.access === credential.access &&
+			current.refresh === credential.refresh &&
+			current.expires === credential.expires &&
+			current.accountId === credential.accountId
+		) {
+			return;
+		}
+		this.authStorage.set('openai-codex', { type: 'oauth', ...credential });
+		this.disposeSessions();
 	}
 
 	createLoader(cwd, settingsManager) {
@@ -161,7 +219,12 @@ class BridgeRuntime {
 
 	async ensureSession(payload) {
 		const existing = this.sessions.get(payload.threadId);
-		if (existing && existing.cwd === payload.cwd && existing.modelKey === payload.modelKey) {
+		if (
+			existing &&
+			existing.cwd === payload.cwd &&
+			existing.modelKey === payload.modelKey &&
+			existing.thinkingLevel === payload.thinkingLevel
+		) {
 			return existing;
 		}
 
@@ -187,14 +250,22 @@ class BridgeRuntime {
 			modelRegistry: this.modelRegistry,
 			resourceLoader: loader,
 			sessionManager: SessionManager.inMemory(payload.cwd),
-			settingsManager
+			settingsManager,
+			thinkingLevel: payload.thinkingLevel
 		});
 
 		const unsubscribe = session.subscribe((event) => {
 			this.emitThreadUpdate(payload.threadId, session, this.buildActivity(event));
 		});
 
-		const entry = { cwd: payload.cwd, model, modelKey: payload.modelKey, session, unsubscribe };
+		const entry = {
+			cwd: payload.cwd,
+			model,
+			modelKey: payload.modelKey,
+			session,
+			thinkingLevel: payload.thinkingLevel,
+			unsubscribe
+		};
 		this.sessions.set(payload.threadId, entry);
 		this.emitThreadUpdate(payload.threadId, session, {
 			detail: `Session ready in ${payload.cwd}.`,
@@ -223,18 +294,28 @@ class BridgeRuntime {
 	}
 
 	runSessionCommand(threadId, command) {
-		void command().catch((error) => {
+		void (async () => {
 			const sessionEntry = this.sessions.get(threadId);
-			if (!sessionEntry) {
-				return;
-			}
+			if (!sessionEntry) return;
+			try {
+				await command();
+				if (this.sessions.get(threadId) !== sessionEntry) {
+					return;
+				}
 
-			this.emitThreadUpdate(threadId, sessionEntry.session, {
-				detail: error instanceof Error ? error.message : String(error),
-				title: 'Session command failed',
-				tone: 'system'
-			});
-		});
+				this.emitThreadUpdate(threadId, sessionEntry.session, null);
+			} catch (error) {
+				if (this.sessions.get(threadId) !== sessionEntry) {
+					return;
+				}
+
+				this.emitThreadUpdate(threadId, sessionEntry.session, {
+					detail: error instanceof Error ? error.message : String(error),
+					title: 'Session command failed',
+					tone: 'system'
+				});
+			}
+		})();
 	}
 
 	formatPrompt(text, attachments) {
@@ -251,7 +332,12 @@ class BridgeRuntime {
 	}
 
 	async collectImages(attachments, model) {
-		if (!attachments || attachments.length === 0 || !model.input.includes('image')) {
+		if (
+			!attachments ||
+			attachments.length === 0 ||
+			!Array.isArray(model.input) ||
+			!model.input.includes('image')
+		) {
 			return [];
 		}
 
@@ -405,47 +491,6 @@ function serializeMessage(message, index) {
 		text: 'Unsupported message type.',
 		timestampMs: Date.now()
 	};
-}
-
-function flattenUserContent(content) {
-	if (typeof content === 'string') {
-		return content;
-	}
-
-	return content
-		.map((entry) => {
-			if (entry.type === 'text') {
-				return entry.text;
-			}
-			if (entry.type === 'image') {
-				return `[Image: ${entry.mimeType}]`;
-			}
-			return '';
-		})
-		.filter(Boolean)
-		.join('\n');
-}
-
-function flattenAssistantContent(content) {
-	const lines = content
-		.map((entry) => {
-			if (entry.type === 'text') {
-				return entry.text;
-			}
-			if (entry.type === 'toolCall') {
-				return `[Tool request: ${entry.name}]`;
-			}
-			return '';
-		})
-		.filter(Boolean);
-
-	return lines.length > 0 ? lines.join('\n') : 'Pi is preparing tool work.';
-}
-
-function flattenToolResultContent(content) {
-	return content
-		.map((entry) => (entry.type === 'text' ? entry.text : `[Image result: ${entry.mimeType}]`))
-		.join('\n');
 }
 
 async function readFileBase64(filePath) {

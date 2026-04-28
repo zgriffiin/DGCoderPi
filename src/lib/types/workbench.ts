@@ -10,6 +10,10 @@ type MessageRole = 'assistant' | 'system' | 'tool' | 'user';
 
 type MessageStatus = 'failed' | 'ready' | 'streaming';
 
+export type ThinkingLevel = 'high' | 'low' | 'medium' | 'minimal' | 'off' | 'xhigh';
+
+export type InspectorMode = 'diff' | 'spec' | 'tasks';
+
 export type PromptMode = 'follow-up' | 'prompt' | 'steer';
 
 type QueueMode = 'follow-up' | 'steer';
@@ -20,6 +24,7 @@ type ThreadStatus = 'completed' | 'failed' | 'idle' | 'running';
 
 export interface AppSnapshot {
 	health: AppHealth;
+	integrations: AppIntegrations;
 	models: ModelOption[];
 	projects: ProjectRecord[];
 	selectedProjectId: string | null;
@@ -27,10 +32,14 @@ export interface AppSnapshot {
 	settings: AppSettings;
 }
 
-export interface AppHealth {
+interface AppHealth {
 	bridgeStatus: string;
 	configuredProviderCount: number;
 	modelCount: number;
+}
+
+interface AppIntegrations {
+	codex: CodexStatus;
 }
 
 interface AppSettings {
@@ -42,6 +51,15 @@ interface FeatureSettings {
 	docparserEnabled: boolean;
 }
 
+export interface CodexStatus {
+	authMode: string | null;
+	authenticated: boolean;
+	available: boolean;
+	canImportOpenAiKey: boolean;
+	cliPath: string | null;
+	displayStatus: string;
+}
+
 export interface ProviderStatus {
 	configured: boolean;
 	label: string;
@@ -50,12 +68,14 @@ export interface ProviderStatus {
 }
 
 export interface ModelOption {
+	availableThinkingLevels: ThinkingLevel[];
 	configured: boolean;
 	id: string;
 	key: string;
 	label: string;
 	provider: string;
 	supportsImages: boolean;
+	supportsReasoning: boolean;
 }
 
 export interface ProjectRecord {
@@ -75,12 +95,13 @@ export interface ThreadRecord {
 	messages: MessageRecord[];
 	modelKey: string | null;
 	queue: QueueEntry[];
+	reasoningLevel: ThinkingLevel;
 	status: ThreadStatus;
 	title: string;
 	updatedAtMs: number;
 }
 
-export interface ActivityRecord {
+interface ActivityRecord {
 	detail: string;
 	id: string;
 	timestampMs: number;
@@ -107,6 +128,18 @@ export interface MessageRecord {
 	status: MessageStatus;
 	text: string;
 	timestampMs: number;
+}
+
+export interface ProjectDiffSnapshot {
+	branch: string;
+	files: ProjectDiffEntry[];
+	gitAvailable: boolean;
+}
+
+interface ProjectDiffEntry {
+	code: string;
+	originalPath?: string | null;
+	path: string;
 }
 
 interface QueueEntry {

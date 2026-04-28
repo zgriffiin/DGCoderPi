@@ -8,9 +8,9 @@ use std::{
 use uuid::Uuid;
 
 use crate::model::{
-    AppHealth, AppSettings, AppSnapshot, AttachmentKind, AttachmentRecord, AttachmentStage,
-    FeatureSettings, MessageRecord, ModelOption, PersistedState, ProjectRecord, ProviderStatus,
-    ThreadRecord, ThreadStatus,
+    AppHealth, AppIntegrations, AppSettings, AppSnapshot, AttachmentKind, AttachmentRecord,
+    AttachmentStage, CodexStatus, FeatureSettings, ModelOption, PersistedState, ProjectDiffEntry,
+    ProjectDiffSnapshot, ProjectRecord, ProviderStatus, ThreadRecord, ThreadStatus,
 };
 
 const STATE_FILE_NAME: &str = "app-state.json";
@@ -70,14 +70,8 @@ pub fn new_thread(title: &str, branch: &str, model_key: Option<String>) -> Threa
     ThreadRecord {
         branch: branch.to_string(),
         id: Uuid::new_v4().to_string(),
-        messages: vec![MessageRecord {
-            id: Uuid::new_v4().to_string(),
-            role: crate::model::MessageRole::System,
-            status: crate::model::MessageStatus::Ready,
-            text: "Thread created. Configure a provider key to start Pi-backed runs.".to_string(),
-            timestamp_ms: now_ms(),
-        }],
         model_key,
+        reasoning_level: crate::model::ThinkingLevel::Medium,
         status: ThreadStatus::Idle,
         title: title.to_string(),
         updated_at_ms: now_ms(),
@@ -89,6 +83,7 @@ pub fn build_snapshot(
     state: &PersistedState,
     models: Vec<ModelOption>,
     bridge_status: &str,
+    codex_status: CodexStatus,
 ) -> AppSnapshot {
     let configured_provider_count = state
         .settings
@@ -103,6 +98,9 @@ pub fn build_snapshot(
             configured_provider_count,
             model_count: models.len(),
         },
+        integrations: AppIntegrations {
+            codex: codex_status,
+        },
         models,
         projects: state.projects.clone(),
         selected_project_id: state.selected_project_id.clone(),
@@ -114,6 +112,7 @@ pub fn build_snapshot(
 pub fn default_providers() -> Vec<ProviderStatus> {
     [
         ("anthropic", "Anthropic"),
+        ("openai-codex", "ChatGPT Codex"),
         ("openai", "OpenAI"),
         ("google", "Google Gemini"),
         ("deepseek", "DeepSeek"),
@@ -184,6 +183,249 @@ pub fn git_branch(path: &str) -> String {
         }
         _ => "unknown".to_string(),
     }
+}
+
+pub fn project_diff(path: &str, branch: &str) -> ProjectDiffSnapshot {
+    let output = Command::new("git")
+        .args(["-C", path, "status", "--porcelain", "-z"])
+        .output();
+
+    match output {
+        Ok(result) if result.status.success() => ProjectDiffSnapshot {
+            branch: branch.to_string(),
+            files: parse_git_status_output(&result.stdout),
+            git_available: true,
+        },
+        _ => ProjectDiffSnapshot {
+            branch: branch.to_string(),
+            files: Vec::new(),
+            git_available: false,
+        },
+    }
+}
+
+pub fn read_codex_status() -> CodexStatus {
+    let cli_path = command_path("codex");
+    let auth = read_codex_auth();
+    let auth_mode = auth
+        .as_ref()
+        .and_then(|value| value.get("auth_mode"))
+        .and_then(serde_json::Value::as_str)
+        .map(str::to_string);
+    let has_openai_api_key = auth
+        .as_ref()
+        .and_then(|value| value.get("OPENAI_API_KEY"))
+        .and_then(serde_json::Value::as_str)
+        .map(|value| !value.trim().is_empty())
+        .unwrap_or(false);
+    let has_valid_tokens = auth
+        .as_ref()
+        .and_then(|value| value.get("tokens"))
+        .map(has_valid_codex_tokens)
+        .unwrap_or(false);
+
+    let authenticated = has_openai_api_key || has_valid_tokens;
+
+    CodexStatus {
+        authenticated,
+        display_status: if authenticated {
+            match auth_mode.as_deref() {
+                Some("chatgpt") => "Signed in with ChatGPT".to_string(),
+                Some("api_key") => "Using OpenAI API key".to_string(),
+                Some(mode) => format!("Signed in ({mode})"),
+                None => "Authenticated".to_string(),
+            }
+        } else if cli_path.is_some() {
+            "Installed but not signed in".to_string()
+        } else {
+            "Codex CLI not installed".to_string()
+        },
+        auth_mode,
+        available: cli_path.is_some(),
+        can_import_openai_key: has_openai_api_key,
+        cli_path,
+    }
+}
+
+pub fn read_codex_openai_key() -> Result<String, String> {
+    let auth = read_codex_auth().ok_or_else(|| "Codex auth.json was not found.".to_string())?;
+    let key = auth
+        .get("OPENAI_API_KEY")
+        .and_then(serde_json::Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| "Codex does not have an OpenAI API key available to import.".to_string())?;
+    Ok(key.to_string())
+}
+
+fn parse_git_status_output(output: &[u8]) -> Vec<ProjectDiffEntry> {
+    let mut records = output
+        .split(|byte| *byte == 0)
+        .filter(|record| !record.is_empty());
+    let mut files = Vec::new();
+
+    while let Some(record) = records.next() {
+        if record.len() < 3 {
+            continue;
+        }
+
+        let code = String::from_utf8_lossy(&record[..2]).to_string();
+        if code.chars().all(char::is_whitespace) {
+            continue;
+        }
+
+        let mut path = String::from_utf8_lossy(&record[3..]).trim().to_string();
+        let mut original_path = None;
+        if code.chars().any(|status| matches!(status, 'R' | 'C')) {
+            let Some(source_record) = records.next() else {
+                continue;
+            };
+            let decoded_source = decode_git_path(&String::from_utf8_lossy(source_record));
+            if decoded_source.is_empty() {
+                continue;
+            }
+            original_path = Some(decoded_source);
+        }
+
+        path = decode_git_path(&path);
+        if path.is_empty() {
+            continue;
+        }
+
+        files.push(ProjectDiffEntry {
+            code,
+            original_path,
+            path,
+        });
+    }
+
+    files
+}
+
+fn has_valid_codex_tokens(tokens: &serde_json::Value) -> bool {
+    let Some(tokens) = tokens.as_object() else {
+        return false;
+    };
+
+    ["id_token", "access_token", "refresh_token", "account_id"]
+        .iter()
+        .all(|key| {
+            tokens
+                .get(*key)
+                .and_then(serde_json::Value::as_str)
+                .map(|value| !value.trim().is_empty())
+                .unwrap_or(false)
+        })
+}
+
+fn decode_git_path(path: &str) -> String {
+    let trimmed = path.trim();
+    if trimmed.len() < 2 || !trimmed.starts_with('"') || !trimmed.ends_with('"') {
+        return trimmed.to_string();
+    }
+
+    let inner = &trimmed[1..trimmed.len() - 1];
+    let bytes = inner.as_bytes();
+    let mut decoded = Vec::with_capacity(bytes.len());
+    let mut index = 0;
+
+    while index < bytes.len() {
+        if bytes[index] != b'\\' {
+            decoded.push(bytes[index]);
+            index += 1;
+            continue;
+        }
+
+        if index + 1 >= bytes.len() {
+            decoded.push(b'\\');
+            break;
+        }
+
+        match bytes[index + 1] {
+            b'"' => {
+                decoded.push(b'"');
+                index += 2;
+            }
+            b'\\' => {
+                decoded.push(b'\\');
+                index += 2;
+            }
+            b'n' => {
+                decoded.push(b'\n');
+                index += 2;
+            }
+            b'r' => {
+                decoded.push(b'\r');
+                index += 2;
+            }
+            b't' => {
+                decoded.push(b'\t');
+                index += 2;
+            }
+            b'0'..=b'7' => {
+                let mut value: u8 = 0;
+                let mut octal_length = 0;
+                while index + 1 + octal_length < bytes.len() && octal_length < 3 {
+                    let digit = bytes[index + 1 + octal_length];
+                    if !(b'0'..=b'7').contains(&digit) {
+                        break;
+                    }
+                    let next_value = u32::from(value) * 8 + u32::from(digit - b'0');
+                    if next_value > 0xFF {
+                        break;
+                    }
+                    value = next_value as u8;
+                    octal_length += 1;
+                }
+
+                if octal_length == 0 {
+                    decoded.push(b'\\');
+                    index += 1;
+                    continue;
+                }
+
+                decoded.push(value);
+                index += 1 + octal_length;
+            }
+            other => {
+                decoded.push(other);
+                index += 2;
+            }
+        }
+    }
+
+    String::from_utf8_lossy(&decoded).trim().to_string()
+}
+
+fn read_codex_auth() -> Option<serde_json::Value> {
+    let path = codex_auth_path()?;
+    let content = fs::read_to_string(path).ok()?;
+    serde_json::from_str(&content).ok()
+}
+
+fn codex_auth_path() -> Option<PathBuf> {
+    let home = std::env::var_os("USERPROFILE").or_else(|| std::env::var_os("HOME"))?;
+    Some(PathBuf::from(home).join(".codex").join("auth.json"))
+}
+
+fn command_path(command: &str) -> Option<String> {
+    let resolver = if cfg!(target_os = "windows") {
+        ("where", vec![command])
+    } else {
+        ("which", vec![command])
+    };
+
+    let output = Command::new(resolver.0).args(resolver.1).output().ok()?;
+    if !output.status.success() {
+        return None;
+    }
+
+    String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .next()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
 }
 
 pub fn now_ms() -> u64 {

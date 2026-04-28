@@ -18,6 +18,36 @@ function parseJsonLines(rawText) {
 		});
 }
 
+function parseRetryDelayMs(waitTime) {
+	if (typeof waitTime !== 'string' || waitTime.trim().length === 0) {
+		return 90_000;
+	}
+
+	let totalSeconds = 0;
+	for (const [, valueText, unit] of waitTime.matchAll(
+		/(\d+)\s+(hour|hours|minute|minutes|second|seconds)/gi
+	)) {
+		const value = Number.parseInt(valueText, 10);
+		if (Number.isNaN(value)) {
+			continue;
+		}
+
+		if (unit.toLowerCase().startsWith('hour')) {
+			totalSeconds += value * 3600;
+		} else if (unit.toLowerCase().startsWith('minute')) {
+			totalSeconds += value * 60;
+		} else {
+			totalSeconds += value;
+		}
+	}
+
+	return (totalSeconds > 0 ? totalSeconds : 90) * 1000 + 5_000;
+}
+
+function sleep(ms) {
+	return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 function resolveBaseBranch() {
 	const result = captureCommand('git', ['symbolic-ref', 'refs/remotes/origin/HEAD']);
 	const remoteHead = result.status === 0 ? result.stdout.trim() : '';
@@ -93,7 +123,7 @@ function resolveRunner() {
 function assertAuthenticated(runner) {
 	const result = runner.run(['auth', 'status', '--agent']);
 	const rawOutput = `${result.stdout}\n${result.stderr}`;
-	const events = parseJsonLines(result.stdout);
+	const events = parseJsonLines(rawOutput);
 	const authEvent = events.find((event) => typeof event.authenticated === 'boolean');
 
 	if (result.status !== 0 || authEvent?.authenticated === false) {
@@ -118,13 +148,52 @@ function formatFinding(finding) {
 	return `- [${severity}] ${location}: ${detail}`;
 }
 
+async function runReviewWithRetry(runner, args) {
+	const maxAttempts = 3;
+
+	for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+		const result = runner.run(args);
+		const rawOutput = [result.stdout, result.stderr].filter(Boolean).join('\n');
+		const events = parseJsonLines(rawOutput);
+		const findings = events.filter((event) => event.type === 'finding');
+		const errorEvent = events.find((event) => event.type === 'error');
+
+		if (
+			errorEvent?.message &&
+			/No files found for review/i.test(errorEvent.message) &&
+			(result.status ?? 0) !== 0
+		) {
+			return { errorEvent, findings, noFiles: true, result };
+		}
+
+		const isRecoverableRateLimit =
+			errorEvent?.errorType === 'rate_limit' && errorEvent.recoverable === true;
+
+		if (isRecoverableRateLimit && attempt < maxAttempts) {
+			const delayMs = parseRetryDelayMs(errorEvent.metadata?.waitTime);
+			console.log(
+				`[gate] CodeRabbit rate limited. Waiting ${Math.ceil(delayMs / 1000)}s before retry ${attempt + 1}/${maxAttempts}.`
+			);
+			await sleep(delayMs);
+			continue;
+		}
+
+		return { errorEvent, findings, noFiles: false, result };
+	}
+}
+
 const baseBranch = resolveBaseBranch();
 const runner = resolveRunner();
 
 console.log(`\n[gate] Running CodeRabbit review with ${runner.label} against ${baseBranch}`);
 assertAuthenticated(runner);
 
-const reviewResult = runner.run([
+const {
+	errorEvent,
+	findings,
+	noFiles,
+	result: reviewResult
+} = await runReviewWithRetry(runner, [
 	'review',
 	'--agent',
 	'--type',
@@ -136,20 +205,18 @@ const reviewResult = runner.run([
 	'.coderabbit.yaml'
 ]);
 
-const findings = parseJsonLines(reviewResult.stdout).filter((event) => event.type === 'finding');
-const errorEvent = parseJsonLines(reviewResult.stdout).find((event) => event.type === 'error');
-
-if (
-	errorEvent?.message &&
-	/No files found for review/i.test(errorEvent.message) &&
-	(reviewResult.status ?? 0) !== 0
-) {
+if (noFiles) {
 	console.log('[gate] CodeRabbit found no committed changes to review.');
 	process.exit(0);
 }
 
 if (reviewResult.status !== 0) {
-	fail(reviewResult.stderr || reviewResult.stdout || 'CodeRabbit CLI review failed.');
+	fail(
+		errorEvent?.message ||
+			reviewResult.stderr ||
+			reviewResult.stdout ||
+			'CodeRabbit CLI review failed.'
+	);
 }
 
 if (findings.length > 0) {

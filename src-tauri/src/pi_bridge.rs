@@ -80,6 +80,7 @@ pub struct BridgeActivity {
 #[derive(Clone, Debug, Deserialize)]
 #[serde(tag = "type", rename_all = "kebab-case")]
 pub enum BridgeEvent {
+    #[serde(rename_all = "camelCase")]
     ThreadUpdate {
         activity: Option<BridgeActivity>,
         snapshot: BridgeThreadSnapshot,
@@ -197,23 +198,16 @@ impl PiBridge {
         self.request("parse-attachment", json!({ "path": path }))
     }
 
-    pub fn send_prompt(
-        &self,
-        thread_id: &str,
-        cwd: &str,
-        model_key: &str,
-        text: &str,
-        attachments: &[BridgePromptAttachment],
-        mode: &str,
-    ) -> Result<(), String> {
+    pub fn send_prompt(&self, input: BridgePromptRequest<'_>) -> Result<(), String> {
         self.request::<Value>(
-            mode,
+            input.command_name,
             json!({
-                "attachments": attachments,
-                "cwd": cwd,
-                "modelKey": model_key,
-                "text": text,
-                "threadId": thread_id,
+                "attachments": input.attachments,
+                "cwd": input.cwd,
+                "modelKey": input.model_key,
+                "thinkingLevel": input.thinking_level,
+                "text": input.text,
+                "threadId": input.thread_id,
             }),
         )?;
         Ok(())
@@ -290,6 +284,16 @@ pub struct BridgePromptAttachment {
     pub name: String,
     pub path: String,
     pub preview_text: Option<String>,
+}
+
+pub struct BridgePromptRequest<'a> {
+    pub attachments: &'a [BridgePromptAttachment],
+    pub command_name: &'a str,
+    pub cwd: &'a str,
+    pub model_key: &'a str,
+    pub text: &'a str,
+    pub thinking_level: &'a str,
+    pub thread_id: &'a str,
 }
 
 pub fn attachment_status_from_bridge(status: BridgeAttachmentStatus) -> AttachmentParseStatus {

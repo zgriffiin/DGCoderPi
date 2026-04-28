@@ -26,6 +26,7 @@ function buildProject(): ProjectRecord {
 				],
 				modelKey: null,
 				queue: [],
+				reasoningLevel: 'medium',
 				status: 'completed',
 				title: 'Queue-aware thread',
 				updatedAtMs: 1
@@ -47,6 +48,7 @@ function buildProject(): ProjectRecord {
 				],
 				modelKey: null,
 				queue: [],
+				reasoningLevel: 'medium',
 				status: 'idle',
 				title: 'Attachment parsing',
 				updatedAtMs: 2
@@ -68,5 +70,7 @@ describe('filterProjects', () => {
 		expect(filtered).toHaveLength(1);
 		expect(filtered[0]?.threads).toHaveLength(1);
 		expect(filtered[0]?.threads[0]?.id).toBe('thread-2');
+		expect(filtered[0]?.threads[0]?.reasoningLevel).toBe('medium');
+		expect(filtered[0]?.name).toBe('Desktop Workbench');
 	});
 });

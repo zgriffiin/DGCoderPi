@@ -12,6 +12,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - uses: pnpm/action-setup@v4
         with:
@@ -32,10 +34,12 @@ jobs:
         run: pnpm check && pnpm lint
 
       - name: Fallow audit
-        run: pnpm fallow:audit
+        run: |
+          git fetch origin main --depth=1
+          pnpm exec fallow audit --production --base origin/main
 
       - name: Frontend test suite
-        run: pnpm test:unit && pnpm test:component && pnpm test:e2e
+        run: pnpm test:unit && pnpm test:component && pnpm test:e2e:browser
 
       - name: Frontend build
         run: pnpm build

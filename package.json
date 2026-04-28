@@ -45,6 +45,7 @@
 		"@storybook/addon-docs": "^10.3.5",
 		"@storybook/addon-svelte-csf": "^5.1.2",
 		"@storybook/sveltekit": "^10.3.5",
+		"@tauri-apps/cli": "^2.10.1",
 		"@sveltejs/adapter-static": "^3.0.10",
 		"@sveltejs/kit": "^2.57.0",
 		"@sveltejs/vite-plugin-svelte": "^7.0.0",
@@ -74,8 +75,11 @@
 	"dependencies": {
 		"@mariozechner/pi-coding-agent": "^0.70.2",
 		"@tauri-apps/api": "^2.10.1",
+		"@tauri-apps/plugin-dialog": "^2.7.0",
 		"carbon-components-svelte": "^0.106.2",
 		"carbon-icons-svelte": "^13.10.0",
+		"isomorphic-dompurify": "^2.29.0",
+		"marked": "^18.0.2",
 		"pi-docparser": "^1.1.1"
 	},
 	"engines": {

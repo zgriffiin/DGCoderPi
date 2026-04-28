@@ -1,17 +1,25 @@
 use std::{
+    collections::HashSet,
     fs,
     path::{Path, PathBuf},
+    process::Command,
     sync::{Arc, Mutex},
 };
 
 use tauri::{AppHandle, Emitter};
 use uuid::Uuid;
 
+#[cfg(target_os = "linux")]
+use std::io::ErrorKind;
+#[cfg(target_os = "windows")]
+use std::os::windows::process::CommandExt;
+
 use crate::{
     model::{
         ActivityRecord, AddProjectInput, AppSnapshot, AttachmentParseStatus, AttachmentStage,
-        CreateThreadInput, MessageRecord, ModelOption, PersistedState, PromptMode,
-        ProviderKeyInput, RemoveAttachmentInput, SelectModelInput, SendPromptInput,
+        CreateThreadInput, MessageRecord, MessageRole, MessageStatus, ModelOption,
+        MoveProjectInput, PersistedState, ProjectDiffSnapshot, PromptMode, ProviderKeyInput,
+        RemoveAttachmentInput, SelectModelInput, SelectReasoningInput, SendPromptInput,
         StageAttachmentInput, ThreadRecord, ThreadStatus, ToggleFeatureInput,
     },
     pi_bridge::{
@@ -20,7 +28,7 @@ use crate::{
     },
     state_store::{
         attachment_directory, build_snapshot, load_state, make_attachment, new_project, new_thread,
-        now_ms, save_state,
+        now_ms, project_diff, read_codex_openai_key, read_codex_status, save_state,
     },
 };
 
@@ -42,7 +50,10 @@ struct AppRuntimeInner {
 
 impl AppRuntime {
     pub fn new(app: AppHandle, repo_root: &Path, data_dir: PathBuf) -> Result<Self, String> {
-        let state = load_state(&data_dir)?;
+        let mut state = load_state(&data_dir)?;
+        if normalize_state(&mut state) {
+            save_state(&data_dir, &state)?;
+        }
         let runtime = Self {
             inner: Arc::new(AppRuntimeInner {
                 app,
@@ -85,6 +96,28 @@ impl AppRuntime {
         self.snapshot()
     }
 
+    pub fn snapshot_state(&self) -> Result<AppSnapshot, String> {
+        self.snapshot()
+    }
+
+    pub fn load_project_diff(&self, project_id: &str) -> Result<ProjectDiffSnapshot, String> {
+        let (path, branch) = {
+            let state = self
+                .inner
+                .state
+                .lock()
+                .map_err(|_| "State lock was poisoned.".to_string())?;
+            let project = state
+                .projects
+                .iter()
+                .find(|project| project.id == project_id)
+                .ok_or_else(|| "Project not found.".to_string())?;
+            (project.path.clone(), project.branch.clone())
+        };
+
+        Ok(project_diff(&path, &branch))
+    }
+
     pub fn add_project(&self, input: AddProjectInput) -> Result<AppSnapshot, String> {
         let default_model = self.default_model_key();
         self.mutate_state(|state| {
@@ -116,15 +149,35 @@ impl AppRuntime {
         })
     }
 
+    pub fn move_project(&self, input: MoveProjectInput) -> Result<AppSnapshot, String> {
+        self.mutate_state(|state| {
+            let current_index = state
+                .projects
+                .iter()
+                .position(|project| project.id == input.project_id)
+                .ok_or_else(|| "Project not found.".to_string())?;
+            if state.projects.len() < 2 {
+                return Ok(());
+            }
+
+            let project = state.projects.remove(current_index);
+            let target_index =
+                project_insert_index(current_index, input.target_index, state.projects.len());
+            state.projects.insert(target_index, project);
+            Ok(())
+        })
+    }
+
     pub fn select_model(&self, input: SelectModelInput) -> Result<AppSnapshot, String> {
         self.mutate_thread(&input.thread_id, |thread| {
             thread.model_key = Some(input.model_key.clone());
-            append_activity(
-                thread,
-                "Model updated",
-                format!("Future runs will use {}.", input.model_key),
-                crate::model::ActivityTone::System,
-            );
+            Ok(())
+        })
+    }
+
+    pub fn select_reasoning(&self, input: SelectReasoningInput) -> Result<AppSnapshot, String> {
+        self.mutate_thread(&input.thread_id, |thread| {
+            thread.reasoning_level = input.reasoning_level.clone();
             Ok(())
         })
     }
@@ -134,6 +187,18 @@ impl AppRuntime {
             .bridge()?
             .set_provider_key(&input.provider, &input.key)?;
         self.sync_environment(environment)?;
+        self.snapshot()
+    }
+
+    pub fn import_codex_openai_key(&self) -> Result<AppSnapshot, String> {
+        let key = read_codex_openai_key()?;
+        let environment = self.bridge()?.set_provider_key("openai", &key)?;
+        self.sync_environment(environment)?;
+        self.snapshot()
+    }
+
+    pub fn start_codex_login(&self) -> Result<AppSnapshot, String> {
+        launch_codex_login()?;
         self.snapshot()
     }
 
@@ -209,39 +274,97 @@ impl AppRuntime {
     }
 
     pub fn send_prompt(&self, input: SendPromptInput) -> Result<AppSnapshot, String> {
-        let (cwd, model_key, attachments) = self.prepare_prompt(&input.thread_id)?;
-        let command_name = match input.mode {
+        let (cwd, model_key, thinking_level, attachments, thread_status) =
+            self.prepare_prompt(&input.thread_id)?;
+        let effective_mode = if matches!(input.mode, PromptMode::Prompt)
+            && matches!(thread_status, ThreadStatus::Running)
+        {
+            PromptMode::FollowUp
+        } else {
+            input.mode.clone()
+        };
+        let command_name = match effective_mode {
             PromptMode::Prompt => "send-prompt",
             PromptMode::FollowUp => "follow-up",
             PromptMode::Steer => "steer",
         };
-
-        self.bridge()?.send_prompt(
-            &input.thread_id,
-            &cwd,
-            &model_key,
-            &input.text,
-            &attachments,
-            command_name,
-        )?;
+        let staged_attachment_paths = attachments
+            .iter()
+            .map(|attachment| attachment.path.clone())
+            .collect::<Vec<_>>();
+        let pending_message = matches!(effective_mode, PromptMode::Prompt).then(|| MessageRecord {
+            id: Uuid::new_v4().to_string(),
+            role: MessageRole::User,
+            status: MessageStatus::Ready,
+            text: input.text.clone(),
+            timestamp_ms: now_ms(),
+        });
+        let pending_queue_entry =
+            (!matches!(effective_mode, PromptMode::Prompt)).then(|| crate::model::QueueEntry {
+                id: Uuid::new_v4().to_string(),
+                mode: if matches!(effective_mode, PromptMode::Steer) {
+                    crate::model::QueueMode::Steer
+                } else {
+                    crate::model::QueueMode::FollowUp
+                },
+                status: crate::model::QueueStatus::Pending,
+                text: input.text.clone(),
+            });
 
         self.mutate_thread(&input.thread_id, |thread| {
-            if matches!(input.mode, PromptMode::Prompt) {
+            if matches!(effective_mode, PromptMode::Prompt) {
+                update_thread_title(thread, &input.text);
+                if let Some(message) = &pending_message {
+                    thread.messages.push(message.clone());
+                    mark_staged_attachments_sent(thread);
+                }
+            } else if let Some(queue_entry) = &pending_queue_entry {
+                thread.queue.push(queue_entry.clone());
                 mark_staged_attachments_sent(thread);
             }
             thread.status = ThreadStatus::Running;
-            append_activity(
-                thread,
-                match input.mode {
-                    PromptMode::Prompt => "Prompt sent",
-                    PromptMode::FollowUp => "Follow-up queued",
-                    PromptMode::Steer => "Steer queued",
-                },
-                input.text.clone(),
-                crate::model::ActivityTone::Assistant,
-            );
+            thread.last_error = None;
             Ok(())
-        })
+        })?;
+
+        let bridge_input = crate::pi_bridge::BridgePromptRequest {
+            attachments: &attachments,
+            command_name,
+            cwd: &cwd,
+            model_key: &model_key,
+            text: &input.text,
+            thinking_level: &thinking_level,
+            thread_id: &input.thread_id,
+        };
+
+        if let Err(error) = self.bridge()?.send_prompt(bridge_input) {
+            let bridge_error = error.clone();
+            if let Err(rollback_error) = self.mutate_thread(&input.thread_id, |thread| {
+                for attachment in &mut thread.attachments {
+                    if staged_attachment_paths.contains(&attachment.path)
+                        && attachment.stage == AttachmentStage::Sent
+                    {
+                        attachment.stage = AttachmentStage::Staged;
+                    }
+                }
+                if let Some(message) = &pending_message {
+                    thread.messages.retain(|entry| entry.id != message.id);
+                }
+                if let Some(queue_entry) = &pending_queue_entry {
+                    thread.queue.retain(|entry| entry.id != queue_entry.id);
+                }
+                thread.last_error = Some(error.clone());
+                thread.status = thread_status.clone();
+                Ok(())
+            }) {
+                eprintln!(
+                    "Failed to roll back prompt state after bridge error `{bridge_error}`: {rollback_error}"
+                );
+            }
+            return Err(bridge_error);
+        }
+
+        self.snapshot()
     }
 
     pub fn abort_thread(&self, thread_id: &str) -> Result<AppSnapshot, String> {
@@ -269,8 +392,11 @@ impl AppRuntime {
             .inner
             .state
             .lock()
-            .map_err(|_| "State lock was poisoned.".to_string())?;
-        Ok(build_snapshot(&state, models, &self.bridge()?.status()))
+            .map_err(|_| "State lock was poisoned.".to_string())?
+            .clone();
+        let bridge_status = self.bridge()?.status();
+        let codex_status = read_codex_status();
+        Ok(build_snapshot(&state, models, &bridge_status, codex_status))
     }
 
     fn refresh_environment(&self) -> Result<(), String> {
@@ -279,6 +405,12 @@ impl AppRuntime {
     }
 
     fn sync_environment(&self, environment: BridgeEnvironment) -> Result<(), String> {
+        let default_model_key = environment.models.first().map(|model| model.key.clone());
+        let available_model_keys = environment
+            .models
+            .iter()
+            .map(|model| model.key.clone())
+            .collect::<HashSet<_>>();
         {
             let mut models = self
                 .inner
@@ -290,6 +422,21 @@ impl AppRuntime {
 
         self.mutate_state(|state| {
             state.settings.providers = environment.providers;
+            if let Some(model_key) = &default_model_key {
+                for project in &mut state.projects {
+                    for thread in &mut project.threads {
+                        let model_is_unavailable = thread
+                            .model_key
+                            .as_ref()
+                            .map(|current| !available_model_keys.contains(current))
+                            .unwrap_or(true);
+
+                        if model_is_unavailable {
+                            thread.model_key = Some(model_key.clone());
+                        }
+                    }
+                }
+            }
             Ok(())
         })?;
         Ok(())
@@ -345,7 +492,16 @@ impl AppRuntime {
     fn prepare_prompt(
         &self,
         thread_id: &str,
-    ) -> Result<(String, String, Vec<BridgePromptAttachment>), String> {
+    ) -> Result<
+        (
+            String,
+            String,
+            String,
+            Vec<BridgePromptAttachment>,
+            ThreadStatus,
+        ),
+        String,
+    > {
         let state = self
             .inner
             .state
@@ -355,11 +511,12 @@ impl AppRuntime {
             locate_thread(&state, thread_id).ok_or_else(|| "Thread not found.".to_string())?;
         let project = &state.projects[project_index];
         let thread = &project.threads[thread_index];
+        let project_path = project.path.clone();
         let model_key = thread
             .model_key
             .clone()
             .ok_or_else(|| "Select a configured model before sending a prompt.".to_string())?;
-
+        let reasoning_level = thread.reasoning_level.clone();
         let attachments = thread
             .attachments
             .iter()
@@ -371,9 +528,35 @@ impl AppRuntime {
                 path: attachment.path.clone(),
                 preview_text: attachment.preview_text.clone(),
             })
-            .collect();
+            .collect::<Vec<_>>();
+        let thread_status = thread.status.clone();
+        drop(state);
 
-        Ok((project.path.clone(), model_key, attachments))
+        let model_supports_reasoning = self
+            .inner
+            .models
+            .lock()
+            .map_err(|_| "Model cache lock was poisoned.".to_string())?
+            .iter()
+            .find(|model| model.key == model_key)
+            .map(|model| {
+                model.supports_reasoning
+                    && model.available_thinking_levels.contains(&reasoning_level)
+            })
+            .unwrap_or(false);
+        let thinking_level = if model_supports_reasoning {
+            reasoning_level.as_str().to_string()
+        } else {
+            "off".to_string()
+        };
+
+        Ok((
+            project_path,
+            model_key,
+            thinking_level,
+            attachments,
+            thread_status,
+        ))
     }
 
     fn spawn_attachment_parse(&self, thread_id: &str, attachment_id: &str, path: PathBuf) {
@@ -458,6 +641,7 @@ impl AppRuntime {
                 })
                 .collect();
             thread.status = snapshot.status;
+            sync_thread_title_from_messages(thread);
 
             if let Some(detail) = activity {
                 append_activity(thread, &detail.title, detail.detail, detail.tone);
@@ -519,4 +703,176 @@ fn mark_staged_attachments_sent(thread: &mut ThreadRecord) {
             attachment.stage = AttachmentStage::Sent;
         }
     }
+}
+
+fn normalize_state(state: &mut PersistedState) -> bool {
+    let mut changed = false;
+
+    for project in &mut state.projects {
+        for thread in &mut project.threads {
+            if matches!(thread.status, ThreadStatus::Running) {
+                thread.status = ThreadStatus::Idle;
+                changed = true;
+            }
+        }
+    }
+
+    changed
+}
+
+fn sync_thread_title_from_messages(thread: &mut ThreadRecord) {
+    if !should_derive_thread_title(&thread.title) {
+        return;
+    }
+
+    let Some(message) = thread
+        .messages
+        .iter()
+        .find(|message| matches!(message.role, MessageRole::User))
+    else {
+        return;
+    };
+
+    thread.title = derive_thread_title(&message.text);
+}
+
+fn update_thread_title(thread: &mut ThreadRecord, text: &str) {
+    if should_derive_thread_title(&thread.title) {
+        thread.title = derive_thread_title(text);
+    }
+}
+
+fn should_derive_thread_title(title: &str) -> bool {
+    let trimmed = title.trim();
+    trimmed.is_empty()
+        || trimmed.eq_ignore_ascii_case("new thread")
+        || trimmed.eq_ignore_ascii_case("explore repository")
+}
+
+fn derive_thread_title(text: &str) -> String {
+    const MAX_TITLE_CHARS: usize = 48;
+
+    let normalized = text.split_whitespace().collect::<Vec<_>>().join(" ");
+    if normalized.is_empty() {
+        return "New thread".to_string();
+    }
+
+    let mut chars = normalized.chars();
+    let mut title = chars.by_ref().take(MAX_TITLE_CHARS).collect::<String>();
+    if chars.next().is_some() {
+        title.push_str("...");
+    }
+
+    title
+}
+
+fn project_insert_index(
+    current_index: usize,
+    requested_target_index: usize,
+    project_count: usize,
+) -> usize {
+    let mut target_index = requested_target_index;
+    if current_index < requested_target_index {
+        target_index = target_index.saturating_sub(1);
+    }
+    target_index.min(project_count)
+}
+
+#[cfg(target_os = "windows")]
+fn launch_codex_login() -> Result<(), String> {
+    Command::new("cmd")
+        .args(["/C"])
+        .raw_arg(r#"start "" cmd /K codex login"#)
+        .spawn()
+        .map_err(|error| error.to_string())?;
+    Ok(())
+}
+
+#[cfg(target_os = "macos")]
+fn launch_codex_login() -> Result<(), String> {
+    launch_macos_codex_login()
+}
+
+#[cfg(target_os = "linux")]
+fn launch_codex_login() -> Result<(), String> {
+    launch_linux_codex_login()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::project_insert_index;
+
+    #[test]
+    fn move_project_index_handles_start() {
+        assert_eq!(project_insert_index(2, 0, 3), 0);
+    }
+
+    #[test]
+    fn move_project_index_handles_end() {
+        assert_eq!(project_insert_index(1, 4, 3), 3);
+    }
+
+    #[test]
+    fn move_project_index_handles_backward_move() {
+        assert_eq!(project_insert_index(3, 1, 3), 1);
+    }
+
+    #[test]
+    fn move_project_index_handles_forward_move() {
+        assert_eq!(project_insert_index(1, 3, 3), 2);
+    }
+}
+
+#[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
+fn launch_codex_login() -> Result<(), String> {
+    Command::new("codex")
+        .arg("login")
+        .spawn()
+        .map_err(|error| error.to_string())?;
+    Ok(())
+}
+
+#[cfg(target_os = "macos")]
+fn launch_macos_codex_login() -> Result<(), String> {
+    Command::new("osascript")
+        .args([
+            "-e",
+            "tell application \"Terminal\" to activate",
+            "-e",
+            "tell application \"Terminal\" to do script \"codex login\"",
+        ])
+        .spawn()
+        .map_err(|error| format!("Failed to launch Terminal for `codex login`: {error}"))?;
+    Ok(())
+}
+
+#[cfg(target_os = "linux")]
+fn launch_linux_codex_login() -> Result<(), String> {
+    const TERMINAL_CANDIDATES: [(&str, &[&str]); 8] = [
+        ("gnome-terminal", &["--", "bash", "-lc", "codex login"]),
+        ("konsole", &["-e", "bash", "-lc", "codex login"]),
+        ("xterm", &["-e", "bash", "-lc", "codex login"]),
+        ("alacritty", &["-e", "bash", "-lc", "codex login"]),
+        ("kitty", &["--", "bash", "-lc", "codex login"]),
+        ("wezterm", &["start", "--", "bash", "-lc", "codex login"]),
+        ("tilix", &["-e", "bash", "-lc", "codex login"]),
+        ("terminator", &["-x", "bash", "-lc", "codex login"]),
+    ];
+
+    for (terminal, args) in TERMINAL_CANDIDATES {
+        match Command::new(terminal).args(args).spawn() {
+            Ok(_) => return Ok(()),
+            Err(error) if error.kind() == ErrorKind::NotFound => continue,
+            Err(error) => {
+                return Err(format!(
+                    "Failed to launch `{terminal}` for `codex login`: {error}"
+                ));
+            }
+        }
+    }
+
+    Err(
+        "Failed to launch `codex login`. No supported terminal emulator was found. Run `codex login` manually in a terminal."
+            .to_string(),
+    )
 }

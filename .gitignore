@@ -26,6 +26,8 @@ Thumbs.db
 vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
 # Playwright
+tests/results
+tests/runtime
 test-results
 .playwright-desktop*
 tauri-dev.log

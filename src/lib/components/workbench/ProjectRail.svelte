@@ -1,123 +1,124 @@
 <script lang="ts">
-	import { Button, Search, TextInput } from 'carbon-components-svelte';
 	import type { ProjectRecord } from '$lib/types/workbench';
-	import { readEventValue } from '$lib/workbench/read-event-value';
 	import StatusTag from './StatusTag.svelte';
 
 	type Props = {
-		onAddProject: () => void;
-		onCreateThread: () => void;
-		onProjectPathChange: (value: string) => void;
-		onQueryChange: (value: string) => void;
+		onCreateThread: (projectId: string) => void;
+		onMoveProject: (projectId: string, targetIndex: number) => void;
 		onSelectProject: (projectId: string) => void;
 		onSelectThread: (projectId: string, threadId: string) => void;
-		onThreadTitleChange: (value: string) => void;
-		projectPathDraft: string;
 		projects: ProjectRecord[];
-		query: string;
 		selectedProjectId: string;
 		selectedThreadId: string;
-		threadTitleDraft: string;
 	};
 
+	let draggedProjectId = $state<string | null>(null);
+
 	let {
-		onAddProject,
 		onCreateThread,
-		onProjectPathChange,
-		onQueryChange,
+		onMoveProject,
 		onSelectProject,
 		onSelectThread,
-		onThreadTitleChange,
-		projectPathDraft,
 		projects,
-		query,
 		selectedProjectId,
-		selectedThreadId,
-		threadTitleDraft
+		selectedThreadId
 	}: Props = $props();
+
+	function latestUserTimestamp(project: ProjectRecord['threads'][number]) {
+		const latestUserMessage = [...project.messages]
+			.reverse()
+			.find((message) => message.role === 'user');
+		return latestUserMessage?.timestampMs ?? project.updatedAtMs;
+	}
+
+	function sortedThreads(project: ProjectRecord) {
+		return [...project.threads].sort((left, right) => {
+			return latestUserTimestamp(right) - latestUserTimestamp(left);
+		});
+	}
+
+	function handleDragStart(projectId: string) {
+		draggedProjectId = projectId;
+	}
+
+	function handleDrop(projectId: string | null, targetIndex: number) {
+		if (!draggedProjectId || draggedProjectId === projectId) {
+			draggedProjectId = null;
+			return;
+		}
+
+		onMoveProject(draggedProjectId, targetIndex);
+		draggedProjectId = null;
+	}
 </script>
 
-<aside class="project-rail surface">
-	<div class="rail-header">
-		<div>
-			<p class="eyebrow">Projects</p>
-			<h2>Workspace</h2>
-		</div>
-	</div>
-
-	<Search
-		labelText="Search projects and threads"
-		placeholder="Search threads, branches, messages"
-		size="lg"
-		value={query}
-		on:input={(event) => onQueryChange(readEventValue(event))}
-	/>
-
-	<div class="stack-form">
-		<TextInput
-			labelText="Repository path"
-			placeholder="C:\\Repos\\project"
-			size="sm"
-			value={projectPathDraft}
-			on:input={(event) => onProjectPathChange(readEventValue(event))}
-		/>
-		<Button kind="primary" size="small" on:click={onAddProject}>Add project</Button>
-	</div>
-
-	<div class="stack-form">
-		<TextInput
-			labelText="New thread"
-			placeholder="Describe the thread"
-			size="sm"
-			value={threadTitleDraft}
-			on:input={(event) => onThreadTitleChange(readEventValue(event))}
-		/>
-		<Button kind="ghost" size="small" on:click={onCreateThread}>Create thread</Button>
-	</div>
-
-	<div class="project-list">
+<aside class="project-rail">
+	<div class="project-list" role="list">
 		{#if projects.length === 0}
 			<div class="empty-panel">
-				<p>No projects yet.</p>
-				<span>Add a repository path to start a tracked workspace.</span>
+				<p>No projects</p>
+				<span>Add one from the header.</span>
 			</div>
 		{:else}
-			{#each projects as project (project.id)}
-				<section class="project-group">
-					<button
-						class="project-row"
-						data-selected={project.id === selectedProjectId ? 'true' : undefined}
-						type="button"
-						onclick={() => onSelectProject(project.id)}
-					>
-						<div>
-							<h3>{project.name}</h3>
-							<p>{project.path}</p>
-						</div>
-						<span class="project-row__branch">{project.branch}</span>
-					</button>
+			{#each projects as project, index (project.id)}
+				<section
+					class="project-section"
+					data-selected={project.id === selectedProjectId ? 'true' : undefined}
+					draggable="true"
+					role="listitem"
+					ondragstart={() => handleDragStart(project.id)}
+					ondragend={() => (draggedProjectId = null)}
+					ondragover={(event) => event.preventDefault()}
+					ondrop={() => handleDrop(project.id, index)}
+				>
+					<div class="project-section__header">
+						<button
+							class="project-section__title"
+							type="button"
+							onclick={() => onSelectProject(project.id)}
+						>
+							<div class="project-section__identity">
+								<h2>{project.name}</h2>
+								<p>{project.branch}</p>
+							</div>
+							<span>{project.threads.length}</span>
+						</button>
+
+						<button
+							aria-label={`Create thread in ${project.name}`}
+							class="project-section__new-thread"
+							type="button"
+							onclick={() => onCreateThread(project.id)}
+						>
+							+
+						</button>
+					</div>
 
 					<ul class="thread-list">
-						{#each project.threads as thread (thread.id)}
+						{#each sortedThreads(project) as thread (thread.id)}
 							<li>
 								<button
 									class="thread-row"
 									data-selected={thread.id === selectedThreadId ? 'true' : undefined}
+									title={new Date(thread.updatedAtMs).toLocaleString()}
 									type="button"
 									onclick={() => onSelectThread(project.id, thread.id)}
 								>
-									<div class="thread-row__meta">
-										<StatusTag status={thread.status} />
-										<span>{new Date(thread.updatedAtMs).toLocaleTimeString()}</span>
-									</div>
-									<h4>{thread.title}</h4>
-									<p>{thread.branch}</p>
+									<StatusTag status={thread.status} />
+									<h3>{thread.title}</h3>
 								</button>
 							</li>
 						{/each}
 					</ul>
 				</section>
 			{/each}
+			<div
+				class="project-section project-section--drop-target"
+				aria-hidden="true"
+				role="presentation"
+				ondragover={(event) => event.preventDefault()}
+				ondrop={() => handleDrop(null, projects.length)}
+			></div>
 		{/if}
 	</div>
 </aside>
