@@ -74,7 +74,7 @@ test('runs the real desktop workflow through Tauri', async () => {
 
 		await page.getByRole('button', { name: 'Settings' }).click();
 		const settingsDialog = page.getByRole('dialog', { name: 'Settings' });
-		await expect(settingsDialog.getByRole('heading', { level: 3, name: 'Settings' })).toBeVisible();
+		await expect(settingsDialog).toBeVisible();
 		await expect(settingsDialog.getByRole('heading', { level: 3, name: 'Codex' })).toBeVisible();
 		await settingsDialog.getByRole('button', { name: 'Providers' }).click();
 		await expect(

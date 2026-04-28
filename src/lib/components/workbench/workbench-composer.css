@@ -10,7 +10,7 @@
 	margin: 0;
 }
 
-.event-row span {
+.event-row > span {
 	color: var(--cds-text-secondary, #525252);
 	font-size: 0.75rem;
 }

@@ -266,9 +266,15 @@ fn parse_git_status_line(line: &str) -> Option<ProjectDiffEntry> {
     }
 
     let code = trimmed.get(..2)?.to_string();
-    let path = trimmed.get(3..)?.trim().to_string();
+    let mut path = trimmed.get(3..)?.trim().to_string();
     if code.chars().all(char::is_whitespace) || path.is_empty() {
         return None;
+    }
+
+    if matches!(code.chars().next(), Some('R' | 'C')) {
+        if let Some((_, target_path)) = path.rsplit_once(" -> ") {
+            path = target_path.trim().to_string();
+        }
     }
 
     Some(ProjectDiffEntry { code, path })

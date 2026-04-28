@@ -99,17 +99,21 @@ impl AppRuntime {
     }
 
     pub fn load_project_diff(&self, project_id: &str) -> Result<ProjectDiffSnapshot, String> {
-        let state = self
-            .inner
-            .state
-            .lock()
-            .map_err(|_| "State lock was poisoned.".to_string())?;
-        let project = state
-            .projects
-            .iter()
-            .find(|project| project.id == project_id)
-            .ok_or_else(|| "Project not found.".to_string())?;
-        Ok(project_diff(&project.path, &project.branch))
+        let (path, branch) = {
+            let state = self
+                .inner
+                .state
+                .lock()
+                .map_err(|_| "State lock was poisoned.".to_string())?;
+            let project = state
+                .projects
+                .iter()
+                .find(|project| project.id == project_id)
+                .ok_or_else(|| "Project not found.".to_string())?;
+            (project.path.clone(), project.branch.clone())
+        };
+
+        Ok(project_diff(&path, &branch))
     }
 
     pub fn add_project(&self, input: AddProjectInput) -> Result<AppSnapshot, String> {
@@ -155,7 +159,10 @@ impl AppRuntime {
             }
 
             let project = state.projects.remove(current_index);
-            let target_index = input.target_index.min(state.projects.len());
+            let mut target_index = input.target_index.min(state.projects.len());
+            if current_index < input.target_index && target_index > 0 {
+                target_index -= 1;
+            }
             state.projects.insert(target_index, project);
             Ok(())
         })
@@ -281,29 +288,38 @@ impl AppRuntime {
             PromptMode::FollowUp => "follow-up",
             PromptMode::Steer => "steer",
         };
+        let staged_attachment_paths = attachments
+            .iter()
+            .map(|attachment| attachment.path.clone())
+            .collect::<Vec<_>>();
+        let pending_message = matches!(effective_mode, PromptMode::Prompt).then(|| MessageRecord {
+            id: Uuid::new_v4().to_string(),
+            role: MessageRole::User,
+            status: MessageStatus::Ready,
+            text: input.text.clone(),
+            timestamp_ms: now_ms(),
+        });
+        let pending_queue_entry =
+            (!matches!(effective_mode, PromptMode::Prompt)).then(|| crate::model::QueueEntry {
+                id: Uuid::new_v4().to_string(),
+                mode: if matches!(effective_mode, PromptMode::Steer) {
+                    crate::model::QueueMode::Steer
+                } else {
+                    crate::model::QueueMode::FollowUp
+                },
+                status: crate::model::QueueStatus::Pending,
+                text: input.text.clone(),
+            });
 
         self.mutate_thread(&input.thread_id, |thread| {
             if matches!(effective_mode, PromptMode::Prompt) {
                 mark_staged_attachments_sent(thread);
                 update_thread_title(thread, &input.text);
-                thread.messages.push(MessageRecord {
-                    id: Uuid::new_v4().to_string(),
-                    role: MessageRole::User,
-                    status: MessageStatus::Ready,
-                    text: input.text.clone(),
-                    timestamp_ms: now_ms(),
-                });
-            } else {
-                thread.queue.push(crate::model::QueueEntry {
-                    id: Uuid::new_v4().to_string(),
-                    mode: if matches!(effective_mode, PromptMode::Steer) {
-                        crate::model::QueueMode::Steer
-                    } else {
-                        crate::model::QueueMode::FollowUp
-                    },
-                    status: crate::model::QueueStatus::Pending,
-                    text: input.text.clone(),
-                });
+                if let Some(message) = &pending_message {
+                    thread.messages.push(message.clone());
+                }
+            } else if let Some(queue_entry) = &pending_queue_entry {
+                thread.queue.push(queue_entry.clone());
             }
             thread.status = ThreadStatus::Running;
             thread.last_error = None;
@@ -322,8 +338,21 @@ impl AppRuntime {
 
         if let Err(error) = self.bridge()?.send_prompt(bridge_input) {
             self.mutate_thread(&input.thread_id, |thread| {
+                for attachment in &mut thread.attachments {
+                    if staged_attachment_paths.contains(&attachment.path)
+                        && attachment.stage == AttachmentStage::Sent
+                    {
+                        attachment.stage = AttachmentStage::Staged;
+                    }
+                }
+                if let Some(message) = &pending_message {
+                    thread.messages.retain(|entry| entry.id != message.id);
+                }
+                if let Some(queue_entry) = &pending_queue_entry {
+                    thread.queue.retain(|entry| entry.id != queue_entry.id);
+                }
                 thread.last_error = Some(error.clone());
-                thread.status = ThreadStatus::Failed;
+                thread.status = thread_status.clone();
                 Ok(())
             })?;
             return Err(error);

@@ -68,7 +68,7 @@ export interface ProviderStatus {
 }
 
 export interface ModelOption {
-	availableThinkingLevels?: ThinkingLevel[];
+	availableThinkingLevels: ThinkingLevel[];
 	configured: boolean;
 	id: string;
 	key: string;

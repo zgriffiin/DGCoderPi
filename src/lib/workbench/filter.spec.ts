@@ -70,5 +70,7 @@ describe('filterProjects', () => {
 		expect(filtered).toHaveLength(1);
 		expect(filtered[0]?.threads).toHaveLength(1);
 		expect(filtered[0]?.threads[0]?.id).toBe('thread-2');
+		expect(filtered[0]?.threads[0]?.reasoningLevel).toBe('medium');
+		expect(filtered[0]?.name).toBe('Desktop Workbench');
 	});
 });

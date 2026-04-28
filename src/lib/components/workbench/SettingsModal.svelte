@@ -50,8 +50,9 @@
 
 <Modal passiveModal size="lg" {open} modalHeading="Settings" on:close={onClose}>
 	<div class="settings-layout">
-		<nav class="settings-nav" aria-label="Settings sections">
+		<nav aria-label="Settings sections" class="settings-nav">
 			<button
+				aria-pressed={section === 'accounts'}
 				class="settings-nav__item"
 				data-selected={section === 'accounts' ? 'true' : undefined}
 				type="button"
@@ -60,6 +61,7 @@
 				Accounts
 			</button>
 			<button
+				aria-pressed={section === 'providers'}
 				class="settings-nav__item"
 				data-selected={section === 'providers' ? 'true' : undefined}
 				type="button"
@@ -68,6 +70,7 @@
 				Providers
 			</button>
 			<button
+				aria-pressed={section === 'appearance'}
 				class="settings-nav__item"
 				data-selected={section === 'appearance' ? 'true' : undefined}
 				type="button"
@@ -76,6 +79,7 @@
 				Appearance
 			</button>
 			<button
+				aria-pressed={section === 'extensions'}
 				class="settings-nav__item"
 				data-selected={section === 'extensions' ? 'true' : undefined}
 				type="button"

@@ -4,17 +4,32 @@ import path from 'node:path';
 
 const repoRoot = process.cwd();
 const debugPort = '9333';
+const runtimeRoot = path.resolve(repoRoot, 'tests', 'runtime');
 const runId = process.env.DGCODER_PI_TEST_RUN_ID ?? 'default';
-const dataDir = path.join(repoRoot, 'tests', 'runtime', `playwright-desktop-${runId}`);
 
-rmSync(dataDir, { force: true, recursive: true });
-mkdirSync(dataDir, { recursive: true });
+if (!/^[A-Za-z0-9_-]+$/.test(runId)) {
+	console.error(
+		'DGCODER_PI_TEST_RUN_ID must contain only letters, numbers, underscores, or dashes.'
+	);
+	process.exit(1);
+}
+
+const dataDir = path.join(runtimeRoot, `playwright-desktop-${runId}`);
+const resolvedDataDir = path.resolve(dataDir);
+
+if (resolvedDataDir !== runtimeRoot && !resolvedDataDir.startsWith(`${runtimeRoot}${path.sep}`)) {
+	console.error('Resolved test runtime directory escaped tests/runtime.');
+	process.exit(1);
+}
+
+rmSync(resolvedDataDir, { force: true, recursive: true });
+mkdirSync(resolvedDataDir, { recursive: true });
 
 const child = spawn('cmd.exe', ['/d', '/s', '/c', 'pnpm tauri:dev'], {
 	cwd: repoRoot,
 	env: {
 		...process.env,
-		DGCODER_PI_DATA_DIR: dataDir,
+		DGCODER_PI_DATA_DIR: resolvedDataDir,
 		PATH: `${path.join(process.env.USERPROFILE ?? '', '.cargo', 'bin')};${process.env.PATH ?? ''}`,
 		WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: `--remote-debugging-port=${debugPort}`
 	},

@@ -113,9 +113,14 @@ async function initializeRuntime(
 		applySnapshot(event.payload);
 	});
 
-	const snapshot = await runCommand<AppSnapshot>('load_app_state');
-	applySnapshot(snapshot);
-	return unlisten;
+	try {
+		const snapshot = await runCommand<AppSnapshot>('load_app_state');
+		applySnapshot(snapshot);
+		return unlisten;
+	} catch (error) {
+		await unlisten();
+		throw error;
+	}
 }
 
 function createWorkbenchActions(

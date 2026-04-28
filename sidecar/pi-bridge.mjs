@@ -162,7 +162,6 @@ class BridgeRuntime {
 					if (leftRank !== rightRank) {
 						return leftRank - rightRank;
 					}
-
 					return left.label.localeCompare(right.label);
 				}),
 			providers: PROVIDERS.map(([provider, label]) => {
@@ -182,12 +181,12 @@ class BridgeRuntime {
 	}
 
 	syncCodexOauth() {
+		const current = this.authStorage.get('openai-codex');
 		const credential = readCodexOauthCredential();
 		if (!credential) {
+			if (current?.type === 'oauth') this.authStorage.remove('openai-codex');
 			return;
 		}
-
-		const current = this.authStorage.get('openai-codex');
 		if (
 			current?.type === 'oauth' &&
 			current.access === credential.access &&
@@ -197,11 +196,7 @@ class BridgeRuntime {
 		) {
 			return;
 		}
-
-		this.authStorage.set('openai-codex', {
-			type: 'oauth',
-			...credential
-		});
+		this.authStorage.set('openai-codex', { type: 'oauth', ...credential });
 	}
 
 	createLoader(cwd, settingsManager) {
@@ -340,7 +335,12 @@ class BridgeRuntime {
 	}
 
 	async collectImages(attachments, model) {
-		if (!attachments || attachments.length === 0 || !model.input.includes('image')) {
+		if (
+			!attachments ||
+			attachments.length === 0 ||
+			!Array.isArray(model.input) ||
+			!model.input.includes('image')
+		) {
 			return [];
 		}
 

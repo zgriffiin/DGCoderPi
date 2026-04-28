@@ -36,7 +36,7 @@
 <aside class="inspector-rail">
 	<div class="inspector-rail__header">
 		<h2>{modeTitle(mode)}</h2>
-		<Button icon={Close} kind="ghost" size="small" on:click={onClose}>Close</Button>
+		<Button icon={Close} kind="ghost" size="small" onclick={onClose}>Close</Button>
 	</div>
 
 	{#if mode === 'tasks'}
@@ -44,11 +44,11 @@
 			<div class="inspector-block">
 				<div class="inspector-summary">
 					<p>Queue</p>
-					<Tag type="blue">{thread?.queue.length ?? 0}</Tag>
+					<Tag type="blue">{thread?.queue?.length ?? 0}</Tag>
 				</div>
 			</div>
 
-			{#if thread?.queue.length}
+			{#if thread?.queue?.length}
 				<ul class="inspector-list">
 					{#each thread.queue as item (item.id)}
 						<li>
@@ -66,7 +66,7 @@
 				</ul>
 			{/if}
 
-			{#if thread?.activities.length}
+			{#if thread?.activities?.length}
 				<ul class="inspector-list">
 					{#each thread.activities as item (item.id)}
 						<li>
@@ -144,7 +144,7 @@
 				</div>
 			{/if}
 
-			{#if thread?.attachments.length}
+			{#if thread?.attachments?.length}
 				<ul class="inspector-list">
 					{#each thread.attachments as attachment (attachment.id)}
 						<li>

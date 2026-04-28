@@ -4,6 +4,7 @@ import { extname, join, relative } from 'node:path';
 const roots = ['src', 'src-tauri', 'tests', '.storybook'];
 const extensions = new Set(['.ts', '.js', '.mjs', '.cjs', '.svelte', '.json', '.d.ts']);
 const ignoredDirectories = new Set(['.fallow', '.svelte-kit', 'gen', 'node_modules', 'target']);
+const ignoredRelativeDirectories = ['tests/results', 'tests/runtime'];
 const bannedNames = [/mock/i, /shim/i, /fake/i, /stub/i, /fixture/i, /dummy/i, /temp/i];
 const bannedContent = [
 	{ pattern: /\b(mock|mocked|mocking|fake|stub|shim|fixture|dummy|temporary)\b/i, label: 'term' },
@@ -28,6 +29,14 @@ function walk(dir) {
 		}
 
 		const fullPath = join(dir, entry);
+		const relativePath = relative(process.cwd(), fullPath).replaceAll('\\', '/');
+		if (
+			ignoredRelativeDirectories.some(
+				(ignoredPath) => relativePath === ignoredPath || relativePath.startsWith(`${ignoredPath}/`)
+			)
+		) {
+			continue;
+		}
 		const stats = statSync(fullPath);
 		if (stats.isDirectory()) {
 			walk(fullPath);
@@ -41,8 +50,12 @@ function statExists(targetPath) {
 	try {
 		statSync(targetPath);
 		return true;
-	} catch {
-		return false;
+	} catch (error) {
+		if (error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT') {
+			return false;
+		}
+
+		throw error;
 	}
 }
 
