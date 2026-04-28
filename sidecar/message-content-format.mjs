@@ -4,6 +4,22 @@ function readMimeLabel(value) {
 	return typeof value === 'string' && value.trim() ? value.trim() : 'unknown';
 }
 
+function readEntryLine(entry, imageLabel) {
+	if (!entry || typeof entry !== 'object') {
+		return '';
+	}
+
+	if (entry.type === 'text') {
+		return entry.text;
+	}
+
+	if (entry.type === 'image') {
+		return `[${imageLabel}: ${readMimeLabel(entry.mimeType)}]`;
+	}
+
+	return '';
+}
+
 export function flattenUserContent(content) {
 	if (typeof content === 'string') {
 		return content;
@@ -11,18 +27,7 @@ export function flattenUserContent(content) {
 
 	const entries = Array.isArray(content) ? content : [];
 	return entries
-		.map((entry) => {
-			if (!entry || typeof entry !== 'object') {
-				return '';
-			}
-			if (entry.type === 'text') {
-				return entry.text;
-			}
-			if (entry.type === 'image') {
-				return `[Image: ${readMimeLabel(entry.mimeType)}]`;
-			}
-			return '';
-		})
+		.map((entry) => readEntryLine(entry, 'Image'))
 		.filter(Boolean)
 		.join('\n');
 }
@@ -58,18 +63,7 @@ export function flattenAssistantContent(content) {
 export function flattenToolResultContent(content) {
 	const entries = Array.isArray(content) ? content : [];
 	return entries
-		.map((entry) => {
-			if (!entry || typeof entry !== 'object') {
-				return '';
-			}
-			if (entry.type === 'text') {
-				return entry.text;
-			}
-			if (entry.type === 'image') {
-				return `[Image result: ${readMimeLabel(entry.mimeType)}]`;
-			}
-			return '';
-		})
+		.map((entry) => readEntryLine(entry, 'Image result'))
 		.filter(Boolean)
 		.join('\n');
 }
