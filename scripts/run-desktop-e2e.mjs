@@ -24,6 +24,13 @@ function listWindowsListeningPids(port) {
 		],
 		{ encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }
 	);
+	if (result.error) {
+		console.warn(`Failed to inspect port ${port}: ${result.error.message}`);
+		return [];
+	}
+	if (result.status !== 0 || typeof result.stdout !== 'string') {
+		return [];
+	}
 
 	return result.stdout
 		.split(/\r?\n/)
@@ -36,6 +43,9 @@ function getWindowsImageName(pid) {
 		encoding: 'utf8',
 		stdio: ['ignore', 'pipe', 'ignore']
 	});
+	if (result.error || typeof result.stdout !== 'string') {
+		return null;
+	}
 	const firstLine = result.stdout
 		.split(/\r?\n/)
 		.map((value) => value.trim())
