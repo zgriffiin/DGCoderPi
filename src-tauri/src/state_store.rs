@@ -347,7 +347,7 @@ fn decode_git_path(path: &str) -> String {
                     continue;
                 }
 
-                decoded.push(value as u8);
+                decoded.push(value.min(0xFF) as u8);
                 index += 1 + octal_length;
             }
             other => {

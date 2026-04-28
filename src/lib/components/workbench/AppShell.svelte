@@ -123,7 +123,7 @@
 		snapshot.models.find((model) => model.key === selectedModelKey) ?? snapshot.models[0] ?? null
 	);
 	const selectedReasoningLevel = $derived(
-		selectedModel?.supportsReasoning ? (activeThread?.reasoningLevel ?? 'medium') : 'off'
+		selectedModel?.supportsReasoning ? (activeThread?.reasoningLevel ?? 'off') : 'off'
 	);
 	const stagedAttachments = $derived(
 		activeThread?.attachments.filter((attachment) => attachment.stage === 'staged') ?? []
