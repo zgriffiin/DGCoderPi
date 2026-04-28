@@ -46,6 +46,12 @@
 		providerDrafts,
 		providers
 	}: Props = $props();
+
+	$effect(() => {
+		if (open) {
+			section = 'accounts';
+		}
+	});
 </script>
 
 <Modal passiveModal size="lg" {open} modalHeading="Settings" on:close={onClose}>

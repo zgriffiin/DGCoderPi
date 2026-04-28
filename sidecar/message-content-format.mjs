@@ -24,7 +24,16 @@ export function flattenUserContent(content) {
 }
 
 export function flattenAssistantContent(content) {
-	const lines = content
+	if (!content) {
+		return 'Pi is preparing the next step.';
+	}
+
+	if (typeof content === 'string') {
+		return content;
+	}
+
+	const entries = Array.isArray(content) ? content : [content];
+	const lines = entries
 		.map((entry) => {
 			if (entry.type === 'text') {
 				return entry.text;
@@ -40,7 +49,8 @@ export function flattenAssistantContent(content) {
 }
 
 export function flattenToolResultContent(content) {
-	return content
+	const entries = Array.isArray(content) ? content : [];
+	return entries
 		.map((entry) =>
 			entry.type === 'text' ? entry.text : `[Image result: ${readMimeLabel(entry.mimeType)}]`
 		)
