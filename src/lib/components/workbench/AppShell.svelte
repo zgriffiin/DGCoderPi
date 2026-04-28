@@ -231,9 +231,9 @@
 
 	async function handleCreateThreadForProject(projectId: string) {
 		await runAction(async () => {
-			const nextSnapshot = await controller.createThread(projectId, 'New thread');
+			await controller.createThread(projectId, 'New thread');
 			selectedProjectId = projectId;
-			selectedThreadId = nextSnapshot.selectedThreadId ?? selectedThreadId;
+			selectedThreadId = '';
 		});
 	}
 
@@ -253,14 +253,25 @@
 		});
 	}
 
-	async function handleFilesSelected(files: FileList | null) {
-		if (!activeThread || !files) {
+	async function handleAttachFiles() {
+		if (!activeThread || !workbenchState.runtimeAvailable) {
 			return;
 		}
 
 		await runAction(async () => {
-			for (const file of Array.from(files)) {
-				await controller.stageAttachment(activeThread.id, file);
+			const { open } = await import('@tauri-apps/plugin-dialog');
+			const selection = await open({
+				multiple: true,
+				title: 'Attach files'
+			});
+			const pickedPaths = selection as string | string[] | null;
+			const paths = Array.isArray(pickedPaths)
+				? pickedPaths.filter((path) => path.trim().length > 0)
+				: typeof pickedPaths === 'string' && pickedPaths.trim().length > 0
+					? [pickedPaths]
+					: [];
+			for (const path of paths) {
+				await controller.stageAttachment(activeThread.id, path);
 			}
 		});
 	}
@@ -339,12 +350,6 @@
 		await runAction(async () => {
 			await controller.refreshState();
 		});
-	}
-
-	function handleFileDialogOpen() {
-		if (!activeThread) {
-			return;
-		}
 	}
 
 	async function handleReasoningChange(reasoningLevel: ThinkingLevel) {
@@ -439,9 +444,8 @@
 				{draft}
 				hint={composerHint}
 				models={snapshot.models}
+				onAttach={handleAttachFiles}
 				onDraftChange={(value) => (draft = value)}
-				onFileDialogOpen={handleFileDialogOpen}
-				onFilesSelected={handleFilesSelected}
 				onModelChange={handleModelChange}
 				onRemoveAttachment={handleRemoveAttachment}
 				onReasoningChange={handleReasoningChange}

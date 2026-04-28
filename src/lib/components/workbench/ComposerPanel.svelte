@@ -18,9 +18,8 @@
 		draft: string;
 		hint: string;
 		models: ModelOption[];
+		onAttach: () => void;
 		onDraftChange: (value: string) => void;
-		onFileDialogOpen: () => void;
-		onFilesSelected: (files: FileList | null) => void;
 		onModelChange: (modelKey: string) => void;
 		onReasoningChange: (reasoningLevel: ThinkingLevel) => void;
 		onRemoveAttachment: (attachmentId: string) => void;
@@ -67,22 +66,6 @@
 		}
 	}
 
-	async function handlePaste(event: ClipboardEvent) {
-		const items = event.clipboardData?.files;
-		if (!items?.length) {
-			return;
-		}
-
-		event.preventDefault();
-		onFilesSelected(items);
-	}
-
-	function handleFileInput(event: Event) {
-		const input = event.target as HTMLInputElement;
-		onFilesSelected(input.files);
-		input.value = '';
-	}
-
 	function handleKeydown(event: KeyboardEvent) {
 		if (!canSend || !draft.trim() || event.key !== 'Enter' || event.shiftKey || event.isComposing) {
 			return;
@@ -97,17 +80,14 @@
 		onSend('prompt');
 	}
 
-	let fileInput: HTMLInputElement | null = null;
-
 	let {
 		attachments,
 		canSend,
 		draft,
 		hint,
 		models,
+		onAttach,
 		onDraftChange,
-		onFileDialogOpen,
-		onFilesSelected,
 		onModelChange,
 		onReasoningChange,
 		onRemoveAttachment,
@@ -141,9 +121,16 @@
 
 	const running = $derived(threadStatus === 'running');
 	const startLabel = $derived(running ? 'Queue' : 'Start');
+	let lastRequestedReasoningLevel = $state<ThinkingLevel | null>(null);
 
 	$effect(() => {
-		if (selectedReasoningLevel !== effectiveReasoningLevel) {
+		if (selectedReasoningLevel === effectiveReasoningLevel) {
+			lastRequestedReasoningLevel = null;
+			return;
+		}
+
+		if (lastRequestedReasoningLevel !== effectiveReasoningLevel) {
+			lastRequestedReasoningLevel = effectiveReasoningLevel;
 			onReasoningChange(effectiveReasoningLevel);
 		}
 	});
@@ -160,7 +147,6 @@
 		value={draft}
 		on:input={(event) => onDraftChange(readEventValue(event))}
 		on:keydown={handleKeydown}
-		on:paste={handlePaste}
 	/>
 
 	{#if attachments.length > 0}
@@ -230,27 +216,7 @@
 				/>
 			</div>
 
-			<input
-				bind:this={fileInput}
-				accept="*/*"
-				class="visually-hidden"
-				multiple
-				type="file"
-				onchange={handleFileInput}
-			/>
-			<Button
-				disabled={!canSend}
-				icon={Add}
-				kind="ghost"
-				size="small"
-				on:click={() => {
-					if (!canSend) {
-						return;
-					}
-					onFileDialogOpen();
-					fileInput?.click();
-				}}
-			>
+			<Button disabled={!canSend} icon={Add} kind="ghost" size="small" on:click={onAttach}>
 				Attach
 			</Button>
 			<Button

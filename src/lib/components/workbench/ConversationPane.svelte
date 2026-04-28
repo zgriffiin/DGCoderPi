@@ -11,6 +11,8 @@
 		thread: ThreadRecord | null;
 	};
 
+	const MESSAGE_PAGE_SIZE = 40;
+
 	function visibleMessages(thread: ThreadRecord | null) {
 		if (!thread) {
 			return [];
@@ -72,19 +74,23 @@
 	let statusTimer: ReturnType<typeof setInterval> | null = null;
 	let activityListElement: HTMLDivElement | null = null;
 	let stickToBottom = $state(true);
+	let visibleMessageCount = $state(MESSAGE_PAGE_SIZE);
 
 	let { project, runtimeError, thread }: Props = $props();
 
 	const messages = $derived(visibleMessages(thread));
+	const hiddenMessageCount = $derived(Math.max(0, messages.length - visibleMessageCount));
+	const pagedMessages = $derived(
+		hiddenMessageCount > 0 ? messages.slice(-visibleMessageCount) : messages
+	);
 	const runStatus = $derived(buildRunStatus(thread, nowMs));
 	const scrollKey = $derived.by(() => {
-		const lastMessage = messages.at(-1);
+		const lastMessage = pagedMessages.at(-1);
 		return [
 			thread?.id ?? '',
-			messages.length,
 			lastMessage?.id ?? '',
 			lastMessage?.status ?? '',
-			lastMessage?.text ?? ''
+			lastMessage?.text.length ?? 0
 		].join('|');
 	});
 
@@ -94,6 +100,10 @@
 		}
 
 		stickToBottom = isNearBottom(activityListElement);
+	}
+
+	function showOlderMessages() {
+		visibleMessageCount += MESSAGE_PAGE_SIZE;
 	}
 
 	async function scrollToBottom(force = false) {
@@ -130,11 +140,13 @@
 	$effect(() => {
 		const currentThreadId = thread?.id ?? null;
 		if (currentThreadId === null) {
+			visibleMessageCount = MESSAGE_PAGE_SIZE;
 			stickToBottom = true;
 			void scrollToBottom(true);
 			return;
 		}
 
+		visibleMessageCount = MESSAGE_PAGE_SIZE;
 		stickToBottom = true;
 		void scrollToBottom(true);
 	});
@@ -191,7 +203,15 @@
 
 	<div bind:this={activityListElement} class="activity-list" onscroll={handleActivityScroll}>
 		{#if messages.length}
-			{#each messages as message (message.id)}
+			{#if hiddenMessageCount > 0}
+				<div class="conversation-load-more">
+					<button type="button" onclick={showOlderMessages}>
+						Show {Math.min(MESSAGE_PAGE_SIZE, hiddenMessageCount)} older messages
+					</button>
+					<span>{hiddenMessageCount} hidden</span>
+				</div>
+			{/if}
+			{#each pagedMessages as message (message.id)}
 				<ThreadMessage {message} />
 			{/each}
 		{:else}

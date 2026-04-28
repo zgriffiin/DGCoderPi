@@ -24,16 +24,12 @@
 		selectedThreadId
 	}: Props = $props();
 
-	function latestUserTimestamp(project: ProjectRecord['threads'][number]) {
-		const latestUserMessage = [...project.messages]
-			.reverse()
-			.find((message) => message.role === 'user');
-		return latestUserMessage?.timestampMs ?? project.updatedAtMs;
-	}
-
 	function sortedThreads(project: ProjectRecord) {
 		return [...project.threads].sort((left, right) => {
-			return latestUserTimestamp(right) - latestUserTimestamp(left);
+			return (
+				(right.lastUserMessageAtMs || right.updatedAtMs) -
+				(left.lastUserMessageAtMs || left.updatedAtMs)
+			);
 		});
 	}
 
@@ -99,6 +95,7 @@
 							<li>
 								<button
 									class="thread-row"
+									data-thread-id={thread.id}
 									data-selected={thread.id === selectedThreadId ? 'true' : undefined}
 									title={new Date(thread.updatedAtMs).toLocaleString()}
 									type="button"

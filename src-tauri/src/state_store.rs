@@ -5,45 +5,82 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
+use rusqlite::{params, Connection};
 use uuid::Uuid;
 
 use crate::model::{
-    AppHealth, AppIntegrations, AppSettings, AppSnapshot, AttachmentKind, AttachmentRecord,
-    AttachmentStage, CodexStatus, FeatureSettings, ModelOption, PersistedState, ProjectDiffEntry,
-    ProjectDiffSnapshot, ProjectRecord, ProviderStatus, ThreadRecord, ThreadStatus,
+    AppEvent, AppHealth, AppIntegrations, AppSettings, AppSnapshot, AppUpdate, AttachmentKind,
+    AttachmentRecord, AttachmentStage, CodexStatus, FeatureSettings, ModelOption, PersistedState,
+    ProjectDiffEntry, ProjectDiffSnapshot, ProjectRecord, ProviderStatus, ThreadRecord,
+    ThreadStatus,
 };
 
-const STATE_FILE_NAME: &str = "app-state.json";
+const LEGACY_STATE_FILE_NAME: &str = "app-state.json";
+const STATE_DB_FILE_NAME: &str = "app-state.sqlite";
+const CURRENT_STATE_KEY: i64 = 1;
 
 pub fn load_state(data_dir: &Path) -> Result<PersistedState, String> {
-    let file_path = state_file_path(data_dir);
-    if !file_path.exists() {
-        return Ok(PersistedState {
-            settings: AppSettings {
-                features: FeatureSettings::default(),
-                providers: default_providers(),
-            },
-            ..PersistedState::default()
-        });
+    let connection = open_state_db(data_dir)?;
+    if let Some(state) = load_current_state(&connection)? {
+        return Ok(state);
     }
 
-    let content = fs::read_to_string(&file_path).map_err(|error| error.to_string())?;
-    let mut state =
-        serde_json::from_str::<PersistedState>(&content).map_err(|error| error.to_string())?;
-    if state.settings.providers.is_empty() {
-        state.settings.providers = default_providers();
+    let file_path = legacy_state_file_path(data_dir);
+    if file_path.exists() {
+        let content = fs::read_to_string(&file_path).map_err(|error| error.to_string())?;
+        let mut state =
+            serde_json::from_str::<PersistedState>(&content).map_err(|error| error.to_string())?;
+        if state.settings.providers.is_empty() {
+            state.settings.providers = default_providers();
+        }
+        replace_state(data_dir, &state)?;
+        return Ok(state);
     }
-    Ok(state)
+
+    Ok(default_state())
 }
 
-pub fn save_state(data_dir: &Path, state: &PersistedState) -> Result<(), String> {
-    fs::create_dir_all(data_dir).map_err(|error| error.to_string())?;
-    let content = serde_json::to_string_pretty(state).map_err(|error| error.to_string())?;
-    fs::write(state_file_path(data_dir), content).map_err(|error| error.to_string())
+pub fn append_update(
+    data_dir: &Path,
+    update: &AppUpdate,
+    state: &PersistedState,
+) -> Result<(), String> {
+    let persisted_events = update
+        .events
+        .iter()
+        .filter(|event| is_persisted_event(event))
+        .collect::<Vec<_>>();
+    if persisted_events.is_empty() {
+        return Ok(());
+    }
+
+    let mut connection = open_state_db(data_dir)?;
+    let transaction = connection
+        .transaction()
+        .map_err(|error| error.to_string())?;
+    for event in persisted_events {
+        transaction
+            .execute(
+                "INSERT INTO event_log (created_at_ms, event_type, payload_json) VALUES (?1, ?2, ?3)",
+                params![now_ms() as i64, event_type(event), serde_json::to_string(event).map_err(|error| error.to_string())?],
+            )
+            .map_err(|error| error.to_string())?;
+    }
+    write_current_state(&transaction, state)?;
+    transaction.commit().map_err(|error| error.to_string())
 }
 
-pub fn state_file_path(data_dir: &Path) -> PathBuf {
-    data_dir.join(STATE_FILE_NAME)
+pub fn replace_state(data_dir: &Path, state: &PersistedState) -> Result<(), String> {
+    let mut connection = open_state_db(data_dir)?;
+    let transaction = connection
+        .transaction()
+        .map_err(|error| error.to_string())?;
+    write_current_state(&transaction, state)?;
+    transaction.commit().map_err(|error| error.to_string())
+}
+
+pub fn state_db_path(data_dir: &Path) -> PathBuf {
+    data_dir.join(STATE_DB_FILE_NAME)
 }
 
 pub fn attachment_directory(data_dir: &Path) -> PathBuf {
@@ -170,6 +207,13 @@ pub fn make_attachment(
         stage: AttachmentStage::Staged,
         ..AttachmentRecord::default()
     }
+}
+
+pub fn infer_mime_type(path: &Path) -> String {
+    mime_guess::from_path(path)
+        .first_or_octet_stream()
+        .essence_str()
+        .to_string()
 }
 
 pub fn git_branch(path: &str) -> String {
@@ -433,4 +477,107 @@ pub fn now_ms() -> u64 {
         .duration_since(UNIX_EPOCH)
         .map(|duration| duration.as_millis() as u64)
         .unwrap_or_default()
+}
+
+fn default_state() -> PersistedState {
+    PersistedState {
+        settings: AppSettings {
+            features: FeatureSettings::default(),
+            providers: default_providers(),
+        },
+        ..PersistedState::default()
+    }
+}
+
+fn legacy_state_file_path(data_dir: &Path) -> PathBuf {
+    data_dir.join(LEGACY_STATE_FILE_NAME)
+}
+
+fn open_state_db(data_dir: &Path) -> Result<Connection, String> {
+    fs::create_dir_all(data_dir).map_err(|error| error.to_string())?;
+    let connection =
+        Connection::open(state_db_path(data_dir)).map_err(|error| error.to_string())?;
+    connection
+        .pragma_update(None, "journal_mode", "WAL")
+        .map_err(|error| error.to_string())?;
+    connection
+        .pragma_update(None, "synchronous", "NORMAL")
+        .map_err(|error| error.to_string())?;
+    connection
+        .execute_batch(
+            "
+            CREATE TABLE IF NOT EXISTS event_log (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                created_at_ms INTEGER NOT NULL,
+                event_type TEXT NOT NULL,
+                payload_json TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS current_state (
+                id INTEGER PRIMARY KEY CHECK (id = 1),
+                payload_json TEXT NOT NULL,
+                updated_at_ms INTEGER NOT NULL
+            );
+            ",
+        )
+        .map_err(|error| error.to_string())?;
+    Ok(connection)
+}
+
+fn load_current_state(connection: &Connection) -> Result<Option<PersistedState>, String> {
+    let mut statement = connection
+        .prepare("SELECT payload_json FROM current_state WHERE id = ?1")
+        .map_err(|error| error.to_string())?;
+    let mut rows = statement
+        .query(params![CURRENT_STATE_KEY])
+        .map_err(|error| error.to_string())?;
+    let Some(row) = rows.next().map_err(|error| error.to_string())? else {
+        return Ok(None);
+    };
+
+    let payload: String = row.get(0).map_err(|error| error.to_string())?;
+    let mut state =
+        serde_json::from_str::<PersistedState>(&payload).map_err(|error| error.to_string())?;
+    if state.settings.providers.is_empty() {
+        state.settings.providers = default_providers();
+    }
+    Ok(Some(state))
+}
+
+fn write_current_state(connection: &Connection, state: &PersistedState) -> Result<(), String> {
+    let payload_json = serde_json::to_string(state).map_err(|error| error.to_string())?;
+    connection
+        .execute(
+            "
+            INSERT INTO current_state (id, payload_json, updated_at_ms)
+            VALUES (?1, ?2, ?3)
+            ON CONFLICT(id) DO UPDATE SET
+                payload_json = excluded.payload_json,
+                updated_at_ms = excluded.updated_at_ms
+            ",
+            params![CURRENT_STATE_KEY, payload_json, now_ms() as i64],
+        )
+        .map_err(|error| error.to_string())?;
+    Ok(())
+}
+
+fn is_persisted_event(event: &AppEvent) -> bool {
+    matches!(
+        event,
+        AppEvent::ProjectUpserted { .. }
+            | AppEvent::ProjectOrderChanged { .. }
+            | AppEvent::ThreadUpserted { .. }
+            | AppEvent::SettingsUpdated { .. }
+    )
+}
+
+fn event_type(event: &AppEvent) -> &'static str {
+    match event {
+        AppEvent::ProjectUpserted { .. } => "project-upserted",
+        AppEvent::ProjectOrderChanged { .. } => "project-order-changed",
+        AppEvent::ThreadUpserted { .. } => "thread-upserted",
+        AppEvent::SettingsUpdated { .. } => "settings-updated",
+        AppEvent::ModelsUpdated { .. } => "models-updated",
+        AppEvent::HealthUpdated { .. } => "health-updated",
+        AppEvent::IntegrationsUpdated { .. } => "integrations-updated",
+    }
 }

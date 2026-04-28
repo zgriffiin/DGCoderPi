@@ -40,7 +40,8 @@ function normalizeToolArgs(args) {
 
 function formatReadTarget(args) {
 	const target = formatPathValue(args.path ?? args.file_path);
-	const offset = normalizeInteger(args.offset);
+	const normalizedOffset = normalizeInteger(args.offset);
+	const offset = normalizedOffset !== null && normalizedOffset > 0 ? normalizedOffset : null;
 	let limit = normalizeInteger(args.limit);
 	if (limit !== null && limit <= 0) {
 		limit = null;

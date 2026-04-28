@@ -1,11 +1,6 @@
 # DGCoder Pi
 
-Windows-first desktop coding workbench. Based on the simpllicity of the Pi interactions, but with a T3 Code like experience. I was 
-struggling with performance issues with T3 code, even though the team did fantastic work there and appreciate Theo's group for 
-everything they have helped me with my learning. I liked the simplicity of Pi, but wanted a regular UI experience for the same reasons
-T3 code was made. This is very early and I don't plan on this being anything but windows, T3 code is a better solution for cross 
-platform if you want a UI and Pi is better if you like the TUI interface. Built on the back of the amazing work of Mario and Theo and thier
-teams/ contributers, this is just my take on that work.
+Windows-first desktop coding workbench. It keeps the simplicity of Pi interactions, but with a T3-like UI experience. I ran into performance issues with T3 Code, even though Theo's team did fantastic work and helped me a lot while I was learning. I liked the simplicity of Pi, but wanted a regular desktop UI for many of the same reasons T3 Code exists. This project is still very early and intended only for Windows. If you want a cross-platform UI, T3 Code is the better fit; if you prefer a TUI, Pi is the better fit. This project builds on the amazing work of Mario, Theo, and their teams and contributors, and is simply my take on that work.
 
 ## Stack
 

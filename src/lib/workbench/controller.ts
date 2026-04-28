@@ -3,13 +3,42 @@ import { isTauri, invoke } from '@tauri-apps/api/core';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { get, writable } from 'svelte/store';
 import type {
+	AppEvent,
+	AppHealth,
+	AppSettings,
 	AppSnapshot,
+	AppUpdate,
+	FeatureSettings,
 	ProjectDiffSnapshot,
 	PromptMode,
 	ThinkingLevel
 } from '$lib/types/workbench';
 
-const SNAPSHOT_EVENT = 'app://snapshot';
+const UPDATE_EVENT = 'app://update';
+
+const DEFAULT_FEATURE_SETTINGS: FeatureSettings = {
+	docparserEnabled: true
+};
+
+const DEFAULT_APP_SETTINGS: AppSettings = {
+	features: DEFAULT_FEATURE_SETTINGS,
+	providers: [
+		{ configured: false, label: 'Anthropic', provider: 'anthropic', source: null },
+		{ configured: false, label: 'ChatGPT Codex', provider: 'openai-codex', source: null },
+		{ configured: false, label: 'OpenAI', provider: 'openai', source: null },
+		{ configured: false, label: 'Google Gemini', provider: 'google', source: null },
+		{ configured: false, label: 'DeepSeek', provider: 'deepseek', source: null },
+		{ configured: false, label: 'OpenRouter', provider: 'openrouter', source: null }
+	]
+};
+
+declare global {
+	interface Window {
+		__PI_DEBUG__?: {
+			invoke: typeof invoke;
+		};
+	}
+}
 
 type WorkbenchState = {
 	error: string | null;
@@ -39,27 +68,11 @@ const EMPTY_SNAPSHOT: AppSnapshot = {
 	projects: [],
 	selectedProjectId: null,
 	selectedThreadId: null,
-	settings: {
-		features: {
-			docparserEnabled: true
-		},
-		providers: [
-			{ configured: false, label: 'Anthropic', provider: 'anthropic', source: null },
-			{ configured: false, label: 'ChatGPT Codex', provider: 'openai-codex', source: null },
-			{ configured: false, label: 'OpenAI', provider: 'openai', source: null },
-			{ configured: false, label: 'Google Gemini', provider: 'google', source: null },
-			{ configured: false, label: 'DeepSeek', provider: 'deepseek', source: null },
-			{ configured: false, label: 'OpenRouter', provider: 'openrouter', source: null }
-		]
-	}
+	settings: DEFAULT_APP_SETTINGS
 };
 
 async function runCommand<T>(command: string, args?: Record<string, unknown>) {
 	return invoke<T>(command, args);
-}
-
-async function fileToBytes(file: File) {
-	return Array.from(new Uint8Array(await file.arrayBuffer()));
 }
 
 function applyUnavailableState(store: ReturnType<typeof writable<WorkbenchState>>) {
@@ -84,6 +97,154 @@ function createSnapshotApplier(store: ReturnType<typeof writable<WorkbenchState>
 	};
 }
 
+function applySelection(
+	snapshot: AppSnapshot,
+	selectedProjectId: string | null,
+	selectedThreadId: string | null
+) {
+	snapshot.selectedProjectId = selectedProjectId;
+	snapshot.selectedThreadId = selectedThreadId;
+}
+
+function upsertProject(snapshot: AppSnapshot, project: AppSnapshot['projects'][number]) {
+	const index = snapshot.projects.findIndex((entry) => entry.id === project.id);
+	if (index === -1) {
+		snapshot.projects = [...snapshot.projects, project];
+		return;
+	}
+
+	snapshot.projects = snapshot.projects.map((entry, currentIndex) =>
+		currentIndex === index ? project : entry
+	);
+}
+
+function upsertThread(
+	snapshot: AppSnapshot,
+	projectId: string,
+	thread: AppSnapshot['projects'][number]['threads'][number]
+) {
+	snapshot.projects = snapshot.projects.map((project) => {
+		if (project.id !== projectId) {
+			return project;
+		}
+
+		const threadIndex = project.threads.findIndex((entry) => entry.id === thread.id);
+		const threads =
+			threadIndex === -1
+				? [...project.threads, thread]
+				: project.threads.map((entry, index) => (index === threadIndex ? thread : entry));
+		return { ...project, threads };
+	});
+}
+
+function reorderProjects(snapshot: AppSnapshot, projectIds: string[]) {
+	const projectById = new Map(snapshot.projects.map((project) => [project.id, project]));
+	const orderedProjects = projectIds
+		.map((projectId) => projectById.get(projectId))
+		.filter((project): project is NonNullable<typeof project> => Boolean(project));
+	const remainingProjects = snapshot.projects.filter((project) => !projectIds.includes(project.id));
+	snapshot.projects = [...orderedProjects, ...remainingProjects];
+}
+
+function applyUpdateToSnapshot(snapshot: AppSnapshot, update: AppUpdate) {
+	for (const event of update.events) {
+		applyEventToSnapshot(snapshot, event);
+	}
+}
+
+function cloneSnapshotShell(snapshot: AppSnapshot): AppSnapshot {
+	return {
+		...snapshot,
+		health: { ...snapshot.health },
+		integrations: {
+			codex: { ...snapshot.integrations.codex }
+		},
+		models: [...snapshot.models],
+		projects: snapshot.projects.map((project) => ({
+			...project,
+			threads: [...project.threads]
+		})),
+		settings: {
+			...snapshot.settings,
+			features: { ...snapshot.settings.features },
+			providers: [...snapshot.settings.providers]
+		}
+	};
+}
+
+function applyEventToSnapshot(snapshot: AppSnapshot, event: AppEvent) {
+	if (event.type === 'project-upserted') {
+		upsertProject(snapshot, event.project);
+		applySelection(snapshot, event.selectedProjectId, event.selectedThreadId);
+		return;
+	}
+
+	if (event.type === 'project-order-changed') {
+		reorderProjects(snapshot, event.projectIds);
+		applySelection(snapshot, event.selectedProjectId, event.selectedThreadId);
+		return;
+	}
+
+	if (event.type === 'thread-upserted') {
+		upsertThread(snapshot, event.projectId, event.thread);
+		applySelection(snapshot, event.selectedProjectId, event.selectedThreadId);
+		return;
+	}
+
+	if (event.type === 'settings-updated') {
+		snapshot.settings = event.settings;
+		return;
+	}
+
+	if (event.type === 'models-updated') {
+		snapshot.models = event.models;
+		return;
+	}
+
+	if (event.type === 'health-updated') {
+		snapshot.health = event.health;
+		return;
+	}
+
+	if (event.type === 'integrations-updated') {
+		snapshot.integrations = event.integrations;
+		return;
+	}
+}
+
+function createUpdateApplier(store: ReturnType<typeof writable<WorkbenchState>>) {
+	return (update: AppUpdate) => {
+		store.update((state) => {
+			const snapshot = cloneSnapshotShell(state.snapshot);
+			applyUpdateToSnapshot(snapshot, update);
+			return {
+				...state,
+				error: null,
+				heartbeatPending: false,
+				lastSnapshotAtMs: Date.now(),
+				runtimeAvailable: true,
+				snapshot
+			};
+		});
+	};
+}
+
+function createHealthApplier(store: ReturnType<typeof writable<WorkbenchState>>) {
+	return (health: AppHealth) => {
+		store.update((state) => ({
+			...state,
+			error: null,
+			heartbeatPending: false,
+			lastSnapshotAtMs: Date.now(),
+			runtimeAvailable: true,
+			snapshot: {
+				...state.snapshot,
+				health
+			}
+		}));
+	};
+}
+
 function createErrorApplier(store: ReturnType<typeof writable<WorkbenchState>>) {
 	return (error: unknown) => {
 		store.update((state) => ({
@@ -102,20 +263,35 @@ function hasRunningThread(snapshot: AppSnapshot) {
 
 async function initializeRuntime(
 	store: ReturnType<typeof writable<WorkbenchState>>,
-	applySnapshot: (snapshot: AppSnapshot) => void
+	applySnapshot: (snapshot: AppSnapshot) => void,
+	applyUpdate: (update: AppUpdate) => void
 ) {
 	if (!browser || !isTauri()) {
 		applyUnavailableState(store);
 		return null;
 	}
 
-	const unlisten = await listen<AppSnapshot>(SNAPSHOT_EVENT, (event) => {
-		applySnapshot(event.payload);
+	const pendingUpdates: AppUpdate[] = [];
+	let readyForLiveUpdates = false;
+	const unlisten = await listen<AppUpdate>(UPDATE_EVENT, (event) => {
+		if (!readyForLiveUpdates) {
+			pendingUpdates.push(event.payload);
+			return;
+		}
+		applyUpdate(event.payload);
 	});
 
 	try {
 		const snapshot = await runCommand<AppSnapshot>('load_app_state');
+		if (import.meta.env.DEV) {
+			window.__PI_DEBUG__ = { invoke };
+		}
 		applySnapshot(snapshot);
+		readyForLiveUpdates = true;
+		for (const update of pendingUpdates) {
+			applyUpdate(update);
+		}
+		pendingUpdates.length = 0;
 		return unlisten;
 	} catch (error) {
 		await unlisten();
@@ -125,9 +301,10 @@ async function initializeRuntime(
 
 function createWorkbenchActions(
 	applySnapshot: (snapshot: AppSnapshot) => void,
+	applyUpdate: (update: AppUpdate) => void,
 	applyError: (error: unknown) => void
 ) {
-	async function runAndApply(command: Promise<AppSnapshot>) {
+	async function runAndApplySnapshot(command: Promise<AppSnapshot>) {
 		try {
 			const snapshot = await command;
 			applySnapshot(snapshot);
@@ -138,66 +315,81 @@ function createWorkbenchActions(
 		}
 	}
 
+	async function runAndApplyUpdate(command: Promise<AppUpdate>) {
+		try {
+			const update = await command;
+			applyUpdate(update);
+			return update;
+		} catch (error) {
+			applyError(error);
+			throw error;
+		}
+	}
+
 	return {
 		async abortThread(threadId: string) {
-			await runAndApply(runCommand<AppSnapshot>('abort_thread', { threadId }));
+			await runAndApplyUpdate(runCommand<AppUpdate>('abort_thread', { threadId }));
 		},
 		async addProject(path: string) {
-			await runAndApply(runCommand<AppSnapshot>('add_project', { input: { path } }));
+			await runAndApplyUpdate(runCommand<AppUpdate>('add_project', { input: { path } }));
 		},
 		async createThread(projectId: string, title: string) {
-			return runAndApply(runCommand<AppSnapshot>('create_thread', { input: { projectId, title } }));
+			await runAndApplyUpdate(
+				runCommand<AppUpdate>('create_thread', { input: { projectId, title } })
+			);
 		},
 		async moveProject(projectId: string, targetIndex: number) {
-			await runAndApply(
-				runCommand<AppSnapshot>('move_project', { input: { projectId, targetIndex } })
+			await runAndApplyUpdate(
+				runCommand<AppUpdate>('move_project', { input: { projectId, targetIndex } })
 			);
 		},
 		async importCodexOpenAiKey() {
-			await runAndApply(runCommand<AppSnapshot>('import_codex_openai_key'));
+			await runAndApplyUpdate(runCommand<AppUpdate>('import_codex_openai_key'));
 		},
 		async startCodexLogin() {
-			await runAndApply(runCommand<AppSnapshot>('start_codex_login'));
+			await runAndApplyUpdate(runCommand<AppUpdate>('start_codex_login'));
 		},
 		async loadProjectDiff(projectId: string) {
 			return runCommand<ProjectDiffSnapshot>('load_project_diff', { projectId });
 		},
 		async refreshState() {
-			await runAndApply(runCommand<AppSnapshot>('load_app_state'));
+			await runAndApplySnapshot(runCommand<AppSnapshot>('load_app_state'));
 		},
 		async removeAttachment(threadId: string, attachmentId: string) {
-			await runAndApply(
-				runCommand<AppSnapshot>('remove_attachment', { input: { attachmentId, threadId } })
+			await runAndApplyUpdate(
+				runCommand<AppUpdate>('remove_attachment', { input: { attachmentId, threadId } })
 			);
 		},
 		async selectModel(threadId: string, modelKey: string) {
-			await runAndApply(runCommand<AppSnapshot>('select_model', { input: { modelKey, threadId } }));
+			await runAndApplyUpdate(
+				runCommand<AppUpdate>('select_model', { input: { modelKey, threadId } })
+			);
 		},
 		async selectReasoning(threadId: string, reasoningLevel: ThinkingLevel) {
-			await runAndApply(
-				runCommand<AppSnapshot>('select_reasoning', { input: { reasoningLevel, threadId } })
+			await runAndApplyUpdate(
+				runCommand<AppUpdate>('select_reasoning', { input: { reasoningLevel, threadId } })
 			);
 		},
 		async sendPrompt(threadId: string, text: string, mode: PromptMode) {
-			await runAndApply(
-				runCommand<AppSnapshot>('send_prompt', { input: { mode, text, threadId } })
+			await runAndApplyUpdate(
+				runCommand<AppUpdate>('send_prompt', { input: { mode, text, threadId } })
 			);
 		},
 		async setFeatureToggle(feature: string, enabled: boolean) {
-			await runAndApply(
-				runCommand<AppSnapshot>('set_feature_toggle', { input: { enabled, feature } })
+			await runAndApplyUpdate(
+				runCommand<AppUpdate>('set_feature_toggle', { input: { enabled, feature } })
 			);
 		},
 		async setProviderKey(provider: string, key: string) {
-			await runAndApply(runCommand<AppSnapshot>('set_provider_key', { input: { key, provider } }));
+			await runAndApplyUpdate(
+				runCommand<AppUpdate>('set_provider_key', { input: { key, provider } })
+			);
 		},
-		async stageAttachment(threadId: string, file: File) {
-			await runAndApply(
-				runCommand<AppSnapshot>('stage_attachment', {
+		async stageAttachment(threadId: string, sourcePath: string) {
+			await runAndApplyUpdate(
+				runCommand<AppUpdate>('stage_attachment', {
 					input: {
-						bytes: await fileToBytes(file),
-						mimeType: file.type || 'application/octet-stream',
-						name: file.name,
+						sourcePath,
 						threadId
 					}
 				})
@@ -215,8 +407,10 @@ export function createWorkbenchController() {
 		snapshot: EMPTY_SNAPSHOT
 	});
 	const applySnapshot = createSnapshotApplier(store);
+	const applyUpdate = createUpdateApplier(store);
+	const applyHealth = createHealthApplier(store);
 	const applyError = createErrorApplier(store);
-	const actions = createWorkbenchActions(applySnapshot, applyError);
+	const actions = createWorkbenchActions(applySnapshot, applyUpdate, applyError);
 	let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
 	let heartbeatInFlight = false;
 	let unlisten: UnlistenFn | null = null;
@@ -231,7 +425,7 @@ export function createWorkbenchController() {
 		store.update((current) => ({ ...current, heartbeatPending: true }));
 
 		try {
-			applySnapshot(await runCommand<AppSnapshot>('snapshot_state'));
+			applyHealth(await runCommand<AppHealth>('load_runtime_health'));
 		} catch (error) {
 			applyError(error);
 		} finally {
@@ -243,7 +437,7 @@ export function createWorkbenchController() {
 		...actions,
 		async initialize() {
 			try {
-				unlisten = await initializeRuntime(store, applySnapshot);
+				unlisten = await initializeRuntime(store, applySnapshot, applyUpdate);
 				if (browser && isTauri()) {
 					heartbeatTimer = setInterval(() => {
 						void pollRunningThread();
@@ -254,6 +448,9 @@ export function createWorkbenchController() {
 			}
 		},
 		destroy() {
+			if (browser && isTauri()) {
+				delete window.__PI_DEBUG__;
+			}
 			unlisten?.();
 			unlisten = null;
 			if (heartbeatTimer) {

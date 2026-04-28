@@ -12,6 +12,44 @@ pub struct AppSnapshot {
     pub settings: AppSettings,
 }
 
+#[derive(Clone, Debug, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AppUpdate {
+    pub events: Vec<AppEvent>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(tag = "type", rename_all = "kebab-case")]
+pub enum AppEvent {
+    #[serde(rename_all = "camelCase")]
+    ProjectUpserted {
+        project: ProjectRecord,
+        selected_project_id: Option<String>,
+        selected_thread_id: Option<String>,
+    },
+    #[serde(rename_all = "camelCase")]
+    ProjectOrderChanged {
+        project_ids: Vec<String>,
+        selected_project_id: Option<String>,
+        selected_thread_id: Option<String>,
+    },
+    #[serde(rename_all = "camelCase")]
+    ThreadUpserted {
+        project_id: String,
+        selected_project_id: Option<String>,
+        selected_thread_id: Option<String>,
+        thread: ThreadRecord,
+    },
+    #[serde(rename_all = "camelCase")]
+    SettingsUpdated { settings: AppSettings },
+    #[serde(rename_all = "camelCase")]
+    ModelsUpdated { models: Vec<ModelOption> },
+    #[serde(rename_all = "camelCase")]
+    HealthUpdated { health: AppHealth },
+    #[serde(rename_all = "camelCase")]
+    IntegrationsUpdated { integrations: AppIntegrations },
+}
+
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PersistedState {
@@ -108,6 +146,8 @@ pub struct ThreadRecord {
     pub branch: String,
     pub id: String,
     pub last_error: Option<String>,
+    #[serde(default)]
+    pub last_user_message_at_ms: u64,
     pub messages: Vec<MessageRecord>,
     pub model_key: Option<String>,
     pub queue: Vec<QueueEntry>,
@@ -324,9 +364,7 @@ pub struct ToggleFeatureInput {
 #[derive(Clone, Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct StageAttachmentInput {
-    pub bytes: Vec<u8>,
-    pub mime_type: String,
-    pub name: String,
+    pub source_path: String,
     pub thread_id: String,
 }
 

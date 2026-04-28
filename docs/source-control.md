@@ -15,6 +15,10 @@ This document is a placeholder for the DGCoder Pi source control design.
 - Staged and unstaged change grouping
 - Commit flow with policy gates
 
+## Related Specs
+
+- [Diff Viewer Spec](./diff-viewer-spec.md)
+
 ## Open Questions
 
 - How much source control belongs in the main workbench versus a dedicated panel?
