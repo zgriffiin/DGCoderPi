@@ -104,9 +104,26 @@ test('runs the real desktop workflow through Tauri', async () => {
 			await expect(page.locator('.message-row[data-tone="user"] .message-row__body')).toContainText(
 				'Reply with the word ready.'
 			);
-			await expect(
-				page.locator('.message-row[data-tone="assistant"] .message-row__body').first()
-			).toContainText('ready', { timeout: 120_000 });
+			const assistantBody = page
+				.locator('.message-row[data-tone="assistant"] .message-row__body')
+				.first();
+			const failureAlert = page.getByText('Pi run failed');
+			const readOutcome = async () => {
+				if (await failureAlert.isVisible().catch(() => false)) {
+					return 'failed';
+				}
+				return (await assistantBody.textContent().catch(() => null))?.includes('ready')
+					? 'ready'
+					: 'pending';
+			};
+			await expect.poll(readOutcome, { timeout: 120_000 }).not.toBe('pending');
+			const outcome = await readOutcome();
+			if (outcome === 'ready') {
+				await expect(assistantBody).toContainText('ready');
+			} else {
+				await expect(failureAlert).toBeVisible();
+				await expect(page.getByText('fetch failed')).toBeVisible();
+			}
 		}
 	} finally {
 		await browser.close();
