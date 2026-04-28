@@ -187,16 +187,13 @@ pub fn git_branch(path: &str) -> String {
 
 pub fn project_diff(path: &str, branch: &str) -> ProjectDiffSnapshot {
     let output = Command::new("git")
-        .args(["-C", path, "status", "--porcelain"])
+        .args(["-C", path, "status", "--porcelain", "-z"])
         .output();
 
     match output {
         Ok(result) if result.status.success() => ProjectDiffSnapshot {
             branch: branch.to_string(),
-            files: String::from_utf8_lossy(&result.stdout)
-                .lines()
-                .filter_map(parse_git_status_line)
-                .collect(),
+            files: parse_git_status_output(&result.stdout),
             git_available: true,
         },
         _ => ProjectDiffSnapshot {
@@ -227,9 +224,11 @@ pub fn read_codex_status() -> CodexStatus {
         .map(|value| !value.is_null())
         .unwrap_or(false);
 
+    let authenticated = has_openai_api_key || has_tokens;
+
     CodexStatus {
-        authenticated: has_openai_api_key || has_tokens || auth_mode.is_some(),
-        display_status: if has_openai_api_key || has_tokens || auth_mode.is_some() {
+        authenticated,
+        display_status: if authenticated {
             match auth_mode.as_deref() {
                 Some("chatgpt") => "Signed in with ChatGPT".to_string(),
                 Some("api_key") => "Using OpenAI API key".to_string(),
@@ -259,30 +258,39 @@ pub fn read_codex_openai_key() -> Result<String, String> {
     Ok(key.to_string())
 }
 
-fn parse_git_status_line(line: &str) -> Option<ProjectDiffEntry> {
-    let trimmed = line.trim_end();
-    if trimmed.len() < 3 {
-        return None;
-    }
+fn parse_git_status_output(output: &[u8]) -> Vec<ProjectDiffEntry> {
+    let mut records = output
+        .split(|byte| *byte == 0)
+        .filter(|record| !record.is_empty());
+    let mut files = Vec::new();
 
-    let code = trimmed.get(..2)?.to_string();
-    let mut path = trimmed.get(3..)?.trim().to_string();
-    if code.chars().all(char::is_whitespace) || path.is_empty() {
-        return None;
-    }
-
-    if code.chars().any(|status| matches!(status, 'R' | 'C')) {
-        if let Some(separator_index) = path.rfind(" -> ") {
-            path = path[separator_index + 4..].trim().to_string();
+    while let Some(record) = records.next() {
+        if record.len() < 3 {
+            continue;
         }
+
+        let code = String::from_utf8_lossy(&record[..2]).to_string();
+        if code.chars().all(char::is_whitespace) {
+            continue;
+        }
+
+        let mut path = String::from_utf8_lossy(&record[3..]).trim().to_string();
+        if code.chars().any(|status| matches!(status, 'R' | 'C')) {
+            let Some(target_record) = records.next() else {
+                continue;
+            };
+            path = String::from_utf8_lossy(target_record).trim().to_string();
+        }
+
+        path = decode_git_path(&path);
+        if path.is_empty() {
+            continue;
+        }
+
+        files.push(ProjectDiffEntry { code, path });
     }
 
-    path = decode_git_path(&path);
-    if path.is_empty() {
-        return None;
-    }
-
-    Some(ProjectDiffEntry { code, path })
+    files
 }
 
 fn decode_git_path(path: &str) -> String {

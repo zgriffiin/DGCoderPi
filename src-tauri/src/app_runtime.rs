@@ -159,7 +159,10 @@ impl AppRuntime {
             }
 
             let project = state.projects.remove(current_index);
-            let target_index = input.target_index.min(state.projects.len());
+            let mut target_index = input.target_index.min(state.projects.len());
+            if current_index < input.target_index {
+                target_index = target_index.saturating_sub(1);
+            }
             state.projects.insert(target_index, project);
             Ok(())
         })
@@ -388,13 +391,11 @@ impl AppRuntime {
             .inner
             .state
             .lock()
-            .map_err(|_| "State lock was poisoned.".to_string())?;
-        Ok(build_snapshot(
-            &state,
-            models,
-            &self.bridge()?.status(),
-            read_codex_status(),
-        ))
+            .map_err(|_| "State lock was poisoned.".to_string())?
+            .clone();
+        let bridge_status = self.bridge()?.status();
+        let codex_status = read_codex_status();
+        Ok(build_snapshot(&state, models, &bridge_status, codex_status))
     }
 
     fn refresh_environment(&self) -> Result<(), String> {

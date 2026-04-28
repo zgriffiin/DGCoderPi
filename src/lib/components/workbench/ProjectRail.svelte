@@ -47,14 +47,7 @@
 			return;
 		}
 
-		const sourceIndex = projects.findIndex((project) => project.id === draggedProjectId);
-		if (sourceIndex === -1) {
-			draggedProjectId = null;
-			return;
-		}
-
-		const insertionIndex = sourceIndex < targetIndex ? targetIndex - 1 : targetIndex;
-		onMoveProject(draggedProjectId, insertionIndex);
+		onMoveProject(draggedProjectId, targetIndex);
 		draggedProjectId = null;
 	}
 </script>
