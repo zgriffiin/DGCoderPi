@@ -17,7 +17,7 @@
 			async: false,
 			breaks: true,
 			gfm: true
-		});
+		} as const);
 
 		return DOMPurify.sanitize(parsedHtml);
 	}
