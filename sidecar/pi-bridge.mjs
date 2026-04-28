@@ -153,7 +153,7 @@ class BridgeRuntime {
 					key: `${model.provider}::${model.id}`,
 					label: model.name,
 					provider: model.provider,
-					supportsImages: model.input.includes('image'),
+					supportsImages: Array.isArray(model.input) && model.input.includes('image'),
 					supportsReasoning: Boolean(model.reasoning)
 				}))
 				.sort((left, right) => {

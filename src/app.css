@@ -282,14 +282,16 @@ textarea {
 	background: var(--cds-layer-selected, #e0e0e0);
 }
 
-.thread-row :global(.bx--tag) {
+.thread-row .bx--tag {
 	display: inline-flex;
 	flex: 0 0 auto;
+	max-width: none;
 	min-width: max-content;
 	white-space: nowrap;
+	width: max-content;
 }
 
-.thread-row :global(.status-tag .bx--tag__label) {
+.thread-row .status-tag .bx--tag__label {
 	overflow-wrap: normal;
 	white-space: nowrap;
 	word-break: keep-all;
@@ -435,80 +437,80 @@ textarea {
 	font-size: 0.75rem;
 	line-height: 1.5;
 	margin: 0;
+	overflow-wrap: break-word;
 	white-space: pre-wrap;
-	word-break: break-word;
 }
 
-.message-row__body--markdown :global(*) {
+.message-row__body--markdown * {
 	font-size: inherit;
 }
 
-.message-row__body--markdown :global(p),
-.message-row__body--markdown :global(ul),
-.message-row__body--markdown :global(ol),
-.message-row__body--markdown :global(pre),
-.message-row__body--markdown :global(blockquote),
-.message-row__body--markdown :global(h1),
-.message-row__body--markdown :global(h2),
-.message-row__body--markdown :global(h3),
-.message-row__body--markdown :global(h4),
-.message-row__body--markdown :global(h5),
-.message-row__body--markdown :global(h6),
-.message-row__body--markdown :global(hr) {
+.message-row__body--markdown p,
+.message-row__body--markdown ul,
+.message-row__body--markdown ol,
+.message-row__body--markdown pre,
+.message-row__body--markdown blockquote,
+.message-row__body--markdown h1,
+.message-row__body--markdown h2,
+.message-row__body--markdown h3,
+.message-row__body--markdown h4,
+.message-row__body--markdown h5,
+.message-row__body--markdown h6,
+.message-row__body--markdown hr {
 	margin: 0 0 0.75rem;
 }
 
-.message-row__body--markdown :global(p:last-child),
-.message-row__body--markdown :global(ul:last-child),
-.message-row__body--markdown :global(ol:last-child),
-.message-row__body--markdown :global(pre:last-child),
-.message-row__body--markdown :global(blockquote:last-child),
-.message-row__body--markdown :global(h1:last-child),
-.message-row__body--markdown :global(h2:last-child),
-.message-row__body--markdown :global(h3:last-child),
-.message-row__body--markdown :global(h4:last-child),
-.message-row__body--markdown :global(h5:last-child),
-.message-row__body--markdown :global(h6:last-child),
-.message-row__body--markdown :global(hr:last-child) {
+.message-row__body--markdown p:last-child,
+.message-row__body--markdown ul:last-child,
+.message-row__body--markdown ol:last-child,
+.message-row__body--markdown pre:last-child,
+.message-row__body--markdown blockquote:last-child,
+.message-row__body--markdown h1:last-child,
+.message-row__body--markdown h2:last-child,
+.message-row__body--markdown h3:last-child,
+.message-row__body--markdown h4:last-child,
+.message-row__body--markdown h5:last-child,
+.message-row__body--markdown h6:last-child,
+.message-row__body--markdown hr:last-child {
 	margin-bottom: 0;
 }
 
-.message-row__body--markdown :global(h1),
-.message-row__body--markdown :global(h2),
-.message-row__body--markdown :global(h3),
-.message-row__body--markdown :global(h4),
-.message-row__body--markdown :global(h5),
-.message-row__body--markdown :global(h6) {
+.message-row__body--markdown h1,
+.message-row__body--markdown h2,
+.message-row__body--markdown h3,
+.message-row__body--markdown h4,
+.message-row__body--markdown h5,
+.message-row__body--markdown h6 {
 	font-size: 0.75rem;
 	font-weight: 600;
 	line-height: 1.4;
 }
 
-.message-row__body--markdown :global(ul),
-.message-row__body--markdown :global(ol) {
+.message-row__body--markdown ul,
+.message-row__body--markdown ol {
 	padding-left: 1.125rem;
 }
 
-.message-row__body--markdown :global(li + li) {
+.message-row__body--markdown li + li {
 	margin-top: 0.25rem;
 }
 
-.message-row__body--markdown :global(a) {
+.message-row__body--markdown a {
 	color: #78a9ff;
 	text-decoration: none;
 }
 
-.message-row__body--markdown :global(a:hover) {
+.message-row__body--markdown a:hover {
 	text-decoration: underline;
 }
 
-.message-row__body--markdown :global(code) {
+.message-row__body--markdown code {
 	background: rgba(255, 255, 255, 0.08);
 	border-radius: 0.25rem;
 	padding: 0.0625rem 0.25rem;
 }
 
-.message-row__body--markdown :global(pre) {
+.message-row__body--markdown pre {
 	background: rgba(0, 0, 0, 0.24);
 	border: 1px solid var(--cds-border-subtle, #3f3f3f);
 	border-radius: 0.5rem;
@@ -516,18 +518,18 @@ textarea {
 	padding: 0.75rem;
 }
 
-.message-row__body--markdown :global(pre code) {
+.message-row__body--markdown pre code {
 	background: transparent;
 	padding: 0;
 }
 
-.message-row__body--markdown :global(blockquote) {
+.message-row__body--markdown blockquote {
 	border-left: 2px solid var(--cds-border-subtle, #6f6f6f);
 	color: var(--cds-text-secondary, #c6c6c6);
 	padding-left: 0.75rem;
 }
 
-.message-row__body--markdown :global(hr) {
+.message-row__body--markdown hr {
 	border: 0;
 	border-top: 1px solid var(--cds-border-subtle, #525252);
 }

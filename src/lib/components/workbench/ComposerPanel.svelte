@@ -72,7 +72,7 @@
 	}
 
 	function handleKeydown(event: KeyboardEvent) {
-		if (event.key !== 'Enter' || event.shiftKey) {
+		if (!canSend || event.key !== 'Enter' || event.shiftKey) {
 			return;
 		}
 

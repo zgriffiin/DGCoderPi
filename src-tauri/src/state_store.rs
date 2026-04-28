@@ -265,20 +265,13 @@ fn parse_git_status_line(line: &str) -> Option<ProjectDiffEntry> {
         return None;
     }
 
-    let code = trimmed.get(..2)?.trim().to_string();
+    let code = trimmed.get(..2)?.to_string();
     let path = trimmed.get(3..)?.trim().to_string();
-    if path.is_empty() {
+    if code.chars().all(char::is_whitespace) || path.is_empty() {
         return None;
     }
 
-    Some(ProjectDiffEntry {
-        code: if code.is_empty() {
-            "??".to_string()
-        } else {
-            code
-        },
-        path,
-    })
+    Some(ProjectDiffEntry { code, path })
 }
 
 fn read_codex_auth() -> Option<serde_json::Value> {

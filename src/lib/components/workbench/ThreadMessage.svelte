@@ -1,4 +1,5 @@
 <script lang="ts">
+	import DOMPurify from 'isomorphic-dompurify';
 	import { marked } from 'marked';
 	import type { MessageRecord } from '$lib/types/workbench';
 
@@ -11,21 +12,14 @@
 		}).format(timestampMs);
 	}
 
-	function escapeHtml(value: string) {
-		return value
-			.replaceAll('&', '&amp;')
-			.replaceAll('<', '&lt;')
-			.replaceAll('>', '&gt;')
-			.replaceAll('"', '&quot;')
-			.replaceAll("'", '&#39;');
-	}
-
 	function renderMarkdown(value: string) {
-		return marked.parse(escapeHtml(value), {
+		const parsedHtml = marked.parse(value, {
 			async: false,
 			breaks: true,
 			gfm: true
 		});
+
+		return DOMPurify.sanitize(parsedHtml);
 	}
 
 	let { message }: { message: MessageRecord } = $props();

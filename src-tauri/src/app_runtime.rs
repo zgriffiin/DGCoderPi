@@ -9,6 +9,9 @@ use std::{
 use tauri::{AppHandle, Emitter};
 use uuid::Uuid;
 
+#[cfg(target_os = "linux")]
+use std::io::ErrorKind;
+
 use crate::{
     model::{
         ActivityRecord, AddProjectInput, AppSnapshot, AttachmentParseStatus, AttachmentStage,
@@ -293,10 +296,10 @@ impl AppRuntime {
             } else {
                 thread.queue.push(crate::model::QueueEntry {
                     id: Uuid::new_v4().to_string(),
-                    mode: match effective_mode {
-                        PromptMode::FollowUp => crate::model::QueueMode::FollowUp,
-                        PromptMode::Steer => crate::model::QueueMode::Steer,
-                        PromptMode::Prompt => crate::model::QueueMode::FollowUp,
+                    mode: if matches!(effective_mode, PromptMode::Steer) {
+                        crate::model::QueueMode::Steer
+                    } else {
+                        crate::model::QueueMode::FollowUp
                     },
                     status: crate::model::QueueStatus::Pending,
                     text: input.text.clone(),
@@ -712,18 +715,72 @@ fn derive_thread_title(text: &str) -> String {
     title
 }
 
+#[cfg(target_os = "windows")]
 fn launch_codex_login() -> Result<(), String> {
-    if cfg!(target_os = "windows") {
-        Command::new("cmd")
-            .args(["/C", "start", "", "cmd", "/K", "codex login"])
-            .spawn()
-            .map_err(|error| error.to_string())?;
-        return Ok(());
-    }
+    Command::new("cmd")
+        .args(["/C", "start", "", "cmd", "/K", "codex login"])
+        .spawn()
+        .map_err(|error| error.to_string())?;
+    Ok(())
+}
 
+#[cfg(target_os = "macos")]
+fn launch_codex_login() -> Result<(), String> {
+    launch_macos_codex_login()
+}
+
+#[cfg(target_os = "linux")]
+fn launch_codex_login() -> Result<(), String> {
+    launch_linux_codex_login()
+}
+
+#[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
+fn launch_codex_login() -> Result<(), String> {
     Command::new("codex")
         .arg("login")
         .spawn()
         .map_err(|error| error.to_string())?;
     Ok(())
+}
+
+#[cfg(target_os = "macos")]
+fn launch_macos_codex_login() -> Result<(), String> {
+    Command::new("osascript")
+        .args([
+            "-e",
+            "tell application \"Terminal\" to activate",
+            "-e",
+            "tell application \"Terminal\" to do script \"codex login\"",
+        ])
+        .spawn()
+        .map_err(|error| format!("Failed to launch Terminal for `codex login`: {error}"))?;
+    Ok(())
+}
+
+#[cfg(target_os = "linux")]
+fn launch_linux_codex_login() -> Result<(), String> {
+    const TERMINAL_CANDIDATES: [(&str, &[&str]); 5] = [
+        ("gnome-terminal", &["--", "bash", "-lc", "codex login"]),
+        ("konsole", &["-e", "bash", "-lc", "codex login"]),
+        ("xterm", &["-e", "bash", "-lc", "codex login"]),
+        ("alacritty", &["-e", "bash", "-lc", "codex login"]),
+        ("kitty", &["sh", "-lc", "codex login"]),
+    ];
+
+    for (terminal, args) in TERMINAL_CANDIDATES {
+        match Command::new(terminal).args(args).spawn() {
+            Ok(_) => return Ok(()),
+            Err(error) if error.kind() == ErrorKind::NotFound => continue,
+            Err(error) => {
+                return Err(format!(
+                    "Failed to launch `{terminal}` for `codex login`: {error}"
+                ));
+            }
+        }
+    }
+
+    Err(
+        "Failed to launch `codex login`. No supported terminal emulator was found. Run `codex login` manually in a terminal."
+            .to_string(),
+    )
 }

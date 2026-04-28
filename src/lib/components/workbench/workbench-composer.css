@@ -21,7 +21,7 @@
 	gap: 0.375rem;
 }
 
-.composer-panel__controls :global(.bx--btn) {
+.composer-panel__controls .bx--btn {
 	flex: 0 0 auto;
 }
 
@@ -30,6 +30,6 @@
 	min-width: 11rem;
 }
 
-.composer-select :global(.bx--list-box) {
+.composer-select .bx--list-box {
 	min-width: 11rem;
 }
