@@ -291,36 +291,73 @@ fn decode_git_path(path: &str) -> String {
         return trimmed.to_string();
     }
 
-    let mut decoded = String::new();
-    let mut escaped = false;
+    let inner = &trimmed[1..trimmed.len() - 1];
+    let bytes = inner.as_bytes();
+    let mut decoded = Vec::with_capacity(bytes.len());
+    let mut index = 0;
 
-    for character in trimmed[1..trimmed.len() - 1].chars() {
-        if escaped {
-            decoded.push(match character {
-                '"' => '"',
-                '\\' => '\\',
-                'n' => '\n',
-                'r' => '\r',
-                't' => '\t',
-                other => other,
-            });
-            escaped = false;
+    while index < bytes.len() {
+        if bytes[index] != b'\\' {
+            decoded.push(bytes[index]);
+            index += 1;
             continue;
         }
 
-        if character == '\\' {
-            escaped = true;
-            continue;
+        if index + 1 >= bytes.len() {
+            decoded.push(b'\\');
+            break;
         }
 
-        decoded.push(character);
+        match bytes[index + 1] {
+            b'"' => {
+                decoded.push(b'"');
+                index += 2;
+            }
+            b'\\' => {
+                decoded.push(b'\\');
+                index += 2;
+            }
+            b'n' => {
+                decoded.push(b'\n');
+                index += 2;
+            }
+            b'r' => {
+                decoded.push(b'\r');
+                index += 2;
+            }
+            b't' => {
+                decoded.push(b'\t');
+                index += 2;
+            }
+            b'0'..=b'7' => {
+                let mut value: u16 = 0;
+                let mut octal_length = 0;
+                while index + 1 + octal_length < bytes.len() && octal_length < 3 {
+                    let digit = bytes[index + 1 + octal_length];
+                    if !(b'0'..=b'7').contains(&digit) {
+                        break;
+                    }
+                    value = value * 8 + u16::from(digit - b'0');
+                    octal_length += 1;
+                }
+
+                if octal_length == 0 {
+                    decoded.push(b'\\');
+                    index += 1;
+                    continue;
+                }
+
+                decoded.push(value as u8);
+                index += 1 + octal_length;
+            }
+            other => {
+                decoded.push(other);
+                index += 2;
+            }
+        }
     }
 
-    if escaped {
-        decoded.push('\\');
-    }
-
-    decoded.trim().to_string()
+    String::from_utf8_lossy(&decoded).trim().to_string()
 }
 
 fn read_codex_auth() -> Option<serde_json::Value> {

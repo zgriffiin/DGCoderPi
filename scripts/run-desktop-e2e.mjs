@@ -20,7 +20,7 @@ function listWindowsListeningPids(port) {
 			'/d',
 			'/s',
 			'/c',
-			`for /f "tokens=5" %a in ('netstat -ano ^| findstr ":${port}" ^| findstr "LISTENING"') do @echo %a`
+			`for /f "tokens=5" %a in ('netstat -ano ^| findstr ":${port} " ^| findstr "LISTENING"') do @echo %a`
 		],
 		{ encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }
 	);
