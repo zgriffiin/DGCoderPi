@@ -129,6 +129,19 @@ pub enum ThinkingLevel {
     Xhigh,
 }
 
+impl ThinkingLevel {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Medium => "medium",
+            Self::Off => "off",
+            Self::Minimal => "minimal",
+            Self::Low => "low",
+            Self::High => "high",
+            Self::Xhigh => "xhigh",
+        }
+    }
+}
+
 #[derive(Clone, Debug, Default, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ProjectDiffSnapshot {

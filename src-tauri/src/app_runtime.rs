@@ -339,7 +339,8 @@ impl AppRuntime {
         };
 
         if let Err(error) = self.bridge()?.send_prompt(bridge_input) {
-            self.mutate_thread(&input.thread_id, |thread| {
+            let bridge_error = error.clone();
+            if let Err(rollback_error) = self.mutate_thread(&input.thread_id, |thread| {
                 for attachment in &mut thread.attachments {
                     if staged_attachment_paths.contains(&attachment.path)
                         && attachment.stage == AttachmentStage::Sent
@@ -356,8 +357,12 @@ impl AppRuntime {
                 thread.last_error = Some(error.clone());
                 thread.status = thread_status.clone();
                 Ok(())
-            })?;
-            return Err(error);
+            }) {
+                eprintln!(
+                    "Failed to roll back prompt state after bridge error `{bridge_error}`: {rollback_error}"
+                );
+            }
+            return Err(bridge_error);
         }
 
         self.snapshot()
@@ -513,7 +518,7 @@ impl AppRuntime {
             .model_key
             .clone()
             .ok_or_else(|| "Select a configured model before sending a prompt.".to_string())?;
-        let thinking_level = format!("{:?}", thread.reasoning_level).to_ascii_lowercase();
+        let thinking_level = thread.reasoning_level.as_str().to_string();
 
         let attachments = thread
             .attachments
@@ -791,12 +796,15 @@ fn launch_macos_codex_login() -> Result<(), String> {
 
 #[cfg(target_os = "linux")]
 fn launch_linux_codex_login() -> Result<(), String> {
-    const TERMINAL_CANDIDATES: [(&str, &[&str]); 5] = [
+    const TERMINAL_CANDIDATES: [(&str, &[&str]); 8] = [
         ("gnome-terminal", &["--", "bash", "-lc", "codex login"]),
         ("konsole", &["-e", "bash", "-lc", "codex login"]),
         ("xterm", &["-e", "bash", "-lc", "codex login"]),
         ("alacritty", &["-e", "bash", "-lc", "codex login"]),
         ("kitty", &["--", "sh", "-lc", "codex login"]),
+        ("wezterm", &["start", "--", "bash", "-lc", "codex login"]),
+        ("tilix", &["-e", "bash", "-lc", "codex login"]),
+        ("terminator", &["-x", "bash", "-lc", "codex login"]),
     ];
 
     for (terminal, args) in TERMINAL_CANDIDATES {
