@@ -10,7 +10,7 @@ function readEntryLine(entry, imageLabel) {
 	}
 
 	if (entry.type === 'text') {
-		return entry.text;
+		return typeof entry.text === 'string' ? entry.text : '';
 	}
 
 	if (entry.type === 'image') {
@@ -48,7 +48,7 @@ export function flattenAssistantContent(content) {
 				return '';
 			}
 			if (entry.type === 'text') {
-				return entry.text;
+				return typeof entry.text === 'string' ? entry.text : '';
 			}
 			if (entry.type === 'toolCall') {
 				return formatToolCall(entry.name, entry.arguments);
