@@ -6,7 +6,6 @@
 	import Settings from 'carbon-icons-svelte/lib/Settings.svelte';
 	import Task from 'carbon-icons-svelte/lib/Task.svelte';
 	import { onMount } from 'svelte';
-	import { tick } from 'svelte';
 	import type {
 		AppSnapshot,
 		InspectorMode,
@@ -227,11 +226,9 @@
 
 	async function handleCreateThreadForProject(projectId: string) {
 		await runAction(async () => {
-			await controller.createThread(projectId, 'New thread');
-			await tick();
-			const project = snapshot.projects.find((entry) => entry.id === projectId);
+			const nextSnapshot = await controller.createThread(projectId, 'New thread');
 			selectedProjectId = projectId;
-			selectedThreadId = newestThread(project?.threads ?? [])?.id ?? selectedThreadId;
+			selectedThreadId = nextSnapshot.selectedThreadId ?? selectedThreadId;
 		});
 	}
 

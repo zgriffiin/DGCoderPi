@@ -129,7 +129,9 @@ function createWorkbenchActions(
 ) {
 	async function runAndApply(command: Promise<AppSnapshot>) {
 		try {
-			applySnapshot(await command);
+			const snapshot = await command;
+			applySnapshot(snapshot);
+			return snapshot;
 		} catch (error) {
 			applyError(error);
 			throw error;
@@ -144,7 +146,7 @@ function createWorkbenchActions(
 			await runAndApply(runCommand<AppSnapshot>('add_project', { input: { path } }));
 		},
 		async createThread(projectId: string, title: string) {
-			await runAndApply(runCommand<AppSnapshot>('create_thread', { input: { projectId, title } }));
+			return runAndApply(runCommand<AppSnapshot>('create_thread', { input: { projectId, title } }));
 		},
 		async moveProject(projectId: string, targetIndex: number) {
 			await runAndApply(

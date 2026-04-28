@@ -47,12 +47,18 @@
 		xhigh: 'Extra High'
 	};
 
+	function isThinkingLevel(value: string): value is ThinkingLevel {
+		return value in THINKING_LABELS;
+	}
+
 	function handleModelSelect(event: CustomEvent<{ selectedId: string }>) {
 		onModelChange(event.detail.selectedId);
 	}
 
 	function handleReasoningSelect(event: CustomEvent<{ selectedId: string }>) {
-		onReasoningChange(event.detail.selectedId as ThinkingLevel);
+		if (isThinkingLevel(event.detail.selectedId)) {
+			onReasoningChange(event.detail.selectedId);
+		}
 	}
 
 	async function handlePaste(event: ClipboardEvent) {
@@ -114,9 +120,9 @@
 
 	const reasoningItems = $derived.by<SelectItem[]>(() => {
 		const levels = selectedModel?.availableThinkingLevels ?? ['off'];
-		return levels.map((level) => ({
+		return levels.filter(isThinkingLevel).map((level) => ({
 			id: level,
-			text: THINKING_LABELS[level as ThinkingLevel]
+			text: THINKING_LABELS[level]
 		}));
 	});
 
