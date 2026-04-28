@@ -148,6 +148,7 @@
 			return;
 		}
 
+		diff = null;
 		diffLoading = true;
 		diffError = null;
 		const projectId = activeProject.id;

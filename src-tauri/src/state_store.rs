@@ -218,13 +218,13 @@ pub fn read_codex_status() -> CodexStatus {
         .and_then(serde_json::Value::as_str)
         .map(|value| !value.trim().is_empty())
         .unwrap_or(false);
-    let has_tokens = auth
+    let has_valid_tokens = auth
         .as_ref()
         .and_then(|value| value.get("tokens"))
-        .map(|value| !value.is_null())
+        .map(has_valid_codex_tokens)
         .unwrap_or(false);
 
-    let authenticated = has_openai_api_key || has_tokens;
+    let authenticated = has_openai_api_key || has_valid_tokens;
 
     CodexStatus {
         authenticated,
@@ -275,11 +275,8 @@ fn parse_git_status_output(output: &[u8]) -> Vec<ProjectDiffEntry> {
         }
 
         let mut path = String::from_utf8_lossy(&record[3..]).trim().to_string();
-        if code.chars().any(|status| matches!(status, 'R' | 'C')) {
-            let Some(target_record) = records.next() else {
-                continue;
-            };
-            path = String::from_utf8_lossy(target_record).trim().to_string();
+        if code.chars().any(|status| matches!(status, 'R' | 'C')) && records.next().is_none() {
+            continue;
         }
 
         path = decode_git_path(&path);
@@ -291,6 +288,22 @@ fn parse_git_status_output(output: &[u8]) -> Vec<ProjectDiffEntry> {
     }
 
     files
+}
+
+fn has_valid_codex_tokens(tokens: &serde_json::Value) -> bool {
+    let Some(tokens) = tokens.as_object() else {
+        return false;
+    };
+
+    ["id_token", "access_token", "refresh_token", "account_id"]
+        .iter()
+        .all(|key| {
+            tokens
+                .get(*key)
+                .and_then(serde_json::Value::as_str)
+                .map(|value| !value.trim().is_empty())
+                .unwrap_or(false)
+        })
 }
 
 fn decode_git_path(path: &str) -> String {

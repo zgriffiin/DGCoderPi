@@ -159,13 +159,14 @@
 	<header class="pane-header pane-header--compact">
 		<h2>{threadLabel(project, thread)}</h2>
 		{#if runStatus?.runningFor}
-			<div class="thread-status-inline" aria-live="polite">
+			<div class="thread-status-inline">
+				<span class="visually-hidden" aria-live="polite">Thread running</span>
 				<div class="thread-status__signal" aria-hidden="true">
 					<span></span>
 					<span></span>
 					<span></span>
 				</div>
-				<p>Working for {runStatus.runningFor}</p>
+				<p aria-hidden="true">Working for {runStatus.runningFor}</p>
 			</div>
 		{/if}
 	</header>

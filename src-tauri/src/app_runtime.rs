@@ -695,11 +695,6 @@ fn normalize_state(state: &mut PersistedState) -> bool {
                 thread.status = ThreadStatus::Idle;
                 changed = true;
             }
-
-            if !thread.queue.is_empty() {
-                thread.queue.clear();
-                changed = true;
-            }
         }
     }
 
