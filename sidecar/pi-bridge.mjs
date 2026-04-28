@@ -7,16 +7,17 @@ import {
 	createAgentSession,
 	DefaultResourceLoader,
 	ModelRegistry,
-	SessionManager,
 	SettingsManager
 } from '@mariozechner/pi-coding-agent';
 import { readCodexOauthCredential } from './codex-auth.mjs';
 import { parseAttachment } from './docparser.mjs';
 import {
-	flattenAssistantContent,
-	flattenToolResultContent,
-	flattenUserContent
-} from './message-content-format.mjs';
+	evictDormantSessions,
+	recordSessionPreferences,
+	sessionManagerForPayload,
+	touchSession
+} from './session-history.mjs';
+import { buildActivity, buildThreadSnapshot } from './thread-snapshot.mjs';
 const PROVIDERS = [
 	['anthropic', 'Anthropic'],
 	['openai-codex', 'ChatGPT Codex'],
@@ -100,6 +101,7 @@ class BridgeRuntime {
 
 	async runTurn(payload, executeTurn) {
 		const sessionEntry = await this.ensureSession(payload);
+		touchSession(sessionEntry);
 		const images = await this.collectImages(payload.attachments, sessionEntry.model);
 		const prompt = this.formatPrompt(payload.text, payload.attachments);
 		this.runSessionCommand(payload.threadId, () =>
@@ -111,6 +113,7 @@ class BridgeRuntime {
 	async abort(payload) {
 		const sessionEntry = this.sessions.get(payload.threadId);
 		if (sessionEntry) {
+			touchSession(sessionEntry);
 			await sessionEntry.session.abort();
 			this.emitThreadUpdate(payload.threadId, sessionEntry.session, {
 				detail: 'Pi was asked to stop the current run.',
@@ -218,23 +221,28 @@ class BridgeRuntime {
 	}
 
 	async ensureSession(payload) {
+		evictDormantSessions(this.sessions);
 		const existing = this.sessions.get(payload.threadId);
+		const model = this.resolveModel(payload.modelKey);
 		if (
 			existing &&
 			existing.cwd === payload.cwd &&
 			existing.modelKey === payload.modelKey &&
 			existing.thinkingLevel === payload.thinkingLevel
 		) {
+			touchSession(existing);
 			return existing;
 		}
 
+		const sessionManager = sessionManagerForPayload(existing, payload.cwd);
+
 		if (existing) {
+			recordSessionPreferences(existing, model, payload.thinkingLevel);
 			existing.unsubscribe();
 			existing.session.dispose();
 			this.sessions.delete(payload.threadId);
 		}
 
-		const model = this.resolveModel(payload.modelKey);
 		const settingsManager = SettingsManager.inMemory({
 			compaction: { enabled: false },
 			retry: { enabled: true, maxRetries: 2 }
@@ -249,24 +257,27 @@ class BridgeRuntime {
 			model,
 			modelRegistry: this.modelRegistry,
 			resourceLoader: loader,
-			sessionManager: SessionManager.inMemory(payload.cwd),
+			sessionManager,
 			settingsManager,
 			thinkingLevel: payload.thinkingLevel
 		});
 
 		const unsubscribe = session.subscribe((event) => {
-			this.emitThreadUpdate(payload.threadId, session, this.buildActivity(event));
+			this.emitThreadUpdate(payload.threadId, session, buildActivity(event));
 		});
 
 		const entry = {
 			cwd: payload.cwd,
+			lastTouchedAt: Date.now(),
 			model,
 			modelKey: payload.modelKey,
 			session,
+			sessionManager,
 			thinkingLevel: payload.thinkingLevel,
 			unsubscribe
 		};
 		this.sessions.set(payload.threadId, entry);
+		evictDormantSessions(this.sessions);
 		this.emitThreadUpdate(payload.threadId, session, {
 			detail: `Session ready in ${payload.cwd}.`,
 			title: 'Thread ready',
@@ -298,17 +309,20 @@ class BridgeRuntime {
 			const sessionEntry = this.sessions.get(threadId);
 			if (!sessionEntry) return;
 			try {
+				touchSession(sessionEntry);
 				await command();
 				if (this.sessions.get(threadId) !== sessionEntry) {
 					return;
 				}
 
+				touchSession(sessionEntry);
 				this.emitThreadUpdate(threadId, sessionEntry.session, null);
 			} catch (error) {
 				if (this.sessions.get(threadId) !== sessionEntry) {
 					return;
 				}
 
+				touchSession(sessionEntry);
 				this.emitThreadUpdate(threadId, sessionEntry.session, {
 					detail: error instanceof Error ? error.message : String(error),
 					title: 'Session command failed',
@@ -347,155 +361,20 @@ class BridgeRuntime {
 				continue;
 			}
 
-			const data = await readFileBase64(attachment.path);
+			const data = (await readFile(attachment.path)).toString('base64');
 			images.push({ data, mimeType: attachment.mimeType, type: 'image' });
 		}
 		return images;
 	}
 
-	buildActivity(event) {
-		if (event.type === 'agent_start') {
-			return { detail: 'Pi accepted the current turn.', title: 'Run started', tone: 'system' };
-		}
-
-		if (event.type === 'agent_end') {
-			return { detail: 'Pi finished the current turn.', title: 'Run complete', tone: 'system' };
-		}
-
-		if (event.type === 'tool_execution_start') {
-			return {
-				detail: `${event.toolName} started.`,
-				title: 'Tool running',
-				tone: 'tool'
-			};
-		}
-
-		if (event.type === 'tool_execution_end') {
-			return {
-				detail: event.isError
-					? `${event.toolName} reported an error.`
-					: `${event.toolName} completed successfully.`,
-				title: 'Tool finished',
-				tone: 'tool'
-			};
-		}
-
-		if (event.type === 'queue_update') {
-			return {
-				detail: `${event.steering.length} steer and ${event.followUp.length} follow-up items pending.`,
-				title: 'Queue updated',
-				tone: 'system'
-			};
-		}
-
-		if (event.type === 'auto_retry_start') {
-			return {
-				detail: `Retry ${event.attempt} of ${event.maxAttempts} after ${event.delayMs}ms.`,
-				title: 'Retry scheduled',
-				tone: 'system'
-			};
-		}
-
-		if (event.type === 'compaction_start') {
-			return {
-				detail: `Compaction started because of ${event.reason}.`,
-				title: 'Compaction running',
-				tone: 'system'
-			};
-		}
-
-		return null;
-	}
-
 	emitThreadUpdate(threadId, session, activity) {
 		writeMessage({
 			activity,
-			snapshot: {
-				lastError: session.state.errorMessage ?? this.lastAssistantError(session.messages),
-				messages: session.messages.map((message, index) => serializeMessage(message, index)),
-				queue: [
-					...serializeQueue(session.getSteeringMessages(), 'steer'),
-					...serializeQueue(session.getFollowUpMessages(), 'follow-up')
-				],
-				status: this.sessionStatus(session)
-			},
+			snapshot: buildThreadSnapshot(session),
 			threadId,
 			type: 'thread-update'
 		});
 	}
-
-	lastAssistantError(messages) {
-		const lastAssistant = [...messages]
-			.reverse()
-			.find((message) => message && message.role === 'assistant');
-		return lastAssistant?.errorMessage ?? null;
-	}
-
-	sessionStatus(session) {
-		if (session.isStreaming) {
-			return 'running';
-		}
-
-		if (session.state.errorMessage || this.lastAssistantError(session.messages)) {
-			return 'failed';
-		}
-
-		return session.messages.length === 0 ? 'idle' : 'completed';
-	}
-}
-
-function serializeQueue(items, mode) {
-	return items.map((text, index) => ({
-		id: `${mode}-${index}`,
-		mode,
-		status: 'pending',
-		text
-	}));
-}
-
-function serializeMessage(message, index) {
-	if (message.role === 'user') {
-		return {
-			id: `${message.timestamp}-user-${index}`,
-			role: 'user',
-			status: 'ready',
-			text: flattenUserContent(message.content),
-			timestampMs: message.timestamp
-		};
-	}
-
-	if (message.role === 'assistant') {
-		return {
-			id: `${message.timestamp}-assistant-${index}`,
-			role: 'assistant',
-			status: message.stopReason === 'error' ? 'failed' : 'ready',
-			text: flattenAssistantContent(message.content),
-			timestampMs: message.timestamp
-		};
-	}
-
-	if (message.role === 'toolResult') {
-		return {
-			id: `${message.timestamp}-tool-${index}`,
-			role: 'tool',
-			status: message.isError ? 'failed' : 'ready',
-			text: flattenToolResultContent(message.content),
-			timestampMs: message.timestamp
-		};
-	}
-
-	return {
-		id: `${Date.now()}-system-${index}`,
-		role: 'system',
-		status: 'ready',
-		text: 'Unsupported message type.',
-		timestampMs: Date.now()
-	};
-}
-
-async function readFileBase64(filePath) {
-	const buffer = await readFile(filePath);
-	return buffer.toString('base64');
 }
 
 function writeMessage(message) {

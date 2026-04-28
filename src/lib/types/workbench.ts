@@ -32,7 +32,7 @@ export interface AppSnapshot {
 	settings: AppSettings;
 }
 
-interface AppHealth {
+export interface AppHealth {
 	bridgeStatus: string;
 	configuredProviderCount: number;
 	modelCount: number;
@@ -92,6 +92,7 @@ export interface ThreadRecord {
 	branch: string;
 	id: string;
 	lastError: string | null;
+	lastUserMessageAtMs: number;
 	messages: MessageRecord[];
 	modelKey: string | null;
 	queue: QueueEntry[];
@@ -148,3 +149,44 @@ interface QueueEntry {
 	status: QueueStatus;
 	text: string;
 }
+
+export interface AppUpdate {
+	events: AppEvent[];
+}
+
+export type AppEvent =
+	| {
+			type: 'project-upserted';
+			project: ProjectRecord;
+			selectedProjectId: string | null;
+			selectedThreadId: string | null;
+	  }
+	| {
+			type: 'project-order-changed';
+			projectIds: string[];
+			selectedProjectId: string | null;
+			selectedThreadId: string | null;
+	  }
+	| {
+			type: 'thread-upserted';
+			projectId: string;
+			selectedProjectId: string | null;
+			selectedThreadId: string | null;
+			thread: ThreadRecord;
+	  }
+	| {
+			type: 'settings-updated';
+			settings: AppSettings;
+	  }
+	| {
+			type: 'models-updated';
+			models: ModelOption[];
+	  }
+	| {
+			type: 'health-updated';
+			health: AppHealth;
+	  }
+	| {
+			type: 'integrations-updated';
+			integrations: AppIntegrations;
+	  };

@@ -3,42 +3,53 @@ use tauri::State;
 use crate::{
     app_runtime::AppRuntime,
     model::{
-        AddProjectInput, AppSnapshot, CreateThreadInput, MoveProjectInput, ProjectDiffSnapshot,
-        ProviderKeyInput, RemoveAttachmentInput, SelectModelInput, SelectReasoningInput,
-        SendPromptInput, StageAttachmentInput, ToggleFeatureInput,
+        AddProjectInput, AppHealth, AppSnapshot, AppUpdate, CreateThreadInput, MoveProjectInput,
+        ProjectDiffSnapshot, ProviderKeyInput, RemoveAttachmentInput, SelectModelInput,
+        SelectReasoningInput, SendPromptInput, StageAttachmentInput, ToggleFeatureInput,
     },
 };
 
-pub type CommandResult = Result<AppSnapshot, String>;
+pub type SnapshotCommandResult = Result<AppSnapshot, String>;
+pub type UpdateCommandResult = Result<AppUpdate, String>;
 pub type DiffCommandResult = Result<ProjectDiffSnapshot, String>;
+pub type HealthCommandResult = Result<AppHealth, String>;
 
 #[tauri::command]
-pub fn load_app_state(runtime: State<'_, AppRuntime>) -> CommandResult {
+pub fn load_app_state(runtime: State<'_, AppRuntime>) -> SnapshotCommandResult {
     runtime.load_snapshot()
 }
 
 #[tauri::command]
-pub fn snapshot_state(runtime: State<'_, AppRuntime>) -> CommandResult {
-    runtime.snapshot_state()
+pub fn load_runtime_health(runtime: State<'_, AppRuntime>) -> HealthCommandResult {
+    runtime.health_snapshot()
 }
 
 #[tauri::command]
-pub fn add_project(input: AddProjectInput, runtime: State<'_, AppRuntime>) -> CommandResult {
+pub fn add_project(input: AddProjectInput, runtime: State<'_, AppRuntime>) -> UpdateCommandResult {
     runtime.add_project(input)
 }
 
 #[tauri::command]
-pub fn create_thread(input: CreateThreadInput, runtime: State<'_, AppRuntime>) -> CommandResult {
+pub fn create_thread(
+    input: CreateThreadInput,
+    runtime: State<'_, AppRuntime>,
+) -> UpdateCommandResult {
     runtime.create_thread(input)
 }
 
 #[tauri::command]
-pub fn move_project(input: MoveProjectInput, runtime: State<'_, AppRuntime>) -> CommandResult {
+pub fn move_project(
+    input: MoveProjectInput,
+    runtime: State<'_, AppRuntime>,
+) -> UpdateCommandResult {
     runtime.move_project(input)
 }
 
 #[tauri::command]
-pub fn select_model(input: SelectModelInput, runtime: State<'_, AppRuntime>) -> CommandResult {
+pub fn select_model(
+    input: SelectModelInput,
+    runtime: State<'_, AppRuntime>,
+) -> UpdateCommandResult {
     runtime.select_model(input)
 }
 
@@ -46,22 +57,25 @@ pub fn select_model(input: SelectModelInput, runtime: State<'_, AppRuntime>) -> 
 pub fn select_reasoning(
     input: SelectReasoningInput,
     runtime: State<'_, AppRuntime>,
-) -> CommandResult {
+) -> UpdateCommandResult {
     runtime.select_reasoning(input)
 }
 
 #[tauri::command]
-pub fn set_provider_key(input: ProviderKeyInput, runtime: State<'_, AppRuntime>) -> CommandResult {
+pub fn set_provider_key(
+    input: ProviderKeyInput,
+    runtime: State<'_, AppRuntime>,
+) -> UpdateCommandResult {
     runtime.set_provider_key(input)
 }
 
 #[tauri::command]
-pub fn import_codex_openai_key(runtime: State<'_, AppRuntime>) -> CommandResult {
+pub fn import_codex_openai_key(runtime: State<'_, AppRuntime>) -> UpdateCommandResult {
     runtime.import_codex_openai_key()
 }
 
 #[tauri::command]
-pub fn start_codex_login(runtime: State<'_, AppRuntime>) -> CommandResult {
+pub fn start_codex_login(runtime: State<'_, AppRuntime>) -> UpdateCommandResult {
     runtime.start_codex_login()
 }
 
@@ -69,7 +83,7 @@ pub fn start_codex_login(runtime: State<'_, AppRuntime>) -> CommandResult {
 pub fn set_feature_toggle(
     input: ToggleFeatureInput,
     runtime: State<'_, AppRuntime>,
-) -> CommandResult {
+) -> UpdateCommandResult {
     runtime.set_feature_toggle(input)
 }
 
@@ -77,7 +91,7 @@ pub fn set_feature_toggle(
 pub fn stage_attachment(
     input: StageAttachmentInput,
     runtime: State<'_, AppRuntime>,
-) -> CommandResult {
+) -> UpdateCommandResult {
     runtime.stage_attachment(input)
 }
 
@@ -85,12 +99,12 @@ pub fn stage_attachment(
 pub fn remove_attachment(
     input: RemoveAttachmentInput,
     runtime: State<'_, AppRuntime>,
-) -> CommandResult {
+) -> UpdateCommandResult {
     runtime.remove_attachment(input)
 }
 
 #[tauri::command]
-pub fn send_prompt(input: SendPromptInput, runtime: State<'_, AppRuntime>) -> CommandResult {
+pub fn send_prompt(input: SendPromptInput, runtime: State<'_, AppRuntime>) -> UpdateCommandResult {
     runtime.send_prompt(input)
 }
 
@@ -100,6 +114,6 @@ pub fn load_project_diff(project_id: String, runtime: State<'_, AppRuntime>) -> 
 }
 
 #[tauri::command]
-pub fn abort_thread(thread_id: String, runtime: State<'_, AppRuntime>) -> CommandResult {
+pub fn abort_thread(thread_id: String, runtime: State<'_, AppRuntime>) -> UpdateCommandResult {
     runtime.abort_thread(&thread_id)
 }

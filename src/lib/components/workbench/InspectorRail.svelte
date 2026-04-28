@@ -18,6 +18,8 @@
 		thread: ThreadRecord | null;
 	};
 
+	const DIFF_PAGE_SIZE = 100;
+
 	function modeTitle(mode: InspectorMode) {
 		if (mode === 'tasks') {
 			return 'Tasks';
@@ -31,6 +33,27 @@
 	}
 
 	let { diff, diffError, diffLoading, mode, onClose, project, thread }: Props = $props();
+	let visibleDiffFileCount = $state(DIFF_PAGE_SIZE);
+	const diffResetKey = $derived(
+		[mode, project?.id ?? '', diff?.branch ?? '', diff?.files.length ?? 0].join('|')
+	);
+	const hiddenDiffFileCount = $derived(
+		Math.max(0, (diff?.files.length ?? 0) - visibleDiffFileCount)
+	);
+	const visibleDiffFiles = $derived(diff?.files.slice(0, visibleDiffFileCount) ?? []);
+
+	function showMoreDiffFiles() {
+		visibleDiffFileCount += DIFF_PAGE_SIZE;
+	}
+
+	$effect(() => {
+		const resetKey = diffResetKey;
+		if (!resetKey) {
+			return;
+		}
+
+		visibleDiffFileCount = DIFF_PAGE_SIZE;
+	});
 </script>
 
 <aside class="inspector-rail">
@@ -114,8 +137,14 @@
 					<p>Clean working tree</p>
 				</div>
 			{:else}
+				{#if hiddenDiffFileCount > 0}
+					<div class="inspector-summary inspector-summary--paged">
+						<p>Showing {visibleDiffFiles.length} of {diff.files.length} changed files</p>
+						<Button kind="ghost" size="small" on:click={showMoreDiffFiles}>Show more</Button>
+					</div>
+				{/if}
 				<ul class="inspector-list">
-					{#each diff.files as file (file.path)}
+					{#each visibleDiffFiles as file (file.path)}
 						<li>
 							<div class="inspector-block">
 								<div class="inspector-item">

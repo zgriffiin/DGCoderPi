@@ -86,6 +86,9 @@ pub enum BridgeEvent {
         snapshot: BridgeThreadSnapshot,
         thread_id: String,
     },
+    BridgeOffline {
+        error: String,
+    },
 }
 
 #[derive(Debug, Deserialize)]
@@ -235,20 +238,33 @@ impl PiBridge {
             .map_err(|_| "Pending bridge requests were poisoned.".to_string())?
             .insert(id.clone(), tx);
 
-        let mut stdin = self
-            .stdin
-            .lock()
-            .map_err(|_| "Node bridge stdin lock was poisoned.".to_string())?;
-        stdin
-            .write_all(command.to_string().as_bytes())
-            .map_err(|error| error.to_string())?;
-        stdin.write_all(b"\n").map_err(|error| error.to_string())?;
-        stdin.flush().map_err(|error| error.to_string())?;
-        drop(stdin);
+        let write_result = (|| {
+            let mut stdin = self
+                .stdin
+                .lock()
+                .map_err(|_| "Node bridge stdin lock was poisoned.".to_string())?;
+            stdin
+                .write_all(command.to_string().as_bytes())
+                .map_err(|error| error.to_string())?;
+            stdin.write_all(b"\n").map_err(|error| error.to_string())?;
+            stdin.flush().map_err(|error| error.to_string())
+        })();
 
-        let response = rx
-            .recv_timeout(Duration::from_secs(120))
-            .map_err(|_| format!("Timed out waiting for bridge response for {command_type}."))?;
+        if let Err(error) = write_result {
+            remove_pending_request(&self.pending, &id);
+            self.set_status("offline");
+            return Err(error);
+        }
+
+        let response = match rx.recv_timeout(Duration::from_secs(120)) {
+            Ok(response) => response,
+            Err(_) => {
+                remove_pending_request(&self.pending, &id);
+                return Err(format!(
+                    "Timed out waiting for bridge response for {command_type}."
+                ));
+            }
+        };
         if !response.ok {
             return Err(response
                 .error
@@ -339,6 +355,11 @@ fn start_stdout_listener(
         if let Ok(mut value) = status.lock() {
             *value = "offline".to_string();
         }
+
+        fail_pending_requests(&pending, "Node bridge went offline.");
+        on_event(BridgeEvent::BridgeOffline {
+            error: "Node bridge went offline.".to_string(),
+        });
     });
 }
 
@@ -349,4 +370,32 @@ fn start_stderr_listener(stderr: ChildStderr) {
             eprintln!("[pi-bridge] {text}");
         }
     });
+}
+
+fn remove_pending_request(pending: &PendingRequests, id: &str) {
+    if let Ok(mut requests) = pending.lock() {
+        requests.remove(id);
+    }
+}
+
+fn fail_pending_requests(pending: &PendingRequests, message: &str) {
+    let requests = pending
+        .lock()
+        .ok()
+        .map(|mut pending| {
+            pending
+                .drain()
+                .map(|(_, sender)| sender)
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+
+    for sender in requests {
+        let _ = sender.send(BridgeResponse {
+            error: Some(message.to_string()),
+            id: String::new(),
+            ok: false,
+            payload: None,
+        });
+    }
 }

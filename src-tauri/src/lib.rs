@@ -57,7 +57,7 @@ pub fn run() {
             commands::send_prompt,
             commands::set_feature_toggle,
             commands::set_provider_key,
-            commands::snapshot_state,
+            commands::load_runtime_health,
             commands::start_codex_login,
             commands::stage_attachment,
         ])
