@@ -1,6 +1,11 @@
 # DGCoder Pi
 
-Windows-first desktop coding workbench scaffold for Pi-driven repository tasks.
+Windows-first desktop coding workbench. Based on the simpllicity of the Pi interactions, but with a T3 Code like experience. I was 
+struggling with performance issues with T3 code, even though the team did fantastic work there and appreciate Theo's group for 
+everything they have helped me with my learning. I liked the simplicity of Pi, but wanted a regular UI experience for the same reasons
+T3 code was made. This is very early and I don't plan on this being anything but windows, T3 code is a better solution for cross 
+platform if you want a UI and Pi is better if you like the TUI interface. Built on the back of the amazing work of Mario and Theo and thier
+teams/ contributers, this is just my take on that work.
 
 ## Stack
 
