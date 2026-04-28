@@ -174,6 +174,7 @@ class BridgeRuntime {
 
 	async syncCodexOauth() {
 		const current = this.authStorage.get('openai-codex');
+		if (current && current.type !== 'oauth') return;
 		const credential = await readCodexOauthCredential();
 		if (!credential) {
 			if (current?.type === 'oauth') {
@@ -294,17 +295,17 @@ class BridgeRuntime {
 
 	runSessionCommand(threadId, command) {
 		void (async () => {
+			const sessionEntry = this.sessions.get(threadId);
+			if (!sessionEntry) return;
 			try {
 				await command();
-				const sessionEntry = this.sessions.get(threadId);
-				if (!sessionEntry) {
+				if (this.sessions.get(threadId) !== sessionEntry) {
 					return;
 				}
 
 				this.emitThreadUpdate(threadId, sessionEntry.session, null);
 			} catch (error) {
-				const sessionEntry = this.sessions.get(threadId);
-				if (!sessionEntry) {
+				if (this.sessions.get(threadId) !== sessionEntry) {
 					return;
 				}
 

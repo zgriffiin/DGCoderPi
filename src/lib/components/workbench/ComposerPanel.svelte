@@ -141,6 +141,12 @@
 
 	const running = $derived(threadStatus === 'running');
 	const startLabel = $derived(running ? 'Queue' : 'Start');
+
+	$effect(() => {
+		if (selectedReasoningLevel !== effectiveReasoningLevel) {
+			onReasoningChange(effectiveReasoningLevel);
+		}
+	});
 </script>
 
 <section class="composer-panel">
@@ -213,7 +219,7 @@
 
 			<div class="composer-select" title="Reasoning">
 				<Dropdown
-					disabled={!selectedModel?.supportsReasoning}
+					disabled={!canSend || !selectedModel?.supportsReasoning}
 					hideLabel
 					items={reasoningItems}
 					label="Reasoning"
@@ -233,10 +239,14 @@
 				onchange={handleFileInput}
 			/>
 			<Button
+				disabled={!canSend}
 				icon={Add}
 				kind="ghost"
 				size="small"
 				on:click={() => {
+					if (!canSend) {
+						return;
+					}
 					onFileDialogOpen();
 					fileInput?.click();
 				}}
