@@ -121,11 +121,19 @@
 
 	const running = $derived(threadStatus === 'running');
 	const startLabel = $derived(running ? 'Queue' : 'Start');
+	let lastRequestedReasoningLevel = $state<ThinkingLevel | null>(null);
 
 	$effect(() => {
-		if (selectedReasoningLevel !== effectiveReasoningLevel) {
+		if (
+			selectedReasoningLevel !== effectiveReasoningLevel &&
+			lastRequestedReasoningLevel !== effectiveReasoningLevel
+		) {
+			lastRequestedReasoningLevel = effectiveReasoningLevel;
 			onReasoningChange(effectiveReasoningLevel);
+			return;
 		}
+
+		lastRequestedReasoningLevel = null;
 	});
 </script>
 

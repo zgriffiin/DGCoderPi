@@ -1,4 +1,4 @@
-import { readFile, mkdir } from 'node:fs/promises';
+import { readFile, mkdir, stat } from 'node:fs/promises';
 import path from 'node:path';
 import readline from 'node:readline';
 
@@ -33,6 +33,7 @@ const UNSUPPORTED_CHATGPT_CODEX_MODELS = new Set([
 ]);
 const SUPPORTED_THINKING_LEVELS = ['off', 'minimal', 'low', 'medium', 'high', 'xhigh'];
 const PREFERRED_MODEL_KEYS = ['openai-codex::gpt-5.4'];
+const MAX_IMAGE_ATTACHMENT_BYTES = 5 * 1024 * 1024;
 
 class BridgeRuntime {
 	constructor() {
@@ -361,6 +362,12 @@ class BridgeRuntime {
 				continue;
 			}
 
+			const metadata = await stat(attachment.path);
+			if (metadata.size > MAX_IMAGE_ATTACHMENT_BYTES) {
+				throw new Error(
+					`Image attachment exceeds ${MAX_IMAGE_ATTACHMENT_BYTES} bytes: ${attachment.name}`
+				);
+			}
 			const data = (await readFile(attachment.path)).toString('base64');
 			images.push({ data, mimeType: attachment.mimeType, type: 'image' });
 		}

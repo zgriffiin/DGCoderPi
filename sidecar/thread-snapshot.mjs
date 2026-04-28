@@ -59,9 +59,12 @@ export function buildActivity(event) {
 }
 
 export function buildThreadSnapshot(session) {
+	const snapshotTimestamp = Date.now();
 	return {
 		lastError: session.state.errorMessage ?? lastAssistantError(session.messages),
-		messages: session.messages.map((message, index) => serializeMessage(message, index)),
+		messages: session.messages.map((message, index) =>
+			serializeMessage(message, index, snapshotTimestamp)
+		),
 		queue: [
 			...serializeQueue(session.getSteeringMessages(), 'steer'),
 			...serializeQueue(session.getFollowUpMessages(), 'follow-up')
@@ -79,7 +82,7 @@ function serializeQueue(items, mode) {
 	}));
 }
 
-function serializeMessage(message, index) {
+function serializeMessage(message, index, snapshotTimestamp) {
 	if (message.role === 'user') {
 		return {
 			id: `${message.timestamp}-user-${index}`,
@@ -111,11 +114,11 @@ function serializeMessage(message, index) {
 	}
 
 	return {
-		id: `${Date.now()}-system-${index}`,
+		id: `${snapshotTimestamp}-system-${index}`,
 		role: 'system',
 		status: 'ready',
 		text: 'Unsupported message type.',
-		timestampMs: Date.now()
+		timestampMs: snapshotTimestamp
 	};
 }
 
@@ -131,7 +134,14 @@ function sessionStatus(session) {
 		return 'running';
 	}
 
-	if (session.state.errorMessage || lastAssistantError(session.messages)) {
+	const lastAssistant = [...session.messages]
+		.reverse()
+		.find((message) => message && message.role === 'assistant');
+	if (
+		session.state.errorMessage ||
+		lastAssistantError(session.messages) ||
+		lastAssistant?.stopReason === 'error'
+	) {
 		return 'failed';
 	}
 

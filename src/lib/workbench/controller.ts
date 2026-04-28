@@ -200,7 +200,9 @@ function applyEventToSnapshot(snapshot: AppSnapshot, event: AppEvent) {
 		return;
 	}
 
-	snapshot.integrations = event.integrations;
+	if (event.type === 'integrations-updated') {
+		snapshot.integrations = event.integrations;
+	}
 }
 
 function createUpdateApplier(store: ReturnType<typeof writable<WorkbenchState>>) {

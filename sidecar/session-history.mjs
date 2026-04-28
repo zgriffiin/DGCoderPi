@@ -12,12 +12,16 @@ export function sessionManagerForPayload(existing, cwd) {
 }
 
 export function recordSessionPreferences(existing, nextModel, nextThinkingLevel) {
+	if (!existing) {
+		return;
+	}
+
 	const nextModelKey = `${nextModel.provider}::${nextModel.id}`;
-	if (existing.modelKey !== nextModelKey) {
+	if (existing.sessionManager && existing.modelKey !== nextModelKey) {
 		existing.sessionManager.appendModelChange(nextModel.provider, nextModel.id);
 	}
 
-	if (existing.thinkingLevel !== nextThinkingLevel) {
+	if (existing.sessionManager && existing.thinkingLevel !== nextThinkingLevel) {
 		existing.sessionManager.appendThinkingLevelChange(nextThinkingLevel);
 	}
 }
@@ -30,10 +34,10 @@ export function evictDormantSessions(sessions, now = Date.now()) {
 	const entries = [...sessions.entries()];
 	const eligibleEntries = entries
 		.filter(([, entry]) => canDisposeSession(entry))
-		.sort((left, right) => left[1].lastTouchedAt - right[1].lastTouchedAt);
+		.sort((left, right) => lastTouchedAtMs(left[1]) - lastTouchedAtMs(right[1]));
 
 	for (const [threadId, entry] of eligibleEntries) {
-		const idleDurationMs = now - entry.lastTouchedAt;
+		const idleDurationMs = now - lastTouchedAtMs(entry);
 		if (sessions.size <= MAX_ACTIVE_SESSIONS && idleDurationMs < SESSION_IDLE_MS) {
 			break;
 		}
@@ -53,4 +57,8 @@ function canDisposeSession(entry) {
 		entry.session.getSteeringMessages().length > 0 ||
 		entry.session.getFollowUpMessages().length > 0;
 	return !hasQueuedWork;
+}
+
+function lastTouchedAtMs(entry) {
+	return Number(entry.lastTouchedAt ?? 0);
 }

@@ -34,9 +34,18 @@
 
 	let { diff, diffError, diffLoading, mode, onClose, project, thread }: Props = $props();
 	let visibleDiffFileCount = $state(DIFF_PAGE_SIZE);
-	const diffResetKey = $derived(
-		[mode, project?.id ?? '', diff?.branch ?? '', diff?.files.length ?? 0].join('|')
-	);
+	const diffResetKey = $derived.by(() => {
+		const fingerprint =
+			diff?.files.map((file) => `${file.code}:${file.originalPath ?? ''}:${file.path}`).join('|') ??
+			'';
+		return [
+			mode,
+			project?.id ?? '',
+			diff?.branch ?? '',
+			diff?.gitAvailable ? 'git' : 'no-git',
+			fingerprint
+		].join('|');
+	});
 	const hiddenDiffFileCount = $derived(
 		Math.max(0, (diff?.files.length ?? 0) - visibleDiffFileCount)
 	);
@@ -140,7 +149,7 @@
 				{#if hiddenDiffFileCount > 0}
 					<div class="inspector-summary inspector-summary--paged">
 						<p>Showing {visibleDiffFiles.length} of {diff.files.length} changed files</p>
-						<Button kind="ghost" size="small" on:click={showMoreDiffFiles}>Show more</Button>
+						<Button kind="ghost" size="small" onclick={showMoreDiffFiles}>Show more</Button>
 					</div>
 				{/if}
 				<ul class="inspector-list">

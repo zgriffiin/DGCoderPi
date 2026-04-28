@@ -39,7 +39,7 @@ jobs:
           pnpm exec fallow audit --production --base origin/main
 
       - name: Frontend test suite
-        run: pnpm test:unit && pnpm test:component && pnpm test:e2e:browser
+        run: pnpm test:unit && pnpm test:component && pnpm test:e2e
 
       - name: Frontend build
         run: pnpm build

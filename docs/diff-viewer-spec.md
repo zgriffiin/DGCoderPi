@@ -213,6 +213,10 @@ Suggested shape:
 
 ```json
 {
+	"status": "pending | in_progress | complete",
+	"partial": false,
+	"progress": 100,
+	"continuationToken": "string | null",
 	"summary": "string",
 	"impact": [
 		{
@@ -231,7 +235,10 @@ Suggested shape:
 	"highlights": [
 		{
 			"file": "string",
-			"lines": "string",
+			"range": {
+				"startLine": 120,
+				"endLine": 146
+			},
 			"change": "string",
 			"impact": "string",
 			"risk": "string | null"
@@ -247,6 +254,10 @@ Suggested shape:
 ```
 
 This keeps the model output renderable, testable, and cacheable.
+
+The `status`, `partial`, `progress`, and `continuationToken` fields allow the UI to render progressive results for large diffs while the review is still being assembled.
+
+The `highlights[].range` field is intentionally structured instead of prose-only so the inspector can jump directly to a hunk without parsing freeform line descriptions.
 
 ### 7. Architecture
 

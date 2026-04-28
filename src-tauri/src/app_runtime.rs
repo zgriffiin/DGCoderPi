@@ -1,18 +1,16 @@
 use std::{
     collections::HashSet,
     fs,
+    io::ErrorKind,
     path::{Path, PathBuf},
     process::Command,
     sync::{Arc, Mutex},
 };
 
-use tauri::{AppHandle, Emitter};
-use uuid::Uuid;
-
-#[cfg(target_os = "linux")]
-use std::io::ErrorKind;
 #[cfg(target_os = "windows")]
 use std::os::windows::process::CommandExt;
+use tauri::{AppHandle, Emitter};
+use uuid::Uuid;
 
 use crate::{
     model::{
@@ -233,6 +231,7 @@ impl AppRuntime {
 
     pub fn stage_attachment(&self, input: StageAttachmentInput) -> Result<AppUpdate, String> {
         let attachment_id = Uuid::new_v4().to_string();
+        self.ensure_thread_exists(&input.thread_id)?;
         let attachment_dir = attachment_directory(&self.inner.data_dir).join(&input.thread_id);
         let source_path = PathBuf::from(&input.source_path);
         let source_name = source_path
@@ -284,6 +283,18 @@ impl AppRuntime {
     }
 
     pub fn remove_attachment(&self, input: RemoveAttachmentInput) -> Result<AppUpdate, String> {
+        let attachment_path = self.attachment_path(&input.thread_id, &input.attachment_id)?;
+        match fs::remove_file(&attachment_path) {
+            Ok(()) => {}
+            Err(error) if error.kind() == ErrorKind::NotFound => {}
+            Err(error) => {
+                return Err(format!(
+                    "Failed to delete attachment file `{}`: {error}",
+                    attachment_path.display()
+                ));
+            }
+        }
+
         let update = self.mutate_thread(&input.thread_id, |thread| {
             thread
                 .attachments
@@ -535,6 +546,8 @@ impl AppRuntime {
             if let Some(queue_entry) = pending_queue_entry {
                 thread.queue.retain(|entry| entry.id != queue_entry.id);
             }
+            thread.last_user_message_at_ms =
+                latest_user_message_timestamp(thread.messages.iter(), 0);
             thread.last_error = Some(error.clone());
             thread.status = thread_status.clone();
             Ok(())
@@ -574,6 +587,34 @@ impl AppRuntime {
         AppIntegrations {
             codex: read_codex_status(),
         }
+    }
+
+    fn ensure_thread_exists(&self, thread_id: &str) -> Result<(), String> {
+        let state = self
+            .inner
+            .state
+            .lock()
+            .map_err(|_| "State lock was poisoned.".to_string())?;
+        locate_thread(&state, thread_id)
+            .ok_or_else(|| "Thread not found.".to_string())
+            .map(|_| ())
+    }
+
+    fn attachment_path(&self, thread_id: &str, attachment_id: &str) -> Result<PathBuf, String> {
+        let state = self
+            .inner
+            .state
+            .lock()
+            .map_err(|_| "State lock was poisoned.".to_string())?;
+        let (project_index, thread_index) =
+            locate_thread(&state, thread_id).ok_or_else(|| "Thread not found.".to_string())?;
+        let thread = &state.projects[project_index].threads[thread_index];
+        let attachment = thread
+            .attachments
+            .iter()
+            .find(|attachment| attachment.id == attachment_id)
+            .ok_or_else(|| "Attachment not found.".to_string())?;
+        Ok(PathBuf::from(&attachment.path))
     }
 
     fn system_update(&self) -> Result<AppUpdate, String> {
@@ -798,10 +839,16 @@ impl AppRuntime {
                 snapshot,
                 activity,
             } => {
-                let _ = self.apply_thread_snapshot(&thread_id, snapshot, activity);
+                if let Err(error) = self.apply_thread_snapshot(&thread_id, snapshot, activity) {
+                    eprintln!("Failed to apply thread snapshot for `{thread_id}`: {error}");
+                }
             }
             BridgeEvent::BridgeOffline { error } => {
-                let _ = self.handle_bridge_offline(error);
+                if let Err(bridge_error) = self.handle_bridge_offline(error.clone()) {
+                    eprintln!(
+                        "Failed to handle bridge offline event after `{error}`: {bridge_error}"
+                    );
+                }
             }
         }
     }
@@ -817,6 +864,11 @@ impl AppRuntime {
                         continue;
                     }
 
+                    for attachment in &mut thread.attachments {
+                        if attachment.stage == AttachmentStage::Sent {
+                            attachment.stage = AttachmentStage::Staged;
+                        }
+                    }
                     thread.queue.clear();
                     if was_running {
                         thread.status = ThreadStatus::Failed;

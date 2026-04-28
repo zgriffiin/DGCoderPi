@@ -117,9 +117,10 @@ Give users direct lifecycle tools for conversation management instead of forcing
 #### Functional Requirements
 
 - `Clone thread` creates a new thread with copied context, messages, selected model, reasoning level, and intent, but a new thread id.
+- `Clone thread` deep-copies staged attachments and generated artifacts into a new thread-scoped storage path with fresh attachment ids and rewritten local paths. The cloned thread must never share mutable attachment ids or storage paths with the source thread.
 - `Retry turn` reruns the most recent user turn from the current thread state with the same intent and model settings.
-- `Compact thread` replaces older transcript sections with a durable summary plus preserved key artifacts.
-- `Export thread` writes a markdown or JSON transcript to disk.
+- `Compact thread` replaces older transcript sections with a durable summary plus preserved key artifacts. Attachments referenced only by compacted sections must either remain in durable thread storage or move into a compacted-artifact archive; they must not be garbage-collected while the compacted thread still references them.
+- `Export thread` writes a markdown or JSON transcript to disk. Exports that include attachments or generated artifacts must create an export bundle that copies those files alongside the transcript and rewrites references to relative bundle paths instead of leaving broken thread-local absolute paths behind.
 
 #### UX Notes
 
