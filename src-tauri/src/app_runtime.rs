@@ -801,7 +801,7 @@ fn launch_linux_codex_login() -> Result<(), String> {
         ("konsole", &["-e", "bash", "-lc", "codex login"]),
         ("xterm", &["-e", "bash", "-lc", "codex login"]),
         ("alacritty", &["-e", "bash", "-lc", "codex login"]),
-        ("kitty", &["--", "sh", "-lc", "codex login"]),
+        ("kitty", &["--", "bash", "-lc", "codex login"]),
         ("wezterm", &["start", "--", "bash", "-lc", "codex login"]),
         ("tilix", &["-e", "bash", "-lc", "codex login"]),
         ("terminator", &["-x", "bash", "-lc", "codex login"]),
