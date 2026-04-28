@@ -1,11 +1,11 @@
-import { readFileSync } from 'node:fs';
+import { readFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
-export function readCodexOauthCredential() {
+export async function readCodexOauthCredential() {
 	try {
 		const authPath = path.join(os.homedir(), '.codex', 'auth.json');
-		const auth = JSON.parse(readFileSync(authPath, 'utf8'));
+		const auth = JSON.parse(await readFile(authPath, 'utf8'));
 		if (auth?.auth_mode !== 'chatgpt' || !auth.tokens || typeof auth.tokens !== 'object') {
 			return null;
 		}

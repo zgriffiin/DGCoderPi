@@ -56,7 +56,10 @@
 	}
 
 	function handleReasoningSelect(event: CustomEvent<{ selectedId: string }>) {
-		if (isThinkingLevel(event.detail.selectedId)) {
+		if (
+			isThinkingLevel(event.detail.selectedId) &&
+			(selectedModel?.availableThinkingLevels ?? ['off']).includes(event.detail.selectedId)
+		) {
 			onReasoningChange(event.detail.selectedId);
 		}
 	}
@@ -124,6 +127,10 @@
 			id: level,
 			text: THINKING_LABELS[level]
 		}));
+	});
+	const effectiveReasoningLevel = $derived.by<ThinkingLevel>(() => {
+		const selectedLevel = reasoningItems.find((item) => item.id === selectedReasoningLevel)?.id;
+		return (selectedLevel ?? reasoningItems[0]?.id ?? 'off') as ThinkingLevel;
 	});
 
 	const running = $derived(threadStatus === 'running');
@@ -204,7 +211,7 @@
 					hideLabel
 					items={reasoningItems}
 					label="Reasoning"
-					selectedId={selectedReasoningLevel}
+					selectedId={effectiveReasoningLevel}
 					size="sm"
 					labelText="Reasoning"
 					on:select={handleReasoningSelect}

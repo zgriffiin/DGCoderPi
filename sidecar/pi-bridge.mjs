@@ -127,8 +127,8 @@ class BridgeRuntime {
 		return {};
 	}
 
-	buildEnvironment() {
-		this.syncCodexOauth();
+	async buildEnvironment() {
+		await this.syncCodexOauth();
 		this.modelRegistry.refresh();
 		const codexCredential = this.authStorage.get('openai-codex');
 		const usingChatGptSubscription = codexCredential?.type === 'oauth';
@@ -180,9 +180,9 @@ class BridgeRuntime {
 		};
 	}
 
-	syncCodexOauth() {
+	async syncCodexOauth() {
 		const current = this.authStorage.get('openai-codex');
-		const credential = readCodexOauthCredential();
+		const credential = await readCodexOauthCredential();
 		if (!credential) {
 			if (current?.type === 'oauth') this.authStorage.remove('openai-codex');
 			return;

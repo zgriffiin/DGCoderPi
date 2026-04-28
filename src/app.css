@@ -418,8 +418,8 @@ textarea {
 }
 
 .message-row__bubble {
-	background: var(--cds-layer-hover, #353535);
-	border: 1px solid var(--cds-border-subtle, #3f3f3f);
+	background: var(--cds-layer-hover);
+	border: 1px solid var(--cds-border-subtle);
 	border-radius: 1rem;
 	display: grid;
 	gap: 0.375rem;
@@ -428,7 +428,7 @@ textarea {
 }
 
 .message-row[data-tone='assistant'] .message-row__bubble {
-	background: var(--cds-layer, #2b2b2b);
+	background: var(--cds-layer);
 }
 
 .message-row__body,

@@ -797,7 +797,7 @@ fn launch_linux_codex_login() -> Result<(), String> {
         ("konsole", &["-e", "bash", "-lc", "codex login"]),
         ("xterm", &["-e", "bash", "-lc", "codex login"]),
         ("alacritty", &["-e", "bash", "-lc", "codex login"]),
-        ("kitty", &["sh", "-lc", "codex login"]),
+        ("kitty", &["--", "sh", "-lc", "codex login"]),
     ];
 
     for (terminal, args) in TERMINAL_CANDIDATES {
