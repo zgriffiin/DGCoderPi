@@ -158,16 +158,12 @@ impl AppRuntime {
                 return Ok(());
             }
 
-            let mut target_index = input.target_index;
-            if current_index < input.target_index && target_index > 0 {
+            let project = state.projects.remove(current_index);
+            let mut target_index = input.target_index.min(state.projects.len());
+            if current_index < target_index && target_index > 0 {
                 target_index -= 1;
             }
-            target_index = target_index.min(state.projects.len());
-
-            let project = state.projects.remove(current_index);
-            state
-                .projects
-                .insert(target_index.min(state.projects.len()), project);
+            state.projects.insert(target_index, project);
             Ok(())
         })
     }

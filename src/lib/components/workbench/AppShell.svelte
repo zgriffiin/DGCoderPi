@@ -151,25 +151,27 @@
 		diffLoading = true;
 		diffError = null;
 		const projectId = activeProject.id;
+		let cancelled = false;
 
 		void controller
 			.loadProjectDiff(projectId)
 			.then((nextDiff) => {
-				if (activeProject?.id === projectId) {
-					diff = nextDiff;
-				}
+				if (cancelled) return;
+				diff = nextDiff;
 			})
 			.catch((error) => {
-				if (activeProject?.id === projectId) {
-					diff = null;
-					diffError = error instanceof Error ? error.message : String(error);
-				}
+				if (cancelled) return;
+				diff = null;
+				diffError = error instanceof Error ? error.message : String(error);
 			})
 			.finally(() => {
-				if (activeProject?.id === projectId) {
-					diffLoading = false;
-				}
+				if (cancelled) return;
+				diffLoading = false;
 			});
+
+		return () => {
+			cancelled = true;
+		};
 	});
 
 	function closeAddProjectModal() {

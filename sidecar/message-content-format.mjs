@@ -1,5 +1,9 @@
 import { formatToolCall } from './tool-call-format.mjs';
 
+function readMimeLabel(value) {
+	return typeof value === 'string' && value.trim() ? value.trim() : 'unknown';
+}
+
 export function flattenUserContent(content) {
 	if (typeof content === 'string') {
 		return content;
@@ -11,7 +15,7 @@ export function flattenUserContent(content) {
 				return entry.text;
 			}
 			if (entry.type === 'image') {
-				return `[Image: ${entry.mimeType}]`;
+				return `[Image: ${readMimeLabel(entry.mimeType)}]`;
 			}
 			return '';
 		})
@@ -37,6 +41,8 @@ export function flattenAssistantContent(content) {
 
 export function flattenToolResultContent(content) {
 	return content
-		.map((entry) => (entry.type === 'text' ? entry.text : `[Image result: ${entry.mimeType}]`))
+		.map((entry) =>
+			entry.type === 'text' ? entry.text : `[Image result: ${readMimeLabel(entry.mimeType)}]`
+		)
 		.join('\n');
 }
