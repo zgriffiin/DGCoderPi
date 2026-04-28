@@ -358,7 +358,22 @@ impl AppRuntime {
             thread.last_error = None;
             Ok(())
         })?;
-        self.persist_update(&update)?;
+        if let Err(error) = self.persist_update(&update) {
+            let persist_error = error.clone();
+            if let Err(rollback_error) = self.rollback_failed_prompt(
+                &input.thread_id,
+                error,
+                &pending_message,
+                &pending_queue_entry,
+                &staged_attachment_paths,
+                &thread_status,
+            ) {
+                eprintln!(
+                    "Failed to roll back prompt state after persistence error `{persist_error}`: {rollback_error}"
+                );
+            }
+            return Err(persist_error);
+        }
 
         let bridge_input = crate::pi_bridge::BridgePromptRequest {
             attachments: &attachments,
