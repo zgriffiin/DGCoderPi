@@ -56,9 +56,12 @@
 	}
 
 	function handleReasoningSelect(event: CustomEvent<{ selectedId: string }>) {
+		const availableThinkingLevels = selectedModel?.availableThinkingLevels?.length
+			? selectedModel.availableThinkingLevels
+			: ['off'];
 		if (
 			isThinkingLevel(event.detail.selectedId) &&
-			(selectedModel?.availableThinkingLevels ?? ['off']).includes(event.detail.selectedId)
+			availableThinkingLevels.includes(event.detail.selectedId)
 		) {
 			onReasoningChange(event.detail.selectedId);
 		}

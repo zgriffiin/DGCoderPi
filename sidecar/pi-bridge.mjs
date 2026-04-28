@@ -10,7 +10,6 @@ import {
 	SessionManager,
 	SettingsManager
 } from '@mariozechner/pi-coding-agent';
-
 import { readCodexOauthCredential } from './codex-auth.mjs';
 import { parseAttachment } from './docparser.mjs';
 import {
@@ -18,7 +17,6 @@ import {
 	flattenToolResultContent,
 	flattenUserContent
 } from './message-content-format.mjs';
-
 const PROVIDERS = [
 	['anthropic', 'Anthropic'],
 	['openai-codex', 'ChatGPT Codex'],
@@ -27,7 +25,6 @@ const PROVIDERS = [
 	['deepseek', 'DeepSeek'],
 	['openrouter', 'OpenRouter']
 ];
-
 const UNSUPPORTED_CHATGPT_CODEX_MODELS = new Set([
 	'gpt-5.1',
 	'gpt-5.1-codex-max',
@@ -69,11 +66,8 @@ class BridgeRuntime {
 		}
 
 		const key = payload.key?.trim() ?? '';
-		if (!key) {
-			this.authStorage.remove(provider);
-		} else {
-			this.authStorage.set(provider, { type: 'api_key', key });
-		}
+		if (key) this.authStorage.set(provider, { type: 'api_key', key });
+		else this.authStorage.remove(provider);
 
 		this.disposeSessions();
 		return this.buildEnvironment();
@@ -184,7 +178,10 @@ class BridgeRuntime {
 		const current = this.authStorage.get('openai-codex');
 		const credential = await readCodexOauthCredential();
 		if (!credential) {
-			if (current?.type === 'oauth') this.authStorage.remove('openai-codex');
+			if (current?.type === 'oauth') {
+				this.authStorage.remove('openai-codex');
+				this.disposeSessions();
+			}
 			return;
 		}
 		if (
@@ -197,6 +194,7 @@ class BridgeRuntime {
 			return;
 		}
 		this.authStorage.set('openai-codex', { type: 'oauth', ...credential });
+		this.disposeSessions();
 	}
 
 	createLoader(cwd, settingsManager) {
