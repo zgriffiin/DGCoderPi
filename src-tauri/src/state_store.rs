@@ -277,7 +277,50 @@ fn parse_git_status_line(line: &str) -> Option<ProjectDiffEntry> {
         }
     }
 
+    path = decode_git_path(&path);
+    if path.is_empty() {
+        return None;
+    }
+
     Some(ProjectDiffEntry { code, path })
+}
+
+fn decode_git_path(path: &str) -> String {
+    let trimmed = path.trim();
+    if trimmed.len() < 2 || !trimmed.starts_with('"') || !trimmed.ends_with('"') {
+        return trimmed.to_string();
+    }
+
+    let mut decoded = String::new();
+    let mut escaped = false;
+
+    for character in trimmed[1..trimmed.len() - 1].chars() {
+        if escaped {
+            decoded.push(match character {
+                '"' => '"',
+                '\\' => '\\',
+                'n' => '\n',
+                'r' => '\r',
+                't' => '\t',
+                other => other,
+            });
+            escaped = false;
+            continue;
+        }
+
+        if character == '\\' {
+            escaped = true;
+            continue;
+        }
+
+        decoded.push(character);
+    }
+
+    if escaped {
+        decoded.push('\\');
+    }
+
+    decoded.trim().to_string()
 }
 
 fn read_codex_auth() -> Option<serde_json::Value> {

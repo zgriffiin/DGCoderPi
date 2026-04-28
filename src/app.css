@@ -496,7 +496,7 @@ textarea {
 }
 
 .message-row__body--markdown a {
-	color: #78a9ff;
+	color: var(--cds-link-primary, #78a9ff);
 	text-decoration: none;
 }
 
@@ -505,13 +505,13 @@ textarea {
 }
 
 .message-row__body--markdown code {
-	background: rgba(255, 255, 255, 0.08);
+	background: var(--cds-layer-accent, rgba(255, 255, 255, 0.08));
 	border-radius: 0.25rem;
 	padding: 0.0625rem 0.25rem;
 }
 
 .message-row__body--markdown pre {
-	background: rgba(0, 0, 0, 0.24);
+	background: var(--cds-layer-overlay, rgba(0, 0, 0, 0.24));
 	border: 1px solid var(--cds-border-subtle, #3f3f3f);
 	border-radius: 0.5rem;
 	overflow: auto;

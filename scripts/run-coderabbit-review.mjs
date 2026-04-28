@@ -123,7 +123,7 @@ function resolveRunner() {
 function assertAuthenticated(runner) {
 	const result = runner.run(['auth', 'status', '--agent']);
 	const rawOutput = `${result.stdout}\n${result.stderr}`;
-	const events = parseJsonLines(result.stdout);
+	const events = parseJsonLines(rawOutput);
 	const authEvent = events.find((event) => typeof event.authenticated === 'boolean');
 
 	if (result.status !== 0 || authEvent?.authenticated === false) {
@@ -153,7 +153,8 @@ async function runReviewWithRetry(runner, args) {
 
 	for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
 		const result = runner.run(args);
-		const events = parseJsonLines(result.stdout);
+		const rawOutput = [result.stdout, result.stderr].filter(Boolean).join('\n');
+		const events = parseJsonLines(rawOutput);
 		const findings = events.filter((event) => event.type === 'finding');
 		const errorEvent = events.find((event) => event.type === 'error');
 
@@ -179,8 +180,6 @@ async function runReviewWithRetry(runner, args) {
 
 		return { errorEvent, findings, noFiles: false, result };
 	}
-
-	fail('CodeRabbit CLI review exhausted all retry attempts.');
 }
 
 const baseBranch = resolveBaseBranch();

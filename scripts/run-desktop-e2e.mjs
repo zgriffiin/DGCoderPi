@@ -7,7 +7,11 @@ const runtimeEnv = {
 	...process.env,
 	DGCODER_PI_TEST_RUN_ID: runId
 };
-const allowedWindowsImages = new Set(['dgcoder-pi.exe', 'node.exe']);
+const cleanupTargets = [{ allowedImages: new Set(['dgcoder-pi.exe']), port: debugPort }];
+
+if (process.env.CI || process.env.DGCODER_PI_FORCE_APP_PORT_CLEANUP === '1') {
+	cleanupTargets.push({ allowedImages: new Set(['node.exe']), port: appPort });
+}
 
 function listWindowsListeningPids(port) {
 	const result = spawnSync(
@@ -49,11 +53,10 @@ function runWindowsPortCleanup() {
 		return;
 	}
 
-	spawnSync('taskkill', ['/IM', 'dgcoder-pi.exe', '/T', '/F'], { stdio: 'ignore' });
-	for (const port of [debugPort, appPort]) {
+	for (const { allowedImages, port } of cleanupTargets) {
 		for (const pid of listWindowsListeningPids(port)) {
 			const imageName = getWindowsImageName(pid);
-			if (!imageName || !allowedWindowsImages.has(imageName)) {
+			if (!imageName || !allowedImages.has(imageName)) {
 				continue;
 			}
 
