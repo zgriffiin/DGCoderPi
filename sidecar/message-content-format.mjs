@@ -12,6 +12,9 @@ export function flattenUserContent(content) {
 	const entries = Array.isArray(content) ? content : [];
 	return entries
 		.map((entry) => {
+			if (!entry || typeof entry !== 'object') {
+				return '';
+			}
 			if (entry.type === 'text') {
 				return entry.text;
 			}
@@ -33,9 +36,12 @@ export function flattenAssistantContent(content) {
 		return content;
 	}
 
-	const entries = Array.isArray(content) ? content : [content];
+	const entries = Array.isArray(content) ? content : [];
 	const lines = entries
 		.map((entry) => {
+			if (!entry || typeof entry !== 'object') {
+				return '';
+			}
 			if (entry.type === 'text') {
 				return entry.text;
 			}
@@ -52,8 +58,18 @@ export function flattenAssistantContent(content) {
 export function flattenToolResultContent(content) {
 	const entries = Array.isArray(content) ? content : [];
 	return entries
-		.map((entry) =>
-			entry.type === 'text' ? entry.text : `[Image result: ${readMimeLabel(entry.mimeType)}]`
-		)
+		.map((entry) => {
+			if (!entry || typeof entry !== 'object') {
+				return '';
+			}
+			if (entry.type === 'text') {
+				return entry.text;
+			}
+			if (entry.type === 'image') {
+				return `[Image result: ${readMimeLabel(entry.mimeType)}]`;
+			}
+			return '';
+		})
+		.filter(Boolean)
 		.join('\n');
 }

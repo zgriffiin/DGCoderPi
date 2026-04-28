@@ -138,6 +138,7 @@ export interface ProjectDiffSnapshot {
 
 interface ProjectDiffEntry {
 	code: string;
+	originalPath?: string | null;
 	path: string;
 }
 

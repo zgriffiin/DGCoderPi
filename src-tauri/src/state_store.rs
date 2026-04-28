@@ -275,8 +275,16 @@ fn parse_git_status_output(output: &[u8]) -> Vec<ProjectDiffEntry> {
         }
 
         let mut path = String::from_utf8_lossy(&record[3..]).trim().to_string();
-        if code.chars().any(|status| matches!(status, 'R' | 'C')) && records.next().is_none() {
-            continue;
+        let mut original_path = None;
+        if code.chars().any(|status| matches!(status, 'R' | 'C')) {
+            let Some(source_record) = records.next() else {
+                continue;
+            };
+            let decoded_source = decode_git_path(&String::from_utf8_lossy(source_record));
+            if decoded_source.is_empty() {
+                continue;
+            }
+            original_path = Some(decoded_source);
         }
 
         path = decode_git_path(&path);
@@ -284,7 +292,11 @@ fn parse_git_status_output(output: &[u8]) -> Vec<ProjectDiffEntry> {
             continue;
         }
 
-        files.push(ProjectDiffEntry { code, path });
+        files.push(ProjectDiffEntry {
+            code,
+            original_path,
+            path,
+        });
     }
 
     files

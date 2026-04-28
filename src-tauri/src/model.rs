@@ -154,6 +154,7 @@ pub struct ProjectDiffSnapshot {
 #[serde(rename_all = "camelCase")]
 pub struct ProjectDiffEntry {
     pub code: String,
+    pub original_path: Option<String>,
     pub path: String,
 }
 

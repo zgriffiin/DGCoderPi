@@ -122,7 +122,10 @@
 	);
 
 	const reasoningItems = $derived.by<SelectItem[]>(() => {
-		const levels = selectedModel?.availableThinkingLevels ?? ['off'];
+		const levels =
+			selectedModel?.availableThinkingLevels && selectedModel.availableThinkingLevels.length > 0
+				? selectedModel.availableThinkingLevels
+				: ['off'];
 		return levels.filter(isThinkingLevel).map((level) => ({
 			id: level,
 			text: THINKING_LABELS[level]

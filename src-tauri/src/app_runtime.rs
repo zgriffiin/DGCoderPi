@@ -161,10 +161,8 @@ impl AppRuntime {
             }
 
             let project = state.projects.remove(current_index);
-            let mut target_index = input.target_index.min(state.projects.len());
-            if current_index < input.target_index {
-                target_index = target_index.saturating_sub(1);
-            }
+            let target_index =
+                project_insert_index(current_index, input.target_index, state.projects.len());
             state.projects.insert(target_index, project);
             Ok(())
         })
@@ -725,7 +723,9 @@ fn update_thread_title(thread: &mut ThreadRecord, text: &str) {
 
 fn should_derive_thread_title(title: &str) -> bool {
     let trimmed = title.trim();
-    trimmed.is_empty() || trimmed.eq_ignore_ascii_case("new thread")
+    trimmed.is_empty()
+        || trimmed.eq_ignore_ascii_case("new thread")
+        || trimmed.eq_ignore_ascii_case("explore repository")
 }
 
 fn derive_thread_title(text: &str) -> String {
@@ -743,6 +743,18 @@ fn derive_thread_title(text: &str) -> String {
     }
 
     title
+}
+
+fn project_insert_index(
+    current_index: usize,
+    requested_target_index: usize,
+    project_count: usize,
+) -> usize {
+    let mut target_index = requested_target_index;
+    if current_index < requested_target_index {
+        target_index = target_index.saturating_sub(1);
+    }
+    target_index.min(project_count)
 }
 
 #[cfg(target_os = "windows")]
@@ -763,6 +775,31 @@ fn launch_codex_login() -> Result<(), String> {
 #[cfg(target_os = "linux")]
 fn launch_codex_login() -> Result<(), String> {
     launch_linux_codex_login()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::project_insert_index;
+
+    #[test]
+    fn move_project_index_handles_start() {
+        assert_eq!(project_insert_index(2, 0, 3), 0);
+    }
+
+    #[test]
+    fn move_project_index_handles_end() {
+        assert_eq!(project_insert_index(1, 4, 3), 3);
+    }
+
+    #[test]
+    fn move_project_index_handles_backward_move() {
+        assert_eq!(project_insert_index(3, 1, 3), 1);
+    }
+
+    #[test]
+    fn move_project_index_handles_forward_move() {
+        assert_eq!(project_insert_index(1, 3, 3), 2);
+    }
 }
 
 #[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
