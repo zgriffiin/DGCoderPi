@@ -88,6 +88,7 @@ pub struct CodexStatus {
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AppSettings {
+    pub diff_analysis_model_key: Option<String>,
     pub features: FeatureSettings,
     pub providers: Vec<ProviderStatus>,
 }
@@ -181,22 +182,6 @@ impl ThinkingLevel {
             Self::Xhigh => "xhigh",
         }
     }
-}
-
-#[derive(Clone, Debug, Default, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ProjectDiffSnapshot {
-    pub branch: String,
-    pub files: Vec<ProjectDiffEntry>,
-    pub git_available: bool,
-}
-
-#[derive(Clone, Debug, Default, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ProjectDiffEntry {
-    pub code: String,
-    pub original_path: Option<String>,
-    pub path: String,
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
@@ -359,6 +344,12 @@ pub struct ProviderKeyInput {
 pub struct ToggleFeatureInput {
     pub enabled: bool,
     pub feature: String,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SetDiffAnalysisModelInput {
+    pub model_key: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize)]

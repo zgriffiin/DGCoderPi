@@ -2,16 +2,18 @@ use tauri::State;
 
 use crate::{
     app_runtime::AppRuntime,
+    diff_model::{DiffAnalysis, DiffAnalysisInput, LoadProjectDiffInput, ProjectDiffSnapshot},
     model::{
         AddProjectInput, AppHealth, AppSnapshot, AppUpdate, CreateThreadInput, MoveProjectInput,
-        ProjectDiffSnapshot, ProviderKeyInput, RemoveAttachmentInput, SelectModelInput,
-        SelectReasoningInput, SendPromptInput, StageAttachmentInput, ToggleFeatureInput,
+        ProviderKeyInput, RemoveAttachmentInput, SelectModelInput, SelectReasoningInput,
+        SendPromptInput, SetDiffAnalysisModelInput, StageAttachmentInput, ToggleFeatureInput,
     },
 };
 
 pub type SnapshotCommandResult = Result<AppSnapshot, String>;
 pub type UpdateCommandResult = Result<AppUpdate, String>;
 pub type DiffCommandResult = Result<ProjectDiffSnapshot, String>;
+pub type DiffAnalysisCommandResult = Result<DiffAnalysis, String>;
 pub type HealthCommandResult = Result<AppHealth, String>;
 
 #[tauri::command]
@@ -109,11 +111,38 @@ pub fn send_prompt(input: SendPromptInput, runtime: State<'_, AppRuntime>) -> Up
 }
 
 #[tauri::command]
-pub fn load_project_diff(project_id: String, runtime: State<'_, AppRuntime>) -> DiffCommandResult {
-    runtime.load_project_diff(&project_id)
+pub fn load_project_diff(
+    input: LoadProjectDiffInput,
+    runtime: State<'_, AppRuntime>,
+) -> DiffCommandResult {
+    runtime.load_project_diff(input)
+}
+
+#[tauri::command]
+pub fn load_diff_analysis(
+    input: DiffAnalysisInput,
+    runtime: State<'_, AppRuntime>,
+) -> DiffAnalysisCommandResult {
+    runtime.load_diff_analysis(input)
+}
+
+#[tauri::command]
+pub fn refresh_diff_analysis(
+    input: DiffAnalysisInput,
+    runtime: State<'_, AppRuntime>,
+) -> DiffAnalysisCommandResult {
+    runtime.refresh_diff_analysis(input)
 }
 
 #[tauri::command]
 pub fn abort_thread(thread_id: String, runtime: State<'_, AppRuntime>) -> UpdateCommandResult {
     runtime.abort_thread(&thread_id)
+}
+
+#[tauri::command]
+pub fn set_diff_analysis_model(
+    input: SetDiffAnalysisModelInput,
+    runtime: State<'_, AppRuntime>,
+) -> UpdateCommandResult {
+    runtime.set_diff_analysis_model(input)
 }

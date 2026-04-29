@@ -1,24 +1,17 @@
 <script lang="ts">
 	import { Button, Tag } from 'carbon-components-svelte';
 	import Close from 'carbon-icons-svelte/lib/Close.svelte';
-	import type {
-		InspectorMode,
-		ProjectDiffSnapshot,
-		ProjectRecord,
-		ThreadRecord
-	} from '$lib/types/workbench';
+	import DiffInspectorPanel from '$lib/components/workbench/diff/DiffInspectorPanel.svelte';
+	import type { InspectorMode, ProjectRecord, ThreadRecord } from '$lib/types/workbench';
+	import type { WorkbenchController } from '$lib/workbench/controller';
 
 	type Props = {
-		diff: ProjectDiffSnapshot | null;
-		diffError: string | null;
-		diffLoading: boolean;
+		controller: WorkbenchController;
 		mode: InspectorMode;
 		onClose: () => void;
 		project: ProjectRecord | null;
 		thread: ThreadRecord | null;
 	};
-
-	const DIFF_PAGE_SIZE = 100;
 
 	function modeTitle(mode: InspectorMode) {
 		if (mode === 'tasks') {
@@ -32,37 +25,7 @@
 		return 'Spec';
 	}
 
-	let { diff, diffError, diffLoading, mode, onClose, project, thread }: Props = $props();
-	let visibleDiffFileCount = $state(DIFF_PAGE_SIZE);
-	const diffResetKey = $derived.by(() => {
-		const fingerprint =
-			diff?.files.map((file) => `${file.code}:${file.originalPath ?? ''}:${file.path}`).join('|') ??
-			'';
-		return [
-			mode,
-			project?.id ?? '',
-			diff?.branch ?? '',
-			diff?.gitAvailable ? 'git' : 'no-git',
-			fingerprint
-		].join('|');
-	});
-	const hiddenDiffFileCount = $derived(
-		Math.max(0, (diff?.files.length ?? 0) - visibleDiffFileCount)
-	);
-	const visibleDiffFiles = $derived(diff?.files.slice(0, visibleDiffFileCount) ?? []);
-
-	function showMoreDiffFiles() {
-		visibleDiffFileCount += DIFF_PAGE_SIZE;
-	}
-
-	$effect(() => {
-		const resetKey = diffResetKey;
-		if (!resetKey) {
-			return;
-		}
-
-		visibleDiffFileCount = DIFF_PAGE_SIZE;
-	});
+	let { controller, mode, onClose, project, thread }: Props = $props();
 </script>
 
 <aside class="inspector-rail">
@@ -121,53 +84,7 @@
 			{/if}
 		</div>
 	{:else if mode === 'diff'}
-		<div class="inspector-stack">
-			<div class="inspector-block">
-				<div class="inspector-summary">
-					<p>{project?.name ?? 'Project'}</p>
-					<Tag type="cool-gray">{diff?.branch ?? project?.branch ?? 'unknown'}</Tag>
-				</div>
-			</div>
-
-			{#if diffLoading}
-				<div class="empty-panel">
-					<p>Loading diff</p>
-				</div>
-			{:else if diffError}
-				<div class="empty-panel">
-					<p>{diffError}</p>
-				</div>
-			{:else if !diff?.gitAvailable}
-				<div class="empty-panel">
-					<p>Git status unavailable</p>
-				</div>
-			{:else if diff.files.length === 0}
-				<div class="empty-panel">
-					<p>Clean working tree</p>
-				</div>
-			{:else}
-				{#if hiddenDiffFileCount > 0}
-					<div class="inspector-summary inspector-summary--paged">
-						<p>Showing {visibleDiffFiles.length} of {diff.files.length} changed files</p>
-						<Button kind="ghost" size="small" onclick={showMoreDiffFiles}>Show more</Button>
-					</div>
-				{/if}
-				<ul class="inspector-list">
-					{#each visibleDiffFiles as file (file.path)}
-						<li>
-							<div class="inspector-block">
-								<div class="inspector-item">
-									<div class="inspector-item__header">
-										<Tag type="outline">{file.code}</Tag>
-									</div>
-									<p>{file.path}</p>
-								</div>
-							</div>
-						</li>
-					{/each}
-				</ul>
-			{/if}
-		</div>
+		<DiffInspectorPanel {controller} {project} {thread} />
 	{:else}
 		<div class="inspector-stack">
 			{#if project}

@@ -10,6 +10,7 @@ import {
 	SettingsManager
 } from '@mariozechner/pi-coding-agent';
 import { readCodexOauthCredential } from './codex-auth.mjs';
+import { analyzeDiff } from './diff-analysis.mjs';
 import { parseAttachment } from './docparser.mjs';
 import {
 	evictDormantSessions,
@@ -96,6 +97,10 @@ class BridgeRuntime {
 			enabled: this.features.docparserEnabled,
 			filePath: path.resolve(payload.path)
 		});
+	}
+
+	async analyzeDiff(payload) {
+		return analyzeDiff(this, payload);
 	}
 
 	async sendPrompt(payload) {
