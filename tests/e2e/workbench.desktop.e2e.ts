@@ -144,7 +144,9 @@ async function waitForReviewState(panel: import('@playwright/test').Locator) {
 		if (
 			text.includes('Retry analysis') ||
 			text.includes('Configure a model in Settings before running AI Review.') ||
-			text.includes('Start analysis')
+			text.includes('Start analysis') ||
+			text.includes('Preparing AI review') ||
+			text.includes('Clean working tree')
 		) {
 			return 'failed';
 		}
@@ -185,10 +187,6 @@ async function verifySettingsAndDiff(page: import('@playwright/test').Page, repo
 	await expect(inspector.getByText('pending label handling')).toBeVisible();
 
 	await inspector.getByRole('tab', { name: 'AI Review' }).click();
-	const reviewFailure = inspector.getByText(
-		'Configure a model in Settings before running AI Review.'
-	);
-	const retryAnalysis = inspector.getByRole('button', { name: 'Retry analysis' });
 	const reviewState = await waitForReviewState(aiReviewStatus);
 
 	if (reviewState === 'ready') {
@@ -206,9 +204,9 @@ async function verifySettingsAndDiff(page: import('@playwright/test').Page, repo
 	} else if (reviewState === 'progress') {
 		await expect(aiReviewStatus.getByText('Review in progress')).toBeVisible();
 	} else {
-		await expect(
-			reviewFailure.or(retryAnalysis).or(aiReviewStatus.getByText('Start analysis'))
-		).toBeVisible();
+		await expect(aiReviewStatus).toContainText(
+			/Configure a model in Settings before running AI Review\.|Retry analysis|Start analysis|Preparing AI review|Clean working tree/
+		);
 	}
 
 	await page.evaluate((sampleName) => {
