@@ -125,22 +125,9 @@ fn migrate_analysis_cache(connection: &Connection) -> Result<(), String> {
                 ",
             )
             .map_err(|error| error.to_string())?;
-        return Ok(());
     }
 
-    connection
-        .execute_batch(
-            "
-            CREATE TABLE IF NOT EXISTS diff_analysis_cache (
-                fingerprint TEXT NOT NULL,
-                model_key TEXT NOT NULL,
-                payload_json TEXT NOT NULL,
-                updated_at_ms INTEGER NOT NULL,
-                PRIMARY KEY (fingerprint, model_key)
-            );
-            ",
-        )
-        .map_err(|error| error.to_string())
+    Ok(())
 }
 
 #[cfg(test)]

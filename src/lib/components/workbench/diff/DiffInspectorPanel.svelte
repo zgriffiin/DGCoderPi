@@ -167,8 +167,9 @@
 		const projectId = project.id;
 		const threadId = thread?.id ?? null;
 		const nextHideWhitespace = hideWhitespace;
+		const nextScopeKey = scopeKey;
 
-		void reloadDiffPanel(projectId, threadId, nextHideWhitespace, nextRequestVersion, scopeKey);
+		void reloadDiffPanel(projectId, threadId, nextHideWhitespace, nextRequestVersion, nextScopeKey);
 	});
 
 	$effect(() => {

@@ -140,7 +140,15 @@
 	}
 
 	function handleDocumentKeydown(event: KeyboardEvent) {
-		if (!patchViewBody?.contains(document.activeElement)) {
+		const activeElement = document.activeElement as HTMLElement | null;
+		if (!patchViewBody?.contains(activeElement)) {
+			return;
+		}
+		if (
+			activeElement?.tagName === 'INPUT' ||
+			activeElement?.tagName === 'TEXTAREA' ||
+			activeElement?.isContentEditable
+		) {
 			return;
 		}
 		handleKeydown(event);
