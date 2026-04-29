@@ -156,9 +156,48 @@ async function waitForReviewState(panel: import('@playwright/test').Locator) {
 	return 'unknown';
 }
 
+async function verifyKeyboardResize(
+	inspector: import('@playwright/test').Locator,
+	resizeHandle: import('@playwright/test').Locator
+) {
+	await resizeHandle.focus();
+	await normalizeResizeHandleValue(resizeHandle);
+	const keyboardWidthBefore = await readResizeHandleValue(resizeHandle);
+	await resizeHandle.press('ArrowLeft');
+	const keyboardWidthAfterLeft = await readResizeHandleValue(resizeHandle);
+	expect(keyboardWidthAfterLeft).toBeLessThan(keyboardWidthBefore - 8);
+	await resizeHandle.press('ArrowRight');
+	const keyboardWidthAfterRight = await readResizeHandleValue(resizeHandle);
+	expect(keyboardWidthAfterRight).toBeGreaterThan(keyboardWidthAfterLeft + 8);
+}
+
+async function normalizeResizeHandleValue(resizeHandle: import('@playwright/test').Locator) {
+	const value = Number(await resizeHandle.getAttribute('aria-valuenow'));
+	const min = Number(await resizeHandle.getAttribute('aria-valuemin'));
+	const max = Number(await resizeHandle.getAttribute('aria-valuemax'));
+	if (!Number.isFinite(value) || !Number.isFinite(min) || !Number.isFinite(max)) {
+		return;
+	}
+	let current = value;
+	for (let attempt = 0; current - min < 64 && attempt < 8; attempt += 1) {
+		await resizeHandle.press('ArrowRight');
+		current = await readResizeHandleValue(resizeHandle);
+	}
+	for (let attempt = 0; max - current < 64 && attempt < 8; attempt += 1) {
+		await resizeHandle.press('ArrowLeft');
+		current = await readResizeHandleValue(resizeHandle);
+	}
+}
+
+async function readResizeHandleValue(resizeHandle: import('@playwright/test').Locator) {
+	return Number(await resizeHandle.getAttribute('aria-valuenow'));
+}
+
 async function verifySettingsAndDiff(page: import('@playwright/test').Page, repoPath: string) {
 	const toolbar = page.locator('.topbar__actions');
 	const inspector = page.locator('.inspector-rail');
+	await page.setViewportSize({ height: 960, width: 1440 });
+	await page.waitForFunction(() => window.innerWidth > 1100);
 	await page.getByRole('button', { name: 'Settings' }).click();
 	const settingsDialog = page.getByRole('dialog', { name: 'Settings' });
 	await expect(settingsDialog).toBeVisible();
@@ -172,8 +211,43 @@ async function verifySettingsAndDiff(page: import('@playwright/test').Page, repo
 	await expect(
 		inspector.getByRole('heading', { exact: true, level: 2, name: 'Diff' })
 	).toBeVisible();
+	await expect(page.getByLabel('Resize project rail')).toBeVisible();
+	await expect(page.getByLabel('Resize inspector rail')).toBeVisible();
 	await expect(inspector.getByRole('tab', { name: 'AI Review' })).toBeVisible();
 	await expect(inspector.getByRole('tab', { name: 'Patch View' })).toBeVisible();
+
+	const resizeHandle = page.getByLabel('Resize inspector rail');
+	let inspectorBefore = await inspector.boundingBox();
+	let handleBox = await resizeHandle.boundingBox();
+	if (!inspectorBefore || !handleBox) {
+		throw new Error('Expected inspector resize controls to have a layout box.');
+	}
+
+	await verifyKeyboardResize(inspector, resizeHandle);
+	inspectorBefore = await inspector.boundingBox();
+	handleBox = await resizeHandle.boundingBox();
+	if (!inspectorBefore || !handleBox) {
+		throw new Error('Expected inspector resize controls after keyboard resizing.');
+	}
+
+	if (inspectorBefore.width > 600) {
+		await page.mouse.move(handleBox.x + handleBox.width / 2, handleBox.y + handleBox.height / 2);
+		await page.mouse.down();
+		await page.mouse.move(handleBox.x + 180, handleBox.y + handleBox.height / 2, { steps: 12 });
+		await page.mouse.up();
+		inspectorBefore = await inspector.boundingBox();
+		handleBox = await resizeHandle.boundingBox();
+		if (!inspectorBefore || !handleBox) {
+			throw new Error('Expected inspector resize controls after shrinking.');
+		}
+	}
+
+	await page.mouse.move(handleBox.x + handleBox.width / 2, handleBox.y + handleBox.height / 2);
+	await page.mouse.down();
+	await page.mouse.move(handleBox.x - 120, handleBox.y + handleBox.height / 2, { steps: 12 });
+	await page.mouse.up();
+	const inspectorAfter = await inspector.boundingBox();
+	expect(inspectorAfter?.width ?? 0).toBeGreaterThan(inspectorBefore.width + 40);
 
 	const aiReviewStatus = inspector.locator('.ai-review-panel');
 	await expect(aiReviewStatus).toBeVisible();
@@ -203,6 +277,7 @@ async function verifySettingsAndDiff(page: import('@playwright/test').Page, repo
 		}
 	} else if (reviewState === 'progress') {
 		await expect(aiReviewStatus.getByText('Review in progress')).toBeVisible();
+		await expect(aiReviewStatus.getByText(/^complete$/)).toHaveCount(0);
 	} else {
 		await expect(aiReviewStatus).toContainText(
 			/Configure a model in Settings before running AI Review\.|Retry analysis|Start analysis|Preparing AI review|Clean working tree/

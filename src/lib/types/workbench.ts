@@ -10,7 +10,7 @@ type DiffAnalysisStatus = 'complete' | 'failed' | 'in-progress' | 'pending';
 
 type DiffLineKind = 'added' | 'context' | 'meta' | 'removed';
 
-type DiffPriority = 'high' | 'low' | 'medium';
+type DiffPriority = 'high' | 'low' | 'medium' | 'unknown';
 
 type MessageRole = 'assistant' | 'system' | 'tool' | 'user';
 

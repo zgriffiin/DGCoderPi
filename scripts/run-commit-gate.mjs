@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
+import { filterLintableFiles, filterPrettierFiles } from './lib/file-filters.mjs';
 import { captureCommand, fail, runCheckedStep } from './lib/process.mjs';
 
 function listStagedFiles() {
@@ -22,10 +23,6 @@ function snapshotFiles(filePaths) {
 	return new Map(filePaths.map((filePath) => [filePath, hashFile(filePath)]));
 }
 
-function filterLintableFiles(filePaths) {
-	return filePaths.filter((filePath) => /\.(?:[cm]?js|[cm]?ts|svelte)$/i.test(filePath));
-}
-
 function findReformattedFiles(beforeSnapshot) {
 	const changed = [];
 
@@ -43,13 +40,14 @@ function findReformattedFiles(beforeSnapshot) {
 const stagedFiles = listStagedFiles();
 const stagedSnapshot = snapshotFiles(stagedFiles);
 const lintableStagedFiles = filterLintableFiles(stagedFiles);
+const prettierStagedFiles = filterPrettierFiles(stagedFiles);
 
-if (stagedFiles.length > 0) {
+if (prettierStagedFiles.length > 0) {
 	runCheckedStep('Formatting staged files', 'pnpm', [
 		'exec',
 		'prettier',
 		'--write',
-		...stagedFiles
+		...prettierStagedFiles
 	]);
 }
 

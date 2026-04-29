@@ -40,7 +40,8 @@ Vitest recommends Playwright over the preview provider for CI and local realism 
 
 Keep script names boring and stable:
 
-- `pnpm lint`
+- `pnpm lint` for the full-repo baseline gate
+- `pnpm lint:changed` as an optional local patch-scope fallback when full-repo Prettier drift is already known
 - `pnpm format`
 - `pnpm check`
 - `pnpm fallow:commit`
@@ -70,6 +71,8 @@ Start with these lanes:
    - `pnpm lint`
    - `cargo fmt --check`
    - `cargo clippy --all-targets --all-features -- -D warnings`
+
+`pnpm lint:changed` is a local patch-scope fallback, not a required CI lane. Only promote it into CI if the workflow explicitly computes and validates the intended diff scope.
 
 2. `test`
    - `pnpm test`

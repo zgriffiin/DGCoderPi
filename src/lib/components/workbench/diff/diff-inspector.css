@@ -5,6 +5,10 @@
 	gap: 0.75rem;
 }
 
+.diff-inspector {
+	container-type: inline-size;
+}
+
 .diff-mode-toggle {
 	display: inline-flex;
 	gap: 0;
@@ -59,6 +63,7 @@
 
 .diff-file-list__copy,
 .diff-file-list__stats,
+.diff-file-list__meta,
 .patch-view__summary,
 .patch-file__title,
 .patch-file__actions,
@@ -111,7 +116,7 @@
 .patch-view__body {
 	display: grid;
 	gap: 0.75rem;
-	max-height: 32rem;
+	max-height: min(60vh, 40rem);
 	overflow: auto;
 	outline: none;
 	padding-right: 0.25rem;
@@ -211,6 +216,28 @@
 	color: var(--cds-link-primary, #0f62fe);
 	font-size: 0.6875rem;
 	text-decoration: underline;
+}
+
+@container (min-width: 42rem) {
+	.patch-view {
+		align-items: start;
+		grid-template-columns: minmax(13rem, 16rem) minmax(0, 1fr);
+	}
+
+	.patch-view__toolbar {
+		grid-column: 1 / -1;
+	}
+
+	.diff-file-list {
+		align-content: start;
+		max-height: min(60vh, 40rem);
+		overflow: auto;
+		padding-right: 0.25rem;
+	}
+
+	.patch-view__body {
+		max-height: min(60vh, 40rem);
+	}
 }
 
 @media (max-width: 900px) {

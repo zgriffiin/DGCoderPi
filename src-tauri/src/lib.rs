@@ -2,6 +2,7 @@ mod analysis_store;
 mod app_runtime;
 mod commands;
 mod diff_analysis;
+mod diff_analysis_model_selection;
 mod diff_engine;
 mod diff_model;
 mod model;
