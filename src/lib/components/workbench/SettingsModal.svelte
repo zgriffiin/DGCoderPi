@@ -1,6 +1,14 @@
 <script lang="ts">
-	import { Button, Modal, Tag, TextInput, Toggle } from 'carbon-components-svelte';
-	import type { CodexStatus, ProviderStatus } from '$lib/types/workbench';
+	import {
+		Button,
+		Modal,
+		Select,
+		SelectItem,
+		Tag,
+		TextInput,
+		Toggle
+	} from 'carbon-components-svelte';
+	import type { CodexStatus, ModelOption, ProviderStatus } from '$lib/types/workbench';
 	import { readEventValue } from '$lib/workbench/read-event-value';
 	import ThemeToggle from './ThemeToggle.svelte';
 
@@ -8,8 +16,11 @@
 
 	type Props = {
 		codex: CodexStatus;
+		diffAnalysisModelKey: string | null;
 		docparserEnabled: boolean;
+		models: ModelOption[];
 		onClose: () => void;
+		onDiffAnalysisModelChange: (modelKey: string | null) => void;
 		onImportCodexOpenAiKey: () => void;
 		onProviderDraftChange: (provider: string, value: string) => void;
 		onRefreshStatus: () => void;
@@ -34,8 +45,11 @@
 
 	let {
 		codex,
+		diffAnalysisModelKey,
 		docparserEnabled,
+		models,
 		onClose,
+		onDiffAnalysisModelChange,
 		onImportCodexOpenAiKey,
 		onProviderDraftChange,
 		onRefreshStatus,
@@ -157,6 +171,36 @@
 					</header>
 
 					<div class="provider-list">
+						<section class="provider-row">
+							<div class="provider-row__header">
+								<div>
+									<h4>Diff review model</h4>
+									<p>Used for AI Review in the diff inspector.</p>
+								</div>
+								<Tag type={diffAnalysisModelKey ? 'blue' : 'cool-gray'}>
+									{diffAnalysisModelKey ? 'configured' : 'auto'}
+								</Tag>
+							</div>
+							<div class="provider-row__controls">
+								<Select
+									id="diff-analysis-model"
+									labelText="Diff review model"
+									size="sm"
+									value={diffAnalysisModelKey ?? ''}
+									on:change={(event) => {
+										const value = readEventValue(event);
+										const trimmed = value.trim();
+										onDiffAnalysisModelChange(trimmed ? trimmed : null);
+									}}
+								>
+									<SelectItem text="Auto-select smallest available model" value="" />
+									{#each models as model (model.key)}
+										<SelectItem text={model.label} value={model.key} />
+									{/each}
+								</Select>
+							</div>
+						</section>
+
 						{#each providers as provider (provider.provider)}
 							<section class="provider-row">
 								<div class="provider-row__header">

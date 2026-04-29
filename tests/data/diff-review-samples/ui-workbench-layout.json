@@ -1,0 +1,22 @@
+{
+	"id": "ui-workbench-layout",
+	"project": "dgcoder-pi",
+	"description": "Svelte workbench change that adds an inspector mode toggle and reorganizes patch rendering.",
+	"diffExcerpt": {
+		"files": [
+			{
+				"path": "src/lib/components/workbench/AppShell.svelte",
+				"summary": "Adds diff review session state, analysis polling, and hunk-jump wiring."
+			},
+			{
+				"path": "src/lib/components/workbench/diff/PatchView.svelte",
+				"summary": "Adds keyboard navigation, file list progress, and unified hunks."
+			}
+		]
+	},
+	"expectedSignals": [
+		"Calls out that the change is UI-heavy and improves review flow rather than chat behavior.",
+		"Names inspector state, whitespace toggling, or hunk jumping as affected behavior.",
+		"Flags keyboard navigation or state synchronization as a place to inspect."
+	]
+}

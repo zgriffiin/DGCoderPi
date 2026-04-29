@@ -12,6 +12,7 @@ use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use serde_json::{json, Value};
 use uuid::Uuid;
 
+use crate::diff_model::{DiffAnalysis, DiffAnalysisRequest};
 use crate::model::{
     ActivityTone, AttachmentParseStatus, FeatureSettings, MessageRole, MessageStatus, ModelOption,
     ProviderStatus, QueueMode, QueueStatus, ThreadStatus,
@@ -199,6 +200,10 @@ impl PiBridge {
 
     pub fn parse_attachment(&self, path: &str) -> Result<BridgeAttachmentResult, String> {
         self.request("parse-attachment", json!({ "path": path }))
+    }
+
+    pub fn analyze_diff(&self, request: &DiffAnalysisRequest) -> Result<DiffAnalysis, String> {
+        self.request("analyze-diff", json!(request))
     }
 
     pub fn send_prompt(&self, input: BridgePromptRequest<'_>) -> Result<(), String> {

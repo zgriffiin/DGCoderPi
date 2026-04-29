@@ -8,6 +8,7 @@ import type {
 	AppSettings,
 	AppSnapshot,
 	AppUpdate,
+	DiffAnalysis,
 	FeatureSettings,
 	ProjectDiffSnapshot,
 	PromptMode,
@@ -21,6 +22,7 @@ const DEFAULT_FEATURE_SETTINGS: FeatureSettings = {
 };
 
 const DEFAULT_APP_SETTINGS: AppSettings = {
+	diffAnalysisModelKey: null,
 	features: DEFAULT_FEATURE_SETTINGS,
 	providers: [
 		{ configured: false, label: 'Anthropic', provider: 'anthropic', source: null },
@@ -299,37 +301,39 @@ async function initializeRuntime(
 	}
 }
 
-function createWorkbenchActions(
+function createCommandRunners(
 	applySnapshot: (snapshot: AppSnapshot) => void,
 	applyUpdate: (update: AppUpdate) => void,
 	applyError: (error: unknown) => void
 ) {
-	async function runAndApplySnapshot(command: Promise<AppSnapshot>) {
-		try {
-			const snapshot = await command;
-			applySnapshot(snapshot);
-			return snapshot;
-		} catch (error) {
-			applyError(error);
-			throw error;
-		}
-	}
-
-	async function runAndApplyUpdate(command: Promise<AppUpdate>) {
-		try {
-			const update = await command;
-			applyUpdate(update);
-			return update;
-		} catch (error) {
-			applyError(error);
-			throw error;
-		}
-	}
-
 	return {
-		async abortThread(threadId: string) {
-			await runAndApplyUpdate(runCommand<AppUpdate>('abort_thread', { threadId }));
+		async runAndApplySnapshot(command: Promise<AppSnapshot>) {
+			try {
+				const snapshot = await command;
+				applySnapshot(snapshot);
+				return snapshot;
+			} catch (error) {
+				applyError(error);
+				throw error;
+			}
 		},
+		async runAndApplyUpdate(command: Promise<AppUpdate>) {
+			try {
+				const update = await command;
+				applyUpdate(update);
+				return update;
+			} catch (error) {
+				applyError(error);
+				throw error;
+			}
+		}
+	};
+}
+
+function createProjectActions(
+	runAndApplyUpdate: (command: Promise<AppUpdate>) => Promise<AppUpdate>
+) {
+	return {
 		async addProject(path: string) {
 			await runAndApplyUpdate(runCommand<AppUpdate>('add_project', { input: { path } }));
 		},
@@ -338,22 +342,25 @@ function createWorkbenchActions(
 				runCommand<AppUpdate>('create_thread', { input: { projectId, title } })
 			);
 		},
+		async loadProjectDiff(projectId: string, hideWhitespace: boolean) {
+			return runCommand<ProjectDiffSnapshot>('load_project_diff', {
+				input: { hideWhitespace, projectId }
+			});
+		},
 		async moveProject(projectId: string, targetIndex: number) {
 			await runAndApplyUpdate(
 				runCommand<AppUpdate>('move_project', { input: { projectId, targetIndex } })
 			);
-		},
-		async importCodexOpenAiKey() {
-			await runAndApplyUpdate(runCommand<AppUpdate>('import_codex_openai_key'));
-		},
-		async startCodexLogin() {
-			await runAndApplyUpdate(runCommand<AppUpdate>('start_codex_login'));
-		},
-		async loadProjectDiff(projectId: string) {
-			return runCommand<ProjectDiffSnapshot>('load_project_diff', { projectId });
-		},
-		async refreshState() {
-			await runAndApplySnapshot(runCommand<AppSnapshot>('load_app_state'));
+		}
+	};
+}
+
+function createThreadActions(
+	runAndApplyUpdate: (command: Promise<AppUpdate>) => Promise<AppUpdate>
+) {
+	return {
+		async abortThread(threadId: string) {
+			await runAndApplyUpdate(runCommand<AppUpdate>('abort_thread', { threadId }));
 		},
 		async removeAttachment(threadId: string, attachmentId: string) {
 			await runAndApplyUpdate(
@@ -375,16 +382,6 @@ function createWorkbenchActions(
 				runCommand<AppUpdate>('send_prompt', { input: { mode, text, threadId } })
 			);
 		},
-		async setFeatureToggle(feature: string, enabled: boolean) {
-			await runAndApplyUpdate(
-				runCommand<AppUpdate>('set_feature_toggle', { input: { enabled, feature } })
-			);
-		},
-		async setProviderKey(provider: string, key: string) {
-			await runAndApplyUpdate(
-				runCommand<AppUpdate>('set_provider_key', { input: { key, provider } })
-			);
-		},
 		async stageAttachment(threadId: string, sourcePath: string) {
 			await runAndApplyUpdate(
 				runCommand<AppUpdate>('stage_attachment', {
@@ -395,6 +392,65 @@ function createWorkbenchActions(
 				})
 			);
 		}
+	};
+}
+
+function createSettingsActions(
+	runAndApplySnapshot: (command: Promise<AppSnapshot>) => Promise<AppSnapshot>,
+	runAndApplyUpdate: (command: Promise<AppUpdate>) => Promise<AppUpdate>
+) {
+	return {
+		async importCodexOpenAiKey() {
+			await runAndApplyUpdate(runCommand<AppUpdate>('import_codex_openai_key'));
+		},
+		async loadDiffAnalysis(projectId: string, threadId: string | null, hideWhitespace: boolean) {
+			return runCommand<DiffAnalysis>('load_diff_analysis', {
+				input: { hideWhitespace, projectId, threadId }
+			});
+		},
+		async refreshDiffAnalysis(projectId: string, threadId: string | null, hideWhitespace: boolean) {
+			return runCommand<DiffAnalysis>('refresh_diff_analysis', {
+				input: { hideWhitespace, projectId, threadId }
+			});
+		},
+		async refreshState() {
+			await runAndApplySnapshot(runCommand<AppSnapshot>('load_app_state'));
+		},
+		async setDiffAnalysisModel(modelKey: string | null) {
+			await runAndApplyUpdate(
+				runCommand<AppUpdate>('set_diff_analysis_model', { input: { modelKey } })
+			);
+		},
+		async setFeatureToggle(feature: string, enabled: boolean) {
+			await runAndApplyUpdate(
+				runCommand<AppUpdate>('set_feature_toggle', { input: { enabled, feature } })
+			);
+		},
+		async setProviderKey(provider: string, key: string) {
+			await runAndApplyUpdate(
+				runCommand<AppUpdate>('set_provider_key', { input: { key, provider } })
+			);
+		},
+		async startCodexLogin() {
+			await runAndApplyUpdate(runCommand<AppUpdate>('start_codex_login'));
+		}
+	};
+}
+
+function createWorkbenchActions(
+	applySnapshot: (snapshot: AppSnapshot) => void,
+	applyUpdate: (update: AppUpdate) => void,
+	applyError: (error: unknown) => void
+) {
+	const { runAndApplySnapshot, runAndApplyUpdate } = createCommandRunners(
+		applySnapshot,
+		applyUpdate,
+		applyError
+	);
+	return {
+		...createProjectActions(runAndApplyUpdate),
+		...createThreadActions(runAndApplyUpdate),
+		...createSettingsActions(runAndApplySnapshot, runAndApplyUpdate)
 	};
 }
 
@@ -461,3 +517,5 @@ export function createWorkbenchController() {
 		subscribe: store.subscribe
 	};
 }
+
+export type WorkbenchController = ReturnType<typeof createWorkbenchController>;

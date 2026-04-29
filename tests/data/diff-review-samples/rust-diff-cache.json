@@ -1,0 +1,26 @@
+{
+	"id": "rust-diff-cache",
+	"project": "dgcoder-pi",
+	"description": "Rust feature slice that adds parsed git hunks, fingerprinting, and SQLite-backed diff analysis cache.",
+	"diffExcerpt": {
+		"files": [
+			{
+				"path": "src-tauri/src/diff_engine.rs",
+				"summary": "Parses git patch hunks, untracked files, and stable fingerprints."
+			},
+			{
+				"path": "src-tauri/src/analysis_store.rs",
+				"summary": "Stores diff review payloads by fingerprint in SQLite."
+			},
+			{
+				"path": "src-tauri/src/app_runtime.rs",
+				"summary": "Schedules background analysis refreshes and resolves model selection."
+			}
+		]
+	},
+	"expectedSignals": [
+		"Calls out cross-layer contract risk between Rust snapshot data and Svelte rendering.",
+		"Mentions cache invalidation or stale fingerprint handling as a review focus.",
+		"Mentions failure handling or preserving previous analysis during refresh."
+	]
+}

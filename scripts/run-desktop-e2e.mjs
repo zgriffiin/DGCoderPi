@@ -3,8 +3,11 @@ import { setTimeout as delay } from 'node:timers/promises';
 const debugPort = '9333';
 const appPort = '5182';
 const runId = `${Date.now()}`;
+const sanitizedEnv = Object.fromEntries(
+	Object.entries(process.env).filter(([key]) => !key.startsWith('GIT_'))
+);
 const runtimeEnv = {
-	...process.env,
+	...sanitizedEnv,
 	DGCODER_PI_TEST_RUN_ID: runId
 };
 const cleanupTargets = [{ allowedImages: new Set(['dgcoder-pi.exe']), port: debugPort }];

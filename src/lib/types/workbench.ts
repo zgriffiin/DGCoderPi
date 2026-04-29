@@ -6,6 +6,12 @@ type AttachmentParseStatus = 'failed' | 'idle' | 'parsing' | 'ready';
 
 type AttachmentStage = 'sent' | 'staged';
 
+type DiffAnalysisStatus = 'complete' | 'failed' | 'in-progress' | 'pending';
+
+type DiffLineKind = 'added' | 'context' | 'meta' | 'removed';
+
+type DiffPriority = 'high' | 'low' | 'medium';
+
 type MessageRole = 'assistant' | 'system' | 'tool' | 'user';
 
 type MessageStatus = 'failed' | 'ready' | 'streaming';
@@ -43,6 +49,7 @@ interface AppIntegrations {
 }
 
 export interface AppSettings {
+	diffAnalysisModelKey: string | null;
 	features: FeatureSettings;
 	providers: ProviderStatus[];
 }
@@ -133,14 +140,104 @@ export interface MessageRecord {
 
 export interface ProjectDiffSnapshot {
 	branch: string;
-	files: ProjectDiffEntry[];
+	files: ProjectDiffFile[];
+	fingerprint: string;
+	generatedAtMs: number;
 	gitAvailable: boolean;
+	stats: ProjectDiffStats;
 }
 
-interface ProjectDiffEntry {
-	code: string;
-	originalPath?: string | null;
+interface ProjectDiffStats {
+	additions: number;
+	deletions: number;
+	filesChanged: number;
+}
+
+export interface ProjectDiffFile {
+	additions: number;
+	deletions: number;
+	hunks: ProjectDiffHunk[];
+	id: string;
+	isBinary: boolean;
+	isGenerated: boolean;
+	isTooLarge: boolean;
+	originalPath: string | null;
 	path: string;
+	status: string;
+	statusCode: string;
+}
+
+export interface ProjectDiffHunk {
+	header: string;
+	id: string;
+	lines: ProjectDiffLine[];
+	newLines: number;
+	newStart: number;
+	oldLines: number;
+	oldStart: number;
+}
+
+interface ProjectDiffLine {
+	kind: DiffLineKind;
+	newLine: number | null;
+	oldLine: number | null;
+	text: string;
+}
+
+export interface DiffEvidence {
+	endLine: number | null;
+	file: string;
+	hunkId: string;
+	startLine: number | null;
+}
+
+interface DiffAnalysisBriefItem {
+	detail: string;
+	evidence: DiffEvidence[];
+	title: string;
+}
+
+interface DiffAnalysisImpactItem {
+	area: string;
+	detail: string;
+	evidence: string[];
+}
+
+interface DiffAnalysisRiskItem {
+	confidence: DiffPriority;
+	detail: string;
+	evidence: DiffEvidence[];
+	level: DiffPriority;
+	title: string;
+	whyItMatters: string;
+}
+
+interface DiffAnalysisFocusItem {
+	file: string;
+	hunkId: string;
+	priority: DiffPriority;
+	reason: string;
+}
+
+interface DiffAnalysisFollowUpItem {
+	prompt: string;
+	reason: string;
+}
+
+export interface DiffAnalysis {
+	changeBrief: DiffAnalysisBriefItem[];
+	continuationToken: string | null;
+	error: string | null;
+	fingerprint: string;
+	focusQueue: DiffAnalysisFocusItem[];
+	impact: DiffAnalysisImpactItem[];
+	modelKey: string;
+	partial: boolean;
+	progress: number;
+	risks: DiffAnalysisRiskItem[];
+	status: DiffAnalysisStatus;
+	suggestedFollowUps: DiffAnalysisFollowUpItem[];
+	updatedAtMs: number;
 }
 
 interface QueueEntry {

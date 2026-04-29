@@ -11,8 +11,7 @@ use uuid::Uuid;
 use crate::model::{
     AppEvent, AppHealth, AppIntegrations, AppSettings, AppSnapshot, AppUpdate, AttachmentKind,
     AttachmentRecord, AttachmentStage, CodexStatus, FeatureSettings, ModelOption, PersistedState,
-    ProjectDiffEntry, ProjectDiffSnapshot, ProjectRecord, ProviderStatus, ThreadRecord,
-    ThreadStatus,
+    ProjectRecord, ProviderStatus, ThreadRecord, ThreadStatus,
 };
 
 const LEGACY_STATE_FILE_NAME: &str = "app-state.json";
@@ -229,25 +228,6 @@ pub fn git_branch(path: &str) -> String {
     }
 }
 
-pub fn project_diff(path: &str, branch: &str) -> ProjectDiffSnapshot {
-    let output = Command::new("git")
-        .args(["-C", path, "status", "--porcelain", "-z"])
-        .output();
-
-    match output {
-        Ok(result) if result.status.success() => ProjectDiffSnapshot {
-            branch: branch.to_string(),
-            files: parse_git_status_output(&result.stdout),
-            git_available: true,
-        },
-        _ => ProjectDiffSnapshot {
-            branch: branch.to_string(),
-            files: Vec::new(),
-            git_available: false,
-        },
-    }
-}
-
 pub fn read_codex_status() -> CodexStatus {
     let cli_path = command_path("codex");
     let auth = read_codex_auth();
@@ -302,50 +282,6 @@ pub fn read_codex_openai_key() -> Result<String, String> {
     Ok(key.to_string())
 }
 
-fn parse_git_status_output(output: &[u8]) -> Vec<ProjectDiffEntry> {
-    let mut records = output
-        .split(|byte| *byte == 0)
-        .filter(|record| !record.is_empty());
-    let mut files = Vec::new();
-
-    while let Some(record) = records.next() {
-        if record.len() < 3 {
-            continue;
-        }
-
-        let code = String::from_utf8_lossy(&record[..2]).to_string();
-        if code.chars().all(char::is_whitespace) {
-            continue;
-        }
-
-        let mut path = String::from_utf8_lossy(&record[3..]).trim().to_string();
-        let mut original_path = None;
-        if code.chars().any(|status| matches!(status, 'R' | 'C')) {
-            let Some(source_record) = records.next() else {
-                continue;
-            };
-            let decoded_source = decode_git_path(&String::from_utf8_lossy(source_record));
-            if decoded_source.is_empty() {
-                continue;
-            }
-            original_path = Some(decoded_source);
-        }
-
-        path = decode_git_path(&path);
-        if path.is_empty() {
-            continue;
-        }
-
-        files.push(ProjectDiffEntry {
-            code,
-            original_path,
-            path,
-        });
-    }
-
-    files
-}
-
 fn has_valid_codex_tokens(tokens: &serde_json::Value) -> bool {
     let Some(tokens) = tokens.as_object() else {
         return false;
@@ -360,85 +296,6 @@ fn has_valid_codex_tokens(tokens: &serde_json::Value) -> bool {
                 .map(|value| !value.trim().is_empty())
                 .unwrap_or(false)
         })
-}
-
-fn decode_git_path(path: &str) -> String {
-    let trimmed = path.trim();
-    if trimmed.len() < 2 || !trimmed.starts_with('"') || !trimmed.ends_with('"') {
-        return trimmed.to_string();
-    }
-
-    let inner = &trimmed[1..trimmed.len() - 1];
-    let bytes = inner.as_bytes();
-    let mut decoded = Vec::with_capacity(bytes.len());
-    let mut index = 0;
-
-    while index < bytes.len() {
-        if bytes[index] != b'\\' {
-            decoded.push(bytes[index]);
-            index += 1;
-            continue;
-        }
-
-        if index + 1 >= bytes.len() {
-            decoded.push(b'\\');
-            break;
-        }
-
-        match bytes[index + 1] {
-            b'"' => {
-                decoded.push(b'"');
-                index += 2;
-            }
-            b'\\' => {
-                decoded.push(b'\\');
-                index += 2;
-            }
-            b'n' => {
-                decoded.push(b'\n');
-                index += 2;
-            }
-            b'r' => {
-                decoded.push(b'\r');
-                index += 2;
-            }
-            b't' => {
-                decoded.push(b'\t');
-                index += 2;
-            }
-            b'0'..=b'7' => {
-                let mut value: u8 = 0;
-                let mut octal_length = 0;
-                while index + 1 + octal_length < bytes.len() && octal_length < 3 {
-                    let digit = bytes[index + 1 + octal_length];
-                    if !(b'0'..=b'7').contains(&digit) {
-                        break;
-                    }
-                    let next_value = u32::from(value) * 8 + u32::from(digit - b'0');
-                    if next_value > 0xFF {
-                        break;
-                    }
-                    value = next_value as u8;
-                    octal_length += 1;
-                }
-
-                if octal_length == 0 {
-                    decoded.push(b'\\');
-                    index += 1;
-                    continue;
-                }
-
-                decoded.push(value);
-                index += 1 + octal_length;
-            }
-            other => {
-                decoded.push(other);
-                index += 2;
-            }
-        }
-    }
-
-    String::from_utf8_lossy(&decoded).trim().to_string()
 }
 
 fn read_codex_auth() -> Option<serde_json::Value> {
@@ -482,6 +339,7 @@ pub fn now_ms() -> u64 {
 fn default_state() -> PersistedState {
     PersistedState {
         settings: AppSettings {
+            diff_analysis_model_key: None,
             features: FeatureSettings::default(),
             providers: default_providers(),
         },

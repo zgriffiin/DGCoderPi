@@ -1,5 +1,9 @@
+mod analysis_store;
 mod app_runtime;
 mod commands;
+mod diff_analysis;
+mod diff_engine;
+mod diff_model;
 mod model;
 mod pi_bridge;
 mod state_store;
@@ -49,12 +53,15 @@ pub fn run() {
             commands::create_thread,
             commands::import_codex_openai_key,
             commands::load_app_state,
+            commands::load_diff_analysis,
             commands::load_project_diff,
             commands::move_project,
             commands::remove_attachment,
+            commands::refresh_diff_analysis,
             commands::select_model,
             commands::select_reasoning,
             commands::send_prompt,
+            commands::set_diff_analysis_model,
             commands::set_feature_toggle,
             commands::set_provider_key,
             commands::load_runtime_health,

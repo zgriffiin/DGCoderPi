@@ -9,7 +9,6 @@
 	import type {
 		AppSnapshot,
 		InspectorMode,
-		ProjectDiffSnapshot,
 		ProjectRecord,
 		ThinkingLevel,
 		ThreadRecord
@@ -103,9 +102,6 @@
 
 	let addProjectDraft = $state('');
 	let addProjectOpen = $state(false);
-	let diff = $state<ProjectDiffSnapshot | null>(null);
-	let diffError = $state<string | null>(null);
-	let diffLoading = $state(false);
 	let draft = $state('');
 	let inspectorMode = $state<InspectorMode | null>(null);
 	let manualProjectPathOpen = $state(false);
@@ -138,41 +134,6 @@
 	$effect(() => {
 		selectedProjectId = resolveProjectSelection(snapshot, selectedProjectId);
 		selectedThreadId = resolveThreadSelection(snapshot, activeProject, selectedThreadId);
-	});
-
-	$effect(() => {
-		if (inspectorMode !== 'diff' || !activeProject) {
-			diff = null;
-			diffError = null;
-			diffLoading = false;
-			return;
-		}
-
-		diff = null;
-		diffLoading = true;
-		diffError = null;
-		const projectId = activeProject.id;
-		let cancelled = false;
-
-		void controller
-			.loadProjectDiff(projectId)
-			.then((nextDiff) => {
-				if (cancelled) return;
-				diff = nextDiff;
-			})
-			.catch((error) => {
-				if (cancelled) return;
-				diff = null;
-				diffError = error instanceof Error ? error.message : String(error);
-			})
-			.finally(() => {
-				if (cancelled) return;
-				diffLoading = false;
-			});
-
-		return () => {
-			cancelled = true;
-		};
 	});
 
 	function closeAddProjectModal() {
@@ -334,6 +295,12 @@
 		});
 	}
 
+	async function handleDiffAnalysisModelChange(modelKey: string | null) {
+		await runAction(async () => {
+			await controller.setDiffAnalysisModel(modelKey);
+		});
+	}
+
 	async function handleImportCodexOpenAiKey() {
 		await runAction(async () => {
 			await controller.importCodexOpenAiKey();
@@ -461,9 +428,7 @@
 
 		{#if inspectorMode}
 			<InspectorRail
-				{diff}
-				{diffError}
-				{diffLoading}
+				{controller}
 				mode={inspectorMode}
 				onClose={() => (inspectorMode = null)}
 				project={activeProject}
@@ -486,14 +451,17 @@
 
 	<SettingsModal
 		codex={snapshot.integrations.codex}
+		diffAnalysisModelKey={snapshot.settings.diffAnalysisModelKey}
 		docparserEnabled={snapshot.settings.features.docparserEnabled}
 		onClose={() => (settingsOpen = false)}
+		onDiffAnalysisModelChange={handleDiffAnalysisModelChange}
 		onImportCodexOpenAiKey={handleImportCodexOpenAiKey}
 		onProviderDraftChange={handleProviderDraftChange}
 		onRefreshStatus={handleRefreshStatus}
 		onSaveProvider={handleSaveProvider}
 		onStartCodexLogin={handleStartCodexLogin}
 		onToggleDocparser={handleToggleDocparser}
+		models={snapshot.models}
 		open={settingsOpen}
 		{providerDrafts}
 		providers={snapshot.settings.providers}

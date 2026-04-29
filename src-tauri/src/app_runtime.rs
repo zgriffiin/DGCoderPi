@@ -13,13 +13,20 @@ use tauri::{AppHandle, Emitter};
 use uuid::Uuid;
 
 use crate::{
+    analysis_store::{load_diff_analysis as load_cached_diff_analysis, save_diff_analysis},
+    diff_analysis::{analyze_diff, build_thread_context, failed_analysis, pending_analysis},
+    diff_engine::{project_diff, ProjectDiffOptions},
+    diff_model::{
+        DiffAnalysis, DiffAnalysisInput, DiffAnalysisRequest, DiffAnalysisStatus,
+        LoadProjectDiffInput, ProjectDiffSnapshot,
+    },
     model::{
         ActivityRecord, AddProjectInput, AppEvent, AppHealth, AppIntegrations, AppSnapshot,
         AppUpdate, AttachmentParseStatus, AttachmentStage, CreateThreadInput, MessageRecord,
-        MessageRole, MessageStatus, ModelOption, MoveProjectInput, PersistedState,
-        ProjectDiffSnapshot, PromptMode, ProviderKeyInput, RemoveAttachmentInput, SelectModelInput,
-        SelectReasoningInput, SendPromptInput, StageAttachmentInput, ThreadRecord, ThreadStatus,
-        ToggleFeatureInput,
+        MessageRole, MessageStatus, ModelOption, MoveProjectInput, PersistedState, PromptMode,
+        ProviderKeyInput, RemoveAttachmentInput, SelectModelInput, SelectReasoningInput,
+        SendPromptInput, SetDiffAnalysisModelInput, StageAttachmentInput, ThreadRecord,
+        ThreadStatus, ToggleFeatureInput,
     },
     pi_bridge::{
         attachment_status_from_bridge, BridgeActivity, BridgeEnvironment, BridgeEvent,
@@ -27,8 +34,8 @@ use crate::{
     },
     state_store::{
         append_update, attachment_directory, build_snapshot, infer_mime_type, load_state,
-        make_attachment, new_project, new_thread, now_ms, project_diff, read_codex_openai_key,
-        read_codex_status, replace_state,
+        make_attachment, new_project, new_thread, now_ms, read_codex_openai_key, read_codex_status,
+        replace_state,
     },
 };
 
@@ -41,6 +48,7 @@ pub struct AppRuntime {
 }
 
 struct AppRuntimeInner {
+    active_diff_jobs: Mutex<HashSet<String>>,
     app: AppHandle,
     bridge: Mutex<Option<Arc<PiBridge>>>,
     data_dir: PathBuf,
@@ -56,6 +64,7 @@ impl AppRuntime {
         }
         let runtime = Self {
             inner: Arc::new(AppRuntimeInner {
+                active_diff_jobs: Mutex::new(HashSet::new()),
                 app,
                 bridge: Mutex::new(None),
                 data_dir,
@@ -100,22 +109,108 @@ impl AppRuntime {
         self.build_health()
     }
 
-    pub fn load_project_diff(&self, project_id: &str) -> Result<ProjectDiffSnapshot, String> {
-        let (path, branch) = {
-            let state = self
-                .inner
-                .state
-                .lock()
-                .map_err(|_| "State lock was poisoned.".to_string())?;
-            let project = state
-                .projects
-                .iter()
-                .find(|project| project.id == project_id)
-                .ok_or_else(|| "Project not found.".to_string())?;
-            (project.path.clone(), project.branch.clone())
-        };
+    pub fn load_project_diff(
+        &self,
+        input: LoadProjectDiffInput,
+    ) -> Result<ProjectDiffSnapshot, String> {
+        let (path, branch, _) = self.project_context(&input.project_id, None)?;
+        Ok(project_diff(
+            &path,
+            &branch,
+            ProjectDiffOptions {
+                hide_whitespace: input.hide_whitespace,
+            },
+        ))
+    }
 
-        Ok(project_diff(&path, &branch))
+    pub fn load_diff_analysis(&self, input: DiffAnalysisInput) -> Result<DiffAnalysis, String> {
+        let snapshot = self.load_project_diff(LoadProjectDiffInput {
+            hide_whitespace: input.hide_whitespace,
+            project_id: input.project_id.clone(),
+        })?;
+        let model_key = self.resolve_diff_analysis_model_key(input.thread_id.as_deref())?;
+        Ok(
+            load_cached_diff_analysis(&self.inner.data_dir, &snapshot.fingerprint, &model_key)?
+                .unwrap_or_else(|| pending_analysis(&snapshot, &model_key)),
+        )
+    }
+
+    pub fn refresh_diff_analysis(&self, input: DiffAnalysisInput) -> Result<DiffAnalysis, String> {
+        let snapshot = self.load_project_diff(LoadProjectDiffInput {
+            hide_whitespace: input.hide_whitespace,
+            project_id: input.project_id.clone(),
+        })?;
+        let model_key = self.resolve_diff_analysis_model_key(input.thread_id.as_deref())?;
+        let current =
+            load_cached_diff_analysis(&self.inner.data_dir, &snapshot.fingerprint, &model_key)?
+                .unwrap_or_else(|| pending_analysis(&snapshot, &model_key));
+        if matches!(current.status, DiffAnalysisStatus::InProgress) {
+            return Ok(current);
+        }
+
+        let request = self.build_diff_analysis_request(
+            &snapshot,
+            &input.project_id,
+            input.thread_id.as_deref(),
+            &model_key,
+        )?;
+        let mut queued = self
+            .inner
+            .active_diff_jobs
+            .lock()
+            .map_err(|_| "Diff analysis job lock was poisoned.".to_string())?;
+        if !queued.insert(snapshot.fingerprint.clone()) {
+            let mut in_progress = current;
+            in_progress.status = DiffAnalysisStatus::InProgress;
+            in_progress.updated_at_ms = now_ms();
+            save_diff_analysis(&self.inner.data_dir, &in_progress)?;
+            return Ok(in_progress);
+        }
+        drop(queued);
+
+        let mut in_progress = current;
+        in_progress.progress = 0;
+        in_progress.status = DiffAnalysisStatus::InProgress;
+        in_progress.updated_at_ms = now_ms();
+        save_diff_analysis(&self.inner.data_dir, &in_progress)?;
+
+        let runtime = self.clone();
+        let fingerprint = snapshot.fingerprint.clone();
+        tauri::async_runtime::spawn(async move {
+            let _guard = ActiveDiffJobGuard {
+                fingerprint: fingerprint.clone(),
+                runtime: runtime.clone(),
+            };
+            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                runtime.run_diff_analysis_job(request.clone())
+            }));
+            match result {
+                Ok(Ok(())) => {}
+                Ok(Err(error)) => {
+                    log::error!(
+                        "Diff analysis job failed for fingerprint {}: {}",
+                        fingerprint,
+                        error
+                    );
+                }
+                Err(_) => {
+                    if let Err(error) = runtime.persist_failed_diff_analysis(
+                        &request.diff,
+                        &request.model_key,
+                        "Diff analysis job panicked.".to_string(),
+                    ) {
+                        log::error!(
+                            "Failed to persist panicked diff analysis for fingerprint {}: {}",
+                            fingerprint,
+                            error
+                        );
+                    }
+                    log::error!("Diff analysis job panicked for fingerprint {}", fingerprint);
+                }
+            }
+        });
+
+        Ok(in_progress)
     }
 
     pub fn add_project(&self, input: AddProjectInput) -> Result<AppUpdate, String> {
@@ -227,6 +322,17 @@ impl AppRuntime {
 
         let environment = self.bridge()?.set_feature_settings(&features)?;
         self.persist_and_return(self.sync_environment(environment)?)
+    }
+
+    pub fn set_diff_analysis_model(
+        &self,
+        input: SetDiffAnalysisModelInput,
+    ) -> Result<AppUpdate, String> {
+        self.mutate_state(|state| {
+            state.settings.diff_analysis_model_key = input.model_key.clone();
+            Ok(())
+        })?;
+        self.persist_and_return(self.system_update()?)
     }
 
     pub fn stage_attachment(&self, input: StageAttachmentInput) -> Result<AppUpdate, String> {
@@ -463,6 +569,14 @@ impl AppRuntime {
 
         let changed_thread_ids = self.mutate_state(|state| {
             state.settings.providers = environment.providers;
+            if state
+                .settings
+                .diff_analysis_model_key
+                .as_ref()
+                .is_some_and(|model_key| !available_model_keys.contains(model_key))
+            {
+                state.settings.diff_analysis_model_key = default_model_key.clone();
+            }
             let mut changed_thread_ids = Vec::new();
             for project in &mut state.projects {
                 for thread in &mut project.threads {
@@ -724,12 +838,153 @@ impl AppRuntime {
         })
     }
 
+    fn project_context(
+        &self,
+        project_id: &str,
+        thread_id: Option<&str>,
+    ) -> Result<(String, String, Option<ThreadRecord>), String> {
+        let state = self
+            .inner
+            .state
+            .lock()
+            .map_err(|_| "State lock was poisoned.".to_string())?;
+        let project = state
+            .projects
+            .iter()
+            .find(|project| project.id == project_id)
+            .ok_or_else(|| "Project not found.".to_string())?;
+        let thread = thread_id.and_then(|thread_id| {
+            project
+                .threads
+                .iter()
+                .find(|thread| thread.id == thread_id)
+                .cloned()
+        });
+        Ok((project.path.clone(), project.branch.clone(), thread))
+    }
+
+    fn build_diff_analysis_request(
+        &self,
+        snapshot: &ProjectDiffSnapshot,
+        project_id: &str,
+        thread_id: Option<&str>,
+        model_key: &str,
+    ) -> Result<DiffAnalysisRequest, String> {
+        let state = self
+            .inner
+            .state
+            .lock()
+            .map_err(|_| "State lock was poisoned.".to_string())?;
+        let project = state
+            .projects
+            .iter()
+            .find(|project| project.id == project_id)
+            .ok_or_else(|| "Project not found.".to_string())?;
+        let thread = thread_id.and_then(|thread_id| {
+            project
+                .threads
+                .iter()
+                .find(|thread| thread.id == thread_id)
+                .cloned()
+        });
+
+        Ok(DiffAnalysisRequest {
+            diff: snapshot.clone(),
+            model_key: model_key.to_string(),
+            project_name: project.name.clone(),
+            thread_context: Some(build_thread_context(thread.as_ref())),
+        })
+    }
+
+    fn run_diff_analysis_job(&self, request: DiffAnalysisRequest) -> Result<(), String> {
+        let result = self.bridge().and_then(|bridge| {
+            analyze_diff(&bridge, request.clone(), |progress| {
+                save_diff_analysis(&self.inner.data_dir, progress)
+            })
+        });
+        let final_analysis = match result {
+            Ok(analysis) => analysis,
+            Err(error) => {
+                return self.persist_failed_diff_analysis(&request.diff, &request.model_key, error)
+            }
+        };
+        save_diff_analysis(&self.inner.data_dir, &final_analysis)?;
+        Ok(())
+    }
+
+    fn persist_failed_diff_analysis(
+        &self,
+        diff: &ProjectDiffSnapshot,
+        model_key: &str,
+        error: String,
+    ) -> Result<(), String> {
+        let failed = failed_analysis(diff, model_key, error);
+        save_diff_analysis(&self.inner.data_dir, &failed)
+    }
+
     fn default_model_key(&self) -> Option<String> {
         self.inner
             .models
             .lock()
             .ok()
             .and_then(|models| models.first().map(|model| model.key.clone()))
+    }
+
+    fn preferred_diff_analysis_model_key(&self) -> Result<Option<String>, String> {
+        let mut models = self
+            .inner
+            .models
+            .lock()
+            .map_err(|_| "Model cache lock was poisoned.".to_string())?
+            .iter()
+            .filter(|model| model.configured)
+            .cloned()
+            .collect::<Vec<_>>();
+        models.sort_by(|left, right| {
+            diff_analysis_model_rank(left)
+                .cmp(&diff_analysis_model_rank(right))
+                .then_with(|| left.label.cmp(&right.label))
+        });
+        Ok(models.first().map(|model| model.key.clone()))
+    }
+
+    fn resolve_diff_analysis_model_key(&self, thread_id: Option<&str>) -> Result<String, String> {
+        let configured = {
+            let state = self
+                .inner
+                .state
+                .lock()
+                .map_err(|_| "State lock was poisoned.".to_string())?;
+            state.settings.diff_analysis_model_key.clone()
+        };
+        if let Some(model_key) = configured {
+            return Ok(model_key);
+        }
+
+        if let Some(thread_id) = thread_id {
+            let state = self
+                .inner
+                .state
+                .lock()
+                .map_err(|_| "State lock was poisoned.".to_string())?;
+            if let Some((project_index, thread_index)) = locate_thread(&state, thread_id) {
+                if let Some(model_key) = state.projects[project_index].threads[thread_index]
+                    .model_key
+                    .clone()
+                {
+                    return Ok(model_key);
+                }
+            }
+        }
+
+        self.preferred_diff_analysis_model_key()?
+            .ok_or_else(|| "Configure a model in Settings before running AI Review.".to_string())
+    }
+
+    fn clear_active_diff_job(&self, fingerprint: &str) {
+        if let Ok(mut jobs) = self.inner.active_diff_jobs.lock() {
+            jobs.remove(fingerprint);
+        }
     }
 
     fn prepare_prompt(
@@ -1091,6 +1346,40 @@ fn latest_user_message_timestamp<'a>(
         .unwrap_or(fallback)
 }
 
+fn diff_analysis_model_rank(model: &ModelOption) -> (u8, bool) {
+    let descriptor = format!("{} {}", model.label, model.key).to_ascii_lowercase();
+    let size_rank = if descriptor.contains("nano") {
+        0
+    } else if descriptor.contains("mini")
+        || descriptor.contains("small")
+        || descriptor.contains("haiku")
+        || descriptor.contains("flash")
+        || descriptor.contains("spark")
+    {
+        1
+    } else if descriptor.contains("sonnet")
+        || descriptor.contains("medium")
+        || descriptor.contains("standard")
+    {
+        2
+    } else {
+        3
+    };
+
+    (size_rank, !model.configured)
+}
+
+struct ActiveDiffJobGuard {
+    fingerprint: String,
+    runtime: AppRuntime,
+}
+
+impl Drop for ActiveDiffJobGuard {
+    fn drop(&mut self) {
+        self.runtime.clear_active_diff_job(&self.fingerprint);
+    }
+}
+
 fn update_thread_title(thread: &mut ThreadRecord, text: &str) {
     if should_derive_thread_title(&thread.title) {
         thread.title = derive_thread_title(text);
@@ -1156,12 +1445,12 @@ fn launch_codex_login() -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::{
-        latest_user_message_timestamp, normalize_state, project_insert_index,
-        sync_thread_model_selection,
+        diff_analysis_model_rank, latest_user_message_timestamp, normalize_state,
+        project_insert_index, sync_thread_model_selection,
     };
     use crate::model::{
-        MessageRecord, MessageRole, MessageStatus, PersistedState, ProjectRecord, QueueEntry,
-        QueueMode, QueueStatus, ThreadRecord, ThreadStatus,
+        MessageRecord, MessageRole, MessageStatus, ModelOption, PersistedState, ProjectRecord,
+        QueueEntry, QueueMode, QueueStatus, ThreadRecord, ThreadStatus,
     };
     use std::collections::HashSet;
 
@@ -1274,6 +1563,31 @@ mod tests {
         let timestamp = latest_user_message_timestamp(messages.iter(), 10);
 
         assert_eq!(timestamp, 55);
+    }
+
+    #[test]
+    fn diff_analysis_model_rank_prefers_small_variants_and_configured_models() {
+        let standard = ModelOption {
+            configured: true,
+            key: "openai::gpt-5.4".to_string(),
+            label: "GPT-5.4".to_string(),
+            ..ModelOption::default()
+        };
+        let mini = ModelOption {
+            configured: true,
+            key: "openai::gpt-5.4-mini".to_string(),
+            label: "GPT-5.4 Mini".to_string(),
+            ..ModelOption::default()
+        };
+        let unconfigured_mini = ModelOption {
+            configured: false,
+            key: "openai::gpt-5.4-mini".to_string(),
+            label: "GPT-5.4 Mini".to_string(),
+            ..ModelOption::default()
+        };
+
+        assert!(diff_analysis_model_rank(&mini) < diff_analysis_model_rank(&standard));
+        assert!(diff_analysis_model_rank(&mini) < diff_analysis_model_rank(&unconfigured_mini));
     }
 }
 
