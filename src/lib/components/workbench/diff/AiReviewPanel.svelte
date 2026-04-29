@@ -69,13 +69,13 @@
 					<p>Change Brief</p>
 				</div>
 				<ul class="ai-review-list">
-					{#each analysis.changeBrief as item (`${item.title}:${item.detail}`)}
+					{#each analysis.changeBrief as item, itemIndex (itemIndex)}
 						<li>
 							<strong>{item.title}</strong>
 							<p>{item.detail}</p>
 							{#if item.evidence.length}
 								<div class="ai-review-evidence">
-									{#each item.evidence as evidence (`${evidence.hunkId}:${evidence.file}`)}
+									{#each item.evidence as evidence, evidenceIndex (evidenceIndex)}
 										<button
 											type="button"
 											class="diff-link-button"
@@ -98,7 +98,7 @@
 					<p>Impact</p>
 				</div>
 				<ul class="ai-review-list">
-					{#each analysis.impact as item (`${item.area}:${item.detail}`)}
+					{#each analysis.impact as item, itemIndex (itemIndex)}
 						<li>
 							<strong>{item.area}</strong>
 							<p>{item.detail}</p>
@@ -114,7 +114,7 @@
 					<p>Risk Review</p>
 				</div>
 				<ul class="ai-review-list">
-					{#each analysis.risks as item (`${item.title}:${item.detail}`)}
+					{#each analysis.risks as item, itemIndex (itemIndex)}
 						<li>
 							<div class="ai-review-risk-header">
 								<strong>{item.title}</strong>
@@ -134,7 +134,7 @@
 							<p>{item.detail}</p>
 							<p>{item.whyItMatters}</p>
 							<div class="ai-review-evidence">
-								{#each item.evidence as evidence (`${evidence.hunkId}:${evidence.file}`)}
+								{#each item.evidence as evidence, evidenceIndex (evidenceIndex)}
 									<button
 										type="button"
 										class="diff-link-button"
@@ -156,7 +156,7 @@
 					<p>Focus Queue</p>
 				</div>
 				<ul class="ai-review-list">
-					{#each analysis.focusQueue as item (`${item.file}:${item.hunkId}`)}
+					{#each analysis.focusQueue as item, itemIndex (itemIndex)}
 						<li>
 							<div class="ai-review-risk-header">
 								<strong>{item.file}</strong>
@@ -190,7 +190,7 @@
 					<p>Suggested Follow-Up</p>
 				</div>
 				<ul class="ai-review-list">
-					{#each analysis.suggestedFollowUps as item (`${item.prompt}:${item.reason}`)}
+					{#each analysis.suggestedFollowUps as item, itemIndex (itemIndex)}
 						<li>
 							<p>{item.prompt}</p>
 							<span>{item.reason}</span>

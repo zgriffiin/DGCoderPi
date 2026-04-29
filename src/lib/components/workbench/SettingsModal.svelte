@@ -189,7 +189,8 @@
 									value={diffAnalysisModelKey ?? ''}
 									on:change={(event) => {
 										const value = readEventValue(event);
-										onDiffAnalysisModelChange(value.trim() ? value : null);
+										const trimmed = value.trim();
+										onDiffAnalysisModelChange(trimmed ? trimmed : null);
 									}}
 								>
 									<SelectItem text="Auto-select smallest available model" value="" />

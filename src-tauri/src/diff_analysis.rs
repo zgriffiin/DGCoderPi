@@ -90,7 +90,7 @@ where
         let chunk_analysis = bridge.analyze_diff(&chunk_request)?;
         merge_analysis(&mut aggregate, &chunk_analysis);
         aggregate.partial = index + 1 != total_chunks;
-        aggregate.progress = ((index + 1) * 100) / total_chunks.max(1);
+        aggregate.progress = (((index + 1) * 100) / total_chunks.max(1)) as u32;
         aggregate.status = DiffAnalysisStatus::InProgress;
         aggregate.updated_at_ms = now_ms();
         on_progress(&aggregate)?;

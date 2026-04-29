@@ -130,7 +130,7 @@ impl AppRuntime {
         })?;
         let model_key = self.resolve_diff_analysis_model_key(input.thread_id.as_deref())?;
         Ok(
-            load_cached_diff_analysis(&self.inner.data_dir, &snapshot.fingerprint)?
+            load_cached_diff_analysis(&self.inner.data_dir, &snapshot.fingerprint, &model_key)?
                 .unwrap_or_else(|| pending_analysis(&snapshot, &model_key)),
         )
     }
@@ -141,8 +141,9 @@ impl AppRuntime {
             project_id: input.project_id.clone(),
         })?;
         let model_key = self.resolve_diff_analysis_model_key(input.thread_id.as_deref())?;
-        let current = load_cached_diff_analysis(&self.inner.data_dir, &snapshot.fingerprint)?
-            .unwrap_or_else(|| pending_analysis(&snapshot, &model_key));
+        let current =
+            load_cached_diff_analysis(&self.inner.data_dir, &snapshot.fingerprint, &model_key)?
+                .unwrap_or_else(|| pending_analysis(&snapshot, &model_key));
         if matches!(current.status, DiffAnalysisStatus::InProgress) {
             return Ok(current);
         }
@@ -181,7 +182,7 @@ impl AppRuntime {
                 runtime: runtime.clone(),
             };
             let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                runtime.run_diff_analysis_job(request)
+                runtime.run_diff_analysis_job(request.clone())
             }));
             match result {
                 Ok(Ok(())) => {}
@@ -193,6 +194,17 @@ impl AppRuntime {
                     );
                 }
                 Err(_) => {
+                    if let Err(error) = runtime.persist_failed_diff_analysis(
+                        &request.diff,
+                        &request.model_key,
+                        "Diff analysis job panicked.".to_string(),
+                    ) {
+                        log::error!(
+                            "Failed to persist panicked diff analysis for fingerprint {}: {}",
+                            fingerprint,
+                            error
+                        );
+                    }
                     log::error!("Diff analysis job panicked for fingerprint {}", fingerprint);
                 }
             }
@@ -892,10 +904,22 @@ impl AppRuntime {
         });
         let final_analysis = match result {
             Ok(analysis) => analysis,
-            Err(error) => failed_analysis(&request.diff, &request.model_key, error),
+            Err(error) => {
+                return self.persist_failed_diff_analysis(&request.diff, &request.model_key, error)
+            }
         };
         save_diff_analysis(&self.inner.data_dir, &final_analysis)?;
         Ok(())
+    }
+
+    fn persist_failed_diff_analysis(
+        &self,
+        diff: &ProjectDiffSnapshot,
+        model_key: &str,
+        error: String,
+    ) -> Result<(), String> {
+        let failed = failed_analysis(diff, model_key, error);
+        save_diff_analysis(&self.inner.data_dir, &failed)
     }
 
     fn default_model_key(&self) -> Option<String> {
@@ -912,7 +936,10 @@ impl AppRuntime {
             .models
             .lock()
             .map_err(|_| "Model cache lock was poisoned.".to_string())?
-            .clone();
+            .iter()
+            .filter(|model| model.configured)
+            .cloned()
+            .collect::<Vec<_>>();
         models.sort_by(|left, right| {
             diff_analysis_model_rank(left)
                 .cmp(&diff_analysis_model_rank(right))

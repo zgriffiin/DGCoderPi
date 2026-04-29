@@ -110,11 +110,15 @@
 			}
 			diffAnalysis = loaded;
 			if (loaded.status === 'pending' || loaded.status === 'failed') {
-				diffAnalysis = await controller.refreshDiffAnalysis(
+				const refreshed = await controller.refreshDiffAnalysis(
 					projectId,
 					threadId,
 					nextHideWhitespace
 				);
+				if (nextRequestVersion !== requestVersion) {
+					return;
+				}
+				diffAnalysis = refreshed;
 			}
 		} catch (error) {
 			if (nextRequestVersion !== requestVersion) {

@@ -27,8 +27,8 @@ const REVIEW_TOOL_SCHEMA = {
 							properties: {
 								file: { type: 'string' },
 								hunkId: { type: 'string' },
-								startLine: { type: 'number' },
-								endLine: { type: 'number' }
+								startLine: { type: 'integer', minimum: 1 },
+								endLine: { type: 'integer', minimum: 1 }
 							},
 							required: ['file', 'hunkId']
 						}
@@ -69,8 +69,8 @@ const REVIEW_TOOL_SCHEMA = {
 							properties: {
 								file: { type: 'string' },
 								hunkId: { type: 'string' },
-								startLine: { type: 'number' },
-								endLine: { type: 'number' }
+								startLine: { type: 'integer', minimum: 1 },
+								endLine: { type: 'integer', minimum: 1 }
 							},
 							required: ['file', 'hunkId']
 						}
@@ -294,7 +294,7 @@ function normalizeRiskItems(items) {
 
 function normalizeFocusQueue(items, files) {
 	const validHunks = new Map(
-		files.flatMap((file) => file.hunks.map((hunk) => [hunk.id, file.path]))
+		files.flatMap((file) => file.hunks.map((hunk) => [hunk.id, safeText(file.path)]))
 	);
 	return (Array.isArray(items) ? items : [])
 		.slice(0, 6)
@@ -304,7 +304,7 @@ function normalizeFocusQueue(items, files) {
 			priority: normalizePriority(item?.priority),
 			reason: safeText(item?.reason)
 		}))
-		.filter((item) => validHunks.has(item.hunkId));
+		.filter((item) => validHunks.get(item.hunkId) === item.file);
 }
 
 function normalizeFollowUps(items) {
@@ -318,8 +318,8 @@ function normalizeEvidence(items) {
 	return (Array.isArray(items) ? items : []).slice(0, 3).map((item) => ({
 		file: safeText(item?.file),
 		hunkId: safeText(item?.hunkId),
-		startLine: typeof item?.startLine === 'number' ? item.startLine : null,
-		endLine: typeof item?.endLine === 'number' ? item.endLine : null
+		startLine: Number.isInteger(item?.startLine) && item.startLine > 0 ? item.startLine : null,
+		endLine: Number.isInteger(item?.endLine) && item.endLine > 0 ? item.endLine : null
 	}));
 }
 

@@ -322,8 +322,12 @@ async function verifyPromptFlow(page: import('@playwright/test').Page) {
 
 test('runs the real desktop workflow through Tauri', async () => {
 	const sampleRepo = createSampleRepo();
-	const { browser, page } = await getDesktopPage();
+	let browser: import('@playwright/test').Browser | undefined;
+	let page: import('@playwright/test').Page | undefined;
 	try {
+		const desktop = await getDesktopPage();
+		browser = desktop.browser;
+		page = desktop.page;
 		await addProjectAndThread(page);
 		await page.getByRole('button', { name: 'Add project' }).click();
 		await page.getByRole('button', { name: 'Paste path' }).click();
@@ -338,7 +342,7 @@ test('runs the real desktop workflow through Tauri', async () => {
 		await attachReadmeToSelectedThread(page);
 		await verifyPromptFlow(page);
 	} finally {
-		await browser.close();
+		await browser?.close();
 		await removeDirectoryWithRetries(sampleRepo);
 	}
 });

@@ -61,8 +61,15 @@
 			return;
 		}
 		keyboardTargetId = hunkTargetId(jumpTargetHunkId);
-		void scrollToAnchor(hunkAnchorId(jumpTargetHunkId)).then(() => {
-			onJumpHandled();
+		const parentFileId = findFileIdForHunk(jumpTargetHunkId);
+		if (parentFileId && collapsedFileIds.includes(parentFileId)) {
+			onToggleCollapse(parentFileId);
+			return;
+		}
+		void scrollToAnchor(hunkAnchorId(jumpTargetHunkId)).then((scrolled) => {
+			if (scrolled) {
+				onJumpHandled();
+			}
 		});
 	});
 
@@ -86,9 +93,15 @@
 		return `file:${fileId}`;
 	}
 
+	function findFileIdForHunk(hunkId: string) {
+		return diff.files.find((file) => file.hunks.some((hunk) => hunk.id === hunkId))?.id ?? null;
+	}
+
 	async function scrollToAnchor(anchorId: string) {
 		await tick();
-		document.getElementById(anchorId)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+		const target = document.getElementById(anchorId);
+		target?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+		return Boolean(target);
 	}
 
 	function handleFileSelect(fileId: string) {
@@ -165,7 +178,7 @@
 	<div
 		aria-label="Patch review"
 		class="patch-view__body"
-		role="listbox"
+		role="region"
 		tabindex="0"
 		onkeydown={handleKeydown}
 	>

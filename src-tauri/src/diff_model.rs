@@ -29,16 +29,16 @@ pub struct ProjectDiffSnapshot {
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ProjectDiffStats {
-    pub additions: usize,
-    pub deletions: usize,
-    pub files_changed: usize,
+    pub additions: u32,
+    pub deletions: u32,
+    pub files_changed: u32,
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ProjectDiffFile {
-    pub additions: usize,
-    pub deletions: usize,
+    pub additions: u32,
+    pub deletions: u32,
     pub hunks: Vec<ProjectDiffHunk>,
     pub id: String,
     pub is_binary: bool,
@@ -56,18 +56,18 @@ pub struct ProjectDiffHunk {
     pub header: String,
     pub id: String,
     pub lines: Vec<ProjectDiffLine>,
-    pub new_lines: usize,
-    pub new_start: usize,
-    pub old_lines: usize,
-    pub old_start: usize,
+    pub new_lines: u32,
+    pub new_start: u32,
+    pub old_lines: u32,
+    pub old_start: u32,
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ProjectDiffLine {
     pub kind: DiffLineKind,
-    pub new_line: Option<usize>,
-    pub old_line: Option<usize>,
+    pub new_line: Option<u32>,
+    pub old_line: Option<u32>,
     pub text: String,
 }
 
@@ -102,7 +102,7 @@ pub struct DiffAnalysis {
     pub impact: Vec<DiffAnalysisImpactItem>,
     pub model_key: String,
     pub partial: bool,
-    pub progress: usize,
+    pub progress: u32,
     pub risks: Vec<DiffAnalysisRiskItem>,
     pub status: DiffAnalysisStatus,
     pub suggested_follow_ups: Vec<DiffAnalysisFollowUpItem>,
@@ -155,10 +155,10 @@ pub struct DiffAnalysisFollowUpItem {
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DiffEvidence {
-    pub end_line: Option<usize>,
+    pub end_line: Option<u32>,
     pub file: String,
     pub hunk_id: String,
-    pub start_line: Option<usize>,
+    pub start_line: Option<u32>,
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq)]

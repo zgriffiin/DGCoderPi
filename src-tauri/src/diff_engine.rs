@@ -14,6 +14,10 @@ const MAX_RENDER_LINES: usize = 1_600;
 const MAX_RENDER_TEXT_BYTES: usize = 160_000;
 const MAX_UNTRACKED_TEXT_BYTES: usize = 96_000;
 
+fn to_u32(value: usize) -> u32 {
+    u32::try_from(value).unwrap_or(u32::MAX)
+}
+
 #[derive(Clone, Copy, Debug, Default)]
 pub struct ProjectDiffOptions {
     pub hide_whitespace: bool,
@@ -47,7 +51,7 @@ pub fn project_diff(path: &str, branch: &str, options: ProjectDiffOptions) -> Pr
     let stats = ProjectDiffStats {
         additions: files.iter().map(|file| file.additions).sum(),
         deletions: files.iter().map(|file| file.deletions).sum(),
-        files_changed: files.len(),
+        files_changed: to_u32(files.len()),
     };
     let fingerprint = diff_fingerprint(branch, options.hide_whitespace, &files);
 
@@ -114,13 +118,13 @@ fn fallback_diff_file(repo_path: &str, status: &StatusEntry) -> Option<ProjectDi
         .enumerate()
         .map(|(index, line)| ProjectDiffLine {
             kind: DiffLineKind::Added,
-            new_line: Some(index + 1),
+            new_line: Some(to_u32(index + 1)),
             old_line: None,
             text: (*line).to_string(),
         })
         .collect::<Vec<_>>();
 
-    file.additions = diff_lines.len();
+    file.additions = to_u32(diff_lines.len());
     file.hunks.push(ProjectDiffHunk {
         header: format!("@@ -0,0 +1,{} @@", diff_lines.len()),
         id: hunk_id,
@@ -320,12 +324,12 @@ fn parse_git_diff_output(output: &str) -> Vec<ProjectDiffFile> {
                     .lines
                     .iter()
                     .filter(|line| matches!(line.kind, DiffLineKind::Added))
-                    .count();
+                    .count() as u32;
                 file.deletions += hunk
                     .lines
                     .iter()
                     .filter(|line| matches!(line.kind, DiffLineKind::Removed))
-                    .count();
+                    .count() as u32;
                 file.hunks.push(hunk);
                 index = next_index;
                 continue;
@@ -462,7 +466,7 @@ fn parse_hunk(
     )
 }
 
-fn parse_hunk_header(header: &str) -> (usize, usize, usize, usize) {
+fn parse_hunk_header(header: &str) -> (u32, u32, u32, u32) {
     let Some(header_end) = header.rfind("@@") else {
         return (0, 0, 0, 0);
     };
@@ -475,15 +479,17 @@ fn parse_hunk_header(header: &str) -> (usize, usize, usize, usize) {
     (old_start, old_lines, new_start, new_lines)
 }
 
-fn parse_range(value: &str) -> (usize, usize) {
+fn parse_range(value: &str) -> (u32, u32) {
     let mut parts = value.split(',');
     let start = parts
         .next()
         .and_then(|part| part.parse::<usize>().ok())
+        .map(to_u32)
         .unwrap_or(0);
     let count = parts
         .next()
         .and_then(|part| part.parse::<usize>().ok())
+        .map(to_u32)
         .unwrap_or(1);
     (start, count)
 }
@@ -522,27 +528,24 @@ fn infer_generated_file(path: &str) -> bool {
 
 fn diff_fingerprint(branch: &str, hide_whitespace: bool, files: &[ProjectDiffFile]) -> String {
     let mut hasher = Sha256::new();
-    hasher.update(branch.as_bytes());
-    hasher.update(if hide_whitespace {
-        b"hide_whitespace=1"
-    } else {
-        b"hide_whitespace=0"
-    });
+    hash_bool(&mut hasher, hide_whitespace);
+    hash_str(&mut hasher, branch);
+    hash_u64(&mut hasher, files.len() as u64);
     for file in files {
-        hasher.update(file.path.as_bytes());
-        hasher.update(file.status_code.as_bytes());
-        if let Some(original_path) = &file.original_path {
-            hasher.update(original_path.as_bytes());
-        }
-        hasher.update(file.additions.to_string().as_bytes());
-        hasher.update(file.deletions.to_string().as_bytes());
+        hash_str(&mut hasher, &file.path);
+        hash_str(&mut hasher, &file.status_code);
+        hash_optional_str(&mut hasher, file.original_path.as_deref());
+        hash_u64(&mut hasher, u64::from(file.additions));
+        hash_u64(&mut hasher, u64::from(file.deletions));
+        hash_u64(&mut hasher, file.hunks.len() as u64);
         for hunk in &file.hunks {
-            hasher.update(hunk.header.as_bytes());
+            hash_str(&mut hasher, &hunk.header);
+            hash_u64(&mut hasher, hunk.lines.len() as u64);
             for line in &hunk.lines {
-                hasher.update(format!("{:?}", line.kind).as_bytes());
-                hasher.update(line.text.as_bytes());
-                hasher.update(line.old_line.unwrap_or_default().to_string().as_bytes());
-                hasher.update(line.new_line.unwrap_or_default().to_string().as_bytes());
+                hash_str(&mut hasher, &format!("{:?}", line.kind));
+                hash_str(&mut hasher, &line.text);
+                hash_optional_u32(&mut hasher, line.old_line);
+                hash_optional_u32(&mut hasher, line.new_line);
             }
         }
     }
@@ -552,6 +555,39 @@ fn diff_fingerprint(branch: &str, hide_whitespace: bool, files: &[ProjectDiffFil
         .map(|byte| format!("{byte:02x}"))
         .collect::<String>();
     format!("sha256:{hex}")
+}
+
+fn hash_bool(hasher: &mut Sha256, value: bool) {
+    hasher.update([u8::from(value)]);
+}
+
+fn hash_u64(hasher: &mut Sha256, value: u64) {
+    hasher.update(value.to_le_bytes());
+}
+
+fn hash_str(hasher: &mut Sha256, value: &str) {
+    hash_u64(hasher, value.len() as u64);
+    hasher.update(value.as_bytes());
+}
+
+fn hash_optional_str(hasher: &mut Sha256, value: Option<&str>) {
+    match value {
+        Some(value) => {
+            hash_bool(hasher, true);
+            hash_str(hasher, value);
+        }
+        None => hash_bool(hasher, false),
+    }
+}
+
+fn hash_optional_u32(hasher: &mut Sha256, value: Option<u32>) {
+    match value {
+        Some(value) => {
+            hash_bool(hasher, true);
+            hash_u64(hasher, u64::from(value));
+        }
+        None => hash_bool(hasher, false),
+    }
 }
 
 fn empty_fingerprint() -> String {
