@@ -34,6 +34,7 @@
 	}: Props = $props();
 
 	let keyboardTargetId = $state<string | null>(null);
+	let patchViewBody = $state<HTMLDivElement | null>(null);
 
 	const flattenedTargets = $derived.by(() => {
 		const targets: string[] = [];
@@ -138,6 +139,13 @@
 		void scrollToAnchor(hunkAnchorId(hunkId));
 	}
 
+	function handleDocumentKeydown(event: KeyboardEvent) {
+		if (!patchViewBody?.contains(document.activeElement)) {
+			return;
+		}
+		handleKeydown(event);
+	}
+
 	function viewedCount() {
 		return diff.files.filter((file) => viewedFileIds.includes(file.id)).length;
 	}
@@ -155,6 +163,8 @@
 		return 'outline';
 	}
 </script>
+
+<svelte:document onkeydown={handleDocumentKeydown} />
 
 <div class="patch-view">
 	<div class="patch-view__toolbar">
@@ -175,13 +185,13 @@
 		{viewedFileIds}
 	/>
 
-	<!-- svelte-ignore a11y_no_noninteractive_tabindex a11y_no_noninteractive_element_interactions -->
+	<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
 	<div
+		bind:this={patchViewBody}
 		aria-label="Patch review"
 		class="patch-view__body"
 		role="region"
 		tabindex="0"
-		onkeydown={handleKeydown}
 	>
 		{#each diff.files as file (file.id)}
 			<section
