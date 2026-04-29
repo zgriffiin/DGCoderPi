@@ -361,6 +361,13 @@ fn parse_file_header(header: &str) -> ProjectDiffFile {
 }
 
 fn parse_diff_header_paths(body: &str) -> (Option<String>, Option<String>) {
+    if let Some((left, right)) = body.split_once('\t') {
+        return (
+            Some(decode_git_path(left.strip_prefix("a/").unwrap_or(left))),
+            Some(decode_git_path(right.strip_prefix("b/").unwrap_or(right))),
+        );
+    }
+
     if let Some(separator_index) = body.rfind(" b/") {
         let (left, right_with_prefix) = body.split_at(separator_index);
         let right = right_with_prefix.trim_start();
@@ -755,6 +762,14 @@ mod tests {
 
         assert_eq!(parsed.original_path.as_deref(), Some("docs/spec notes.md"));
         assert_eq!(parsed.path, "docs/spec notes.md");
+    }
+
+    #[test]
+    fn parse_file_header_handles_literal_b_substring_in_filename() {
+        let parsed = parse_file_header("diff --git a/docs/a b/value.txt\tb/docs/a b/value.txt");
+
+        assert_eq!(parsed.original_path.as_deref(), Some("docs/a b/value.txt"));
+        assert_eq!(parsed.path, "docs/a b/value.txt");
     }
 
     fn create_temp_git_repo(prefix: &str) -> PathBuf {

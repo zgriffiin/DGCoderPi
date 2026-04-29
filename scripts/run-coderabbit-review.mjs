@@ -1,4 +1,5 @@
 import { readFileSync, statSync } from 'node:fs';
+import path from 'node:path';
 import { captureCommand, fail } from './lib/process.mjs';
 
 function escapeShellArg(value) {
@@ -96,15 +97,21 @@ function buildWslRunner() {
 
 	let gitEnvironment = '';
 	try {
-		const gitMetadata = statSync('.git');
+		const gitFilePath = path.resolve('.git');
+		const gitMetadata = statSync(gitFilePath);
 		if (gitMetadata.isFile()) {
-			const gitFile = readFileSync('.git', 'utf8');
+			const gitFile = readFileSync(gitFilePath, 'utf8');
 			const gitDirLine = gitFile
 				.split(/\r?\n/)
 				.map((line) => line.trim())
 				.find((line) => line.toLowerCase().startsWith('gitdir:'));
 			const gitDirWindowsPath = gitDirLine?.slice('gitdir:'.length).trim();
-			const gitDirWslPath = gitDirWindowsPath ? windowsPathToWslPath(gitDirWindowsPath) : null;
+			const gitDirResolvedPath = gitDirWindowsPath
+				? path.isAbsolute(gitDirWindowsPath)
+					? gitDirWindowsPath
+					: path.resolve(path.dirname(gitFilePath), gitDirWindowsPath)
+				: null;
+			const gitDirWslPath = gitDirResolvedPath ? windowsPathToWslPath(gitDirResolvedPath) : null;
 
 			if (gitDirWslPath) {
 				gitEnvironment = `export GIT_DIR=${escapeShellArg(gitDirWslPath)} GIT_WORK_TREE=${escapeShellArg(wslPath)} && `;

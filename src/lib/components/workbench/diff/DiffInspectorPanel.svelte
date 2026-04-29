@@ -172,10 +172,21 @@
 			return;
 		}
 
+		const currentProjectId = project.id;
+		const currentThreadId = thread.id;
+		const currentHideWhitespace = hideWhitespace;
+
 		const timeout = window.setTimeout(() => {
 			void controller
-				.refreshDiffAnalysis(project.id, thread.id, hideWhitespace)
+				.refreshDiffAnalysis(currentProjectId, currentThreadId, currentHideWhitespace)
 				.then((nextAnalysis) => {
+					if (
+						project?.id !== currentProjectId ||
+						thread?.id !== currentThreadId ||
+						hideWhitespace !== currentHideWhitespace
+					) {
+						return;
+					}
 					diffAnalysis = nextAnalysis;
 				})
 				.catch(() => {
@@ -197,13 +208,31 @@
 			return;
 		}
 
+		const currentProjectId = project.id;
+		const currentThreadId = thread?.id ?? null;
+		const currentHideWhitespace = hideWhitespace;
+
 		const interval = window.setInterval(() => {
 			void controller
-				.loadDiffAnalysis(project.id, thread?.id ?? null, hideWhitespace)
+				.loadDiffAnalysis(currentProjectId, currentThreadId, currentHideWhitespace)
 				.then((nextAnalysis) => {
+					if (
+						project?.id !== currentProjectId ||
+						(thread?.id ?? null) !== currentThreadId ||
+						hideWhitespace !== currentHideWhitespace
+					) {
+						return;
+					}
 					diffAnalysis = nextAnalysis;
 				})
 				.catch((error) => {
+					if (
+						project?.id !== currentProjectId ||
+						(thread?.id ?? null) !== currentThreadId ||
+						hideWhitespace !== currentHideWhitespace
+					) {
+						return;
+					}
 					diffAnalysisError = error instanceof Error ? error.message : String(error);
 				});
 		}, 1500);
