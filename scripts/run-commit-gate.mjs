@@ -22,6 +22,10 @@ function snapshotFiles(filePaths) {
 	return new Map(filePaths.map((filePath) => [filePath, hashFile(filePath)]));
 }
 
+function filterLintableFiles(filePaths) {
+	return filePaths.filter((filePath) => /\.(?:[cm]?js|[cm]?ts|svelte)$/i.test(filePath));
+}
+
 function findReformattedFiles(beforeSnapshot) {
 	const changed = [];
 
@@ -38,8 +42,16 @@ function findReformattedFiles(beforeSnapshot) {
 
 const stagedFiles = listStagedFiles();
 const stagedSnapshot = snapshotFiles(stagedFiles);
+const lintableStagedFiles = filterLintableFiles(stagedFiles);
 
-runCheckedStep('Formatting workspace', 'pnpm', ['format']);
+if (stagedFiles.length > 0) {
+	runCheckedStep('Formatting staged files', 'pnpm', [
+		'exec',
+		'prettier',
+		'--write',
+		...stagedFiles
+	]);
+}
 
 const reformattedFiles = findReformattedFiles(stagedSnapshot);
 
@@ -49,6 +61,10 @@ if (reformattedFiles.length > 0) {
 	);
 }
 
-runCheckedStep('Running lint gate', 'pnpm', ['lint']);
+if (lintableStagedFiles.length > 0) {
+	runCheckedStep('Linting staged files', 'pnpm', ['exec', 'eslint', ...lintableStagedFiles]);
+}
+
+runCheckedStep('Running runtime policy gate', 'pnpm', ['policy:runtime']);
 runCheckedStep('Running type gate', 'pnpm', ['check']);
 runCheckedStep('Running fallow commit gate', 'pnpm', ['fallow:commit']);
