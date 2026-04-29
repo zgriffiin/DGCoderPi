@@ -79,6 +79,7 @@ function createSampleRepo() {
 	);
 	writeFileSync(path.join(repoRoot, 'README.md'), '# Sample repo\n');
 	runGit(repoRoot, ['init', '-b', 'main']);
+	runGit(repoRoot, ['config', 'commit.gpgsign', 'false']);
 	runGit(repoRoot, ['config', 'user.email', 'pi@example.com']);
 	runGit(repoRoot, ['config', 'user.name', 'Pi']);
 	runGit(repoRoot, ['add', '.']);
