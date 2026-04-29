@@ -13,24 +13,26 @@ function resolveCargoCommand() {
 }
 
 const cargo = resolveCargoCommand();
+const cargoEnv = Object.fromEntries(
+	Object.entries(process.env).filter(([key]) => !key.startsWith('GIT_'))
+);
 
 try {
-	runCheckedStep('Checking Rust format', cargo, [
-		'fmt',
-		'--manifest-path',
-		'src-tauri/Cargo.toml',
-		'--check'
-	]);
-	runCheckedStep('Running Rust clippy', cargo, [
-		'clippy',
-		'--manifest-path',
-		'src-tauri/Cargo.toml',
-		'--all-targets',
-		'--',
-		'-D',
-		'warnings'
-	]);
-	runCheckedStep('Running Rust tests', cargo, ['test', '--manifest-path', 'src-tauri/Cargo.toml']);
+	runCheckedStep(
+		'Checking Rust format',
+		cargo,
+		['fmt', '--manifest-path', 'src-tauri/Cargo.toml', '--check'],
+		{ env: cargoEnv }
+	);
+	runCheckedStep(
+		'Running Rust clippy',
+		cargo,
+		['clippy', '--manifest-path', 'src-tauri/Cargo.toml', '--all-targets', '--', '-D', 'warnings'],
+		{ env: cargoEnv }
+	);
+	runCheckedStep('Running Rust tests', cargo, ['test', '--manifest-path', 'src-tauri/Cargo.toml'], {
+		env: cargoEnv
+	});
 } catch {
 	fail(
 		'Rust toolchain is required for the push gate. Install Rust or restart the shell so cargo is available.'
