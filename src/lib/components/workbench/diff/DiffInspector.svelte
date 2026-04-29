@@ -80,13 +80,13 @@
 		<div class="empty-panel">
 			<p>{diffError}</p>
 		</div>
-	{:else if !diff?.gitAvailable}
-		<div class="empty-panel">
-			<p>Git status unavailable</p>
-		</div>
 	{:else if !diff}
 		<div class="empty-panel">
 			<p>No diff loaded</p>
+		</div>
+	{:else if !diff.gitAvailable}
+		<div class="empty-panel">
+			<p>Git status unavailable</p>
 		</div>
 	{:else if reviewMode === 'ai-review'}
 		<AiReviewPanel
@@ -102,6 +102,9 @@
 			{diff}
 			{hideWhitespace}
 			{jumpTargetHunkId}
+			onJumpHandled={() => {
+				jumpTargetHunkId = null;
+			}}
 			onSelectFile={(fileId) => {
 				selectedFileId = fileId;
 			}}

@@ -49,7 +49,7 @@ pub fn project_diff(path: &str, branch: &str, options: ProjectDiffOptions) -> Pr
         deletions: files.iter().map(|file| file.deletions).sum(),
         files_changed: files.len(),
     };
-    let fingerprint = diff_fingerprint(branch, &files);
+    let fingerprint = diff_fingerprint(branch, options.hide_whitespace, &files);
 
     ProjectDiffSnapshot {
         branch: branch.to_string(),
@@ -347,16 +347,37 @@ fn parse_git_diff_output(output: &str) -> Vec<ProjectDiffFile> {
 
 fn parse_file_header(header: &str) -> ProjectDiffFile {
     let mut file = ProjectDiffFile::default();
-    let parts = header.split_whitespace().collect::<Vec<_>>();
-    file.original_path = parts.get(2).map(|value| value.to_string());
-    file.path = parts
-        .get(3)
-        .map(|value| value.to_string())
+    let body = header
+        .strip_prefix("diff --git ")
+        .map(str::trim)
         .unwrap_or_default();
+    let (original_path, path) = parse_diff_header_paths(body);
+    file.original_path = original_path;
+    file.path = path.unwrap_or_default();
     file.id = file.path.clone();
     file.status = "modified".to_string();
     file.status_code = "M".to_string();
     file
+}
+
+fn parse_diff_header_paths(body: &str) -> (Option<String>, Option<String>) {
+    if let Some(separator_index) = body.rfind(" b/") {
+        let (left, right_with_prefix) = body.split_at(separator_index);
+        let right = right_with_prefix.trim_start();
+        return (
+            Some(decode_git_path(left.strip_prefix("a/").unwrap_or(left))),
+            Some(decode_git_path(right.strip_prefix("b/").unwrap_or(right))),
+        );
+    }
+
+    let mut parts = body.splitn(2, ' ');
+    let left = parts.next().unwrap_or_default();
+    let right = parts.next().unwrap_or_default().trim();
+    let original_path =
+        (!left.is_empty()).then(|| decode_git_path(left.strip_prefix("a/").unwrap_or(left)));
+    let path =
+        (!right.is_empty()).then(|| decode_git_path(right.strip_prefix("b/").unwrap_or(right)));
+    (original_path, path)
 }
 
 fn parse_hunk(
@@ -492,9 +513,14 @@ fn infer_generated_file(path: &str) -> bool {
         || normalized.ends_with("package-lock.json")
 }
 
-fn diff_fingerprint(branch: &str, files: &[ProjectDiffFile]) -> String {
+fn diff_fingerprint(branch: &str, hide_whitespace: bool, files: &[ProjectDiffFile]) -> String {
     let mut hasher = Sha256::new();
     hasher.update(branch.as_bytes());
+    hasher.update(if hide_whitespace {
+        b"hide_whitespace=1"
+    } else {
+        b"hide_whitespace=0"
+    });
     for file in files {
         hasher.update(file.path.as_bytes());
         hasher.update(file.status_code.as_bytes());
@@ -513,7 +539,12 @@ fn diff_fingerprint(branch: &str, files: &[ProjectDiffFile]) -> String {
             }
         }
     }
-    format!("sha256:{:x}", hasher.finalize())
+    let digest = hasher.finalize();
+    let hex = digest
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect::<String>();
+    format!("sha256:{hex}")
 }
 
 fn empty_fingerprint() -> String {
@@ -639,7 +670,7 @@ fn decode_git_path(path: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{project_diff, ProjectDiffOptions};
+    use super::{parse_file_header, project_diff, ProjectDiffOptions};
     use std::{
         fs,
         path::{Path, PathBuf},
@@ -716,6 +747,14 @@ mod tests {
 
         assert_ne!(visible.fingerprint, hidden.fingerprint);
         assert_eq!(hidden.stats.additions + hidden.stats.deletions, 0);
+    }
+
+    #[test]
+    fn parse_file_header_preserves_paths_with_spaces() {
+        let parsed = parse_file_header("diff --git a/docs/spec notes.md b/docs/spec notes.md");
+
+        assert_eq!(parsed.original_path.as_deref(), Some("docs/spec notes.md"));
+        assert_eq!(parsed.path, "docs/spec notes.md");
     }
 
     fn create_temp_git_repo(prefix: &str) -> PathBuf {

@@ -10,6 +10,7 @@
 		diff: ProjectDiffSnapshot;
 		hideWhitespace: boolean;
 		jumpTargetHunkId: string | null;
+		onJumpHandled: () => void;
 		onSelectFile: (fileId: string) => void;
 		onToggleCollapse: (fileId: string) => void;
 		onToggleViewed: (fileId: string) => void;
@@ -23,6 +24,7 @@
 		diff,
 		hideWhitespace,
 		jumpTargetHunkId,
+		onJumpHandled,
 		onSelectFile,
 		onToggleCollapse,
 		onToggleViewed,
@@ -59,7 +61,9 @@
 			return;
 		}
 		keyboardTargetId = hunkTargetId(jumpTargetHunkId);
-		void scrollToAnchor(hunkAnchorId(jumpTargetHunkId));
+		void scrollToAnchor(hunkAnchorId(jumpTargetHunkId)).then(() => {
+			onJumpHandled();
+		});
 	});
 
 	function isCollapsed(fileId: string) {

@@ -106,6 +106,10 @@ function runGit(repoRoot: string, args: string[]) {
 	execFileSync('git', args, { cwd: repoRoot, stdio: 'ignore' });
 }
 
+function escapeRegExp(value: string) {
+	return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
 async function removeDirectoryWithRetries(targetPath: string) {
 	for (let attempt = 0; attempt < 5; attempt += 1) {
 		try {
@@ -209,6 +213,7 @@ async function verifySettingsAndDiff(page: import('@playwright/test').Page, repo
 
 async function attachReadmeToSelectedThread(page: import('@playwright/test').Page) {
 	const inspector = page.locator('.inspector-rail');
+	const settingsButton = page.getByRole('button', { name: 'Settings' });
 	await page.evaluate(
 		async ({ sourcePath }) => {
 			const runtime = window.__PI_DEBUG__;
@@ -231,6 +236,10 @@ async function attachReadmeToSelectedThread(page: import('@playwright/test').Pag
 			sourcePath: path.resolve(process.cwd(), 'README.md')
 		}
 	);
+	await settingsButton.click();
+	const settingsDialog = page.getByRole('dialog', { name: 'Settings' });
+	await settingsDialog.getByRole('button', { name: 'Refresh status' }).click();
+	await settingsDialog.getByLabel('Close the modal').click();
 	await page.getByRole('button', { name: 'Spec' }).click();
 	await expect
 		.poll(
@@ -256,9 +265,19 @@ async function verifyPromptFlow(page: import('@playwright/test').Page) {
 	await expect(page.locator('.composer-panel .bx--list-box').first()).toBeVisible();
 	await page.getByLabel('Prompt Pi').fill('Reply with the word ready.');
 	await page.getByRole('button', { name: 'Start' }).click();
-	await expect(page.locator('.message-row[data-tone="user"] .message-row__body')).toContainText(
-		'Reply with the word ready.'
-	);
+	await expect
+		.poll(
+			async () => {
+				return (
+					(await page
+						.locator('.message-row[data-tone="user"] .message-row__body')
+						.textContent()
+						.catch(() => '')) ?? ''
+				);
+			},
+			{ timeout: 15_000 }
+		)
+		.toContain('Reply with the word ready.');
 
 	const assistantBody = page
 		.locator('.message-row[data-tone="assistant"] .message-row__body')
@@ -293,7 +312,9 @@ test('runs the real desktop workflow through Tauri', async () => {
 		await page.getByLabel('Repository path').fill(sampleRepo);
 		await page.getByRole('button', { name: 'Add from path' }).click();
 		await page
-			.getByRole('button', { name: new RegExp(`Create thread in ${path.basename(sampleRepo)}`) })
+			.getByRole('button', {
+				name: new RegExp(`Create thread in ${escapeRegExp(path.basename(sampleRepo))}`)
+			})
 			.click();
 		await verifySettingsAndDiff(page, sampleRepo);
 		await attachReadmeToSelectedThread(page);

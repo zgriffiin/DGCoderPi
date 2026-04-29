@@ -176,7 +176,26 @@ impl AppRuntime {
         let runtime = self.clone();
         let fingerprint = snapshot.fingerprint.clone();
         tauri::async_runtime::spawn(async move {
-            let _ = runtime.run_diff_analysis_job(request, &fingerprint);
+            let _guard = ActiveDiffJobGuard {
+                fingerprint: fingerprint.clone(),
+                runtime: runtime.clone(),
+            };
+            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                runtime.run_diff_analysis_job(request)
+            }));
+            match result {
+                Ok(Ok(())) => {}
+                Ok(Err(error)) => {
+                    log::error!(
+                        "Diff analysis job failed for fingerprint {}: {}",
+                        fingerprint,
+                        error
+                    );
+                }
+                Err(_) => {
+                    log::error!("Diff analysis job panicked for fingerprint {}", fingerprint);
+                }
+            }
         });
 
         Ok(in_progress)
@@ -865,11 +884,7 @@ impl AppRuntime {
         })
     }
 
-    fn run_diff_analysis_job(
-        &self,
-        request: DiffAnalysisRequest,
-        fingerprint: &str,
-    ) -> Result<(), String> {
+    fn run_diff_analysis_job(&self, request: DiffAnalysisRequest) -> Result<(), String> {
         let result = self.bridge().and_then(|bridge| {
             analyze_diff(&bridge, request.clone(), |progress| {
                 save_diff_analysis(&self.inner.data_dir, progress)
@@ -880,11 +895,6 @@ impl AppRuntime {
             Err(error) => failed_analysis(&request.diff, &request.model_key, error),
         };
         save_diff_analysis(&self.inner.data_dir, &final_analysis)?;
-        self.inner
-            .active_diff_jobs
-            .lock()
-            .map_err(|_| "Diff analysis job lock was poisoned.".to_string())?
-            .remove(fingerprint);
         Ok(())
     }
 
@@ -942,6 +952,12 @@ impl AppRuntime {
 
         self.preferred_diff_analysis_model_key()?
             .ok_or_else(|| "Configure a model in Settings before running AI Review.".to_string())
+    }
+
+    fn clear_active_diff_job(&self, fingerprint: &str) {
+        if let Ok(mut jobs) = self.inner.active_diff_jobs.lock() {
+            jobs.remove(fingerprint);
+        }
     }
 
     fn prepare_prompt(
@@ -1324,6 +1340,17 @@ fn diff_analysis_model_rank(model: &ModelOption) -> (u8, bool) {
     };
 
     (size_rank, !model.configured)
+}
+
+struct ActiveDiffJobGuard {
+    fingerprint: String,
+    runtime: AppRuntime,
+}
+
+impl Drop for ActiveDiffJobGuard {
+    fn drop(&mut self) {
+        self.runtime.clear_active_diff_job(&self.fingerprint);
+    }
 }
 
 fn update_thread_title(thread: &mut ThreadRecord, text: &str) {

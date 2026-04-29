@@ -1,3 +1,4 @@
+import { readFileSync, statSync } from 'node:fs';
 import { captureCommand, fail } from './lib/process.mjs';
 
 function escapeShellArg(value) {
@@ -44,6 +45,18 @@ function parseRetryDelayMs(waitTime) {
 	return (totalSeconds > 0 ? totalSeconds : 90) * 1000 + 5_000;
 }
 
+function windowsPathToWslPath(value) {
+	const normalized = value.replace(/\\/g, '/');
+	const pathMatch = normalized.match(/^([A-Za-z]):\/(.*)$/);
+
+	if (!pathMatch) {
+		return null;
+	}
+
+	const [, driveLetter, restOfPath] = pathMatch;
+	return `/mnt/${driveLetter.toLowerCase()}/${restOfPath}`;
+}
+
 function sleep(ms) {
 	return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -74,25 +87,38 @@ function buildWslRunner() {
 		);
 	}
 
-	const pathMatch = process
-		.cwd()
-		.replace(/\\/g, '/')
-		.match(/^([A-Za-z]):\/(.*)$/);
-
-	if (!pathMatch) {
+	const wslPath = windowsPathToWslPath(process.cwd());
+	if (!wslPath) {
 		fail(
 			'CodeRabbit CLI was not found on Windows and the WSL fallback could not convert the current workspace path. Install CodeRabbit CLI directly or configure it in WSL, then run `cr auth login`.'
 		);
 	}
 
-	const [, driveLetter, restOfPath] = pathMatch;
-	const wslPath = `/mnt/${driveLetter.toLowerCase()}/${restOfPath}`;
+	let gitEnvironment = '';
+	try {
+		const gitMetadata = statSync('.git');
+		if (gitMetadata.isFile()) {
+			const gitFile = readFileSync('.git', 'utf8');
+			const gitDirLine = gitFile
+				.split(/\r?\n/)
+				.map((line) => line.trim())
+				.find((line) => line.toLowerCase().startsWith('gitdir:'));
+			const gitDirWindowsPath = gitDirLine?.slice('gitdir:'.length).trim();
+			const gitDirWslPath = gitDirWindowsPath ? windowsPathToWslPath(gitDirWindowsPath) : null;
+
+			if (gitDirWslPath) {
+				gitEnvironment = `export GIT_DIR=${escapeShellArg(gitDirWslPath)} GIT_WORK_TREE=${escapeShellArg(wslPath)} && `;
+			}
+		}
+	} catch {
+		// Ignore git metadata probing errors and fall back to the default WSL cwd behavior.
+	}
 
 	return {
 		label: 'WSL cr',
 		run(args) {
 			const joinedArgs = args.map(escapeShellArg).join(' ');
-			const command = `cd ${escapeShellArg(wslPath)} && cr ${joinedArgs}`;
+			const command = `cd ${escapeShellArg(wslPath)} && ${gitEnvironment}cr ${joinedArgs}`;
 
 			return captureCommand('wsl.exe', ['bash', '-lc', command], { shell: false });
 		}
