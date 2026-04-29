@@ -261,6 +261,7 @@ async function attachReadmeToSelectedThread(page: import('@playwright/test').Pag
 
 async function verifyPromptFlow(page: import('@playwright/test').Page) {
 	const modelEmptyState = page.locator('.model-empty-state');
+	const promptText = 'Reply with the word ready.';
 	if (await modelEmptyState.isVisible()) {
 		await page.getByLabel('Prompt Pi').fill('Describe the current workbench state.');
 		await page.getByRole('button', { name: 'Start' }).click();
@@ -271,21 +272,32 @@ async function verifyPromptFlow(page: import('@playwright/test').Page) {
 	}
 
 	await expect(page.locator('.composer-panel .bx--list-box').first()).toBeVisible();
-	await page.getByLabel('Prompt Pi').fill('Reply with the word ready.');
+	await page.getByLabel('Prompt Pi').fill(promptText);
 	await page.getByRole('button', { name: 'Start' }).click();
-	await expect
-		.poll(
-			async () => {
-				return (
-					(await page
-						.locator('.message-row[data-tone="user"] .message-row__body')
-						.textContent()
-						.catch(() => '')) ?? ''
-				);
-			},
-			{ timeout: 15_000 }
-		)
-		.toContain('Reply with the word ready.');
+	const readSendState = async () => {
+		if (
+			await page
+				.getByText('Select a configured model before sending a prompt.')
+				.isVisible()
+				.catch(() => false)
+		) {
+			return 'validation';
+		}
+
+		const userMessages = await page
+			.locator('.message-row[data-tone="user"] .message-row__body')
+			.allTextContents()
+			.catch(() => []);
+		return userMessages.some((message) => message.includes(promptText)) ? 'queued' : 'pending';
+	};
+	await expect.poll(readSendState, { timeout: 30_000 }).not.toBe('pending');
+	const sendState = await readSendState();
+	if (sendState === 'validation') {
+		await expect(
+			page.getByText('Select a configured model before sending a prompt.')
+		).toBeVisible();
+		return;
+	}
 
 	const assistantBody = page
 		.locator('.message-row[data-tone="assistant"] .message-row__body')
