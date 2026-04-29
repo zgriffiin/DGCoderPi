@@ -896,6 +896,21 @@ impl AppRuntime {
             .and_then(|models| models.first().map(|model| model.key.clone()))
     }
 
+    fn preferred_diff_analysis_model_key(&self) -> Result<Option<String>, String> {
+        let mut models = self
+            .inner
+            .models
+            .lock()
+            .map_err(|_| "Model cache lock was poisoned.".to_string())?
+            .clone();
+        models.sort_by(|left, right| {
+            diff_analysis_model_rank(left)
+                .cmp(&diff_analysis_model_rank(right))
+                .then_with(|| left.label.cmp(&right.label))
+        });
+        Ok(models.first().map(|model| model.key.clone()))
+    }
+
     fn resolve_diff_analysis_model_key(&self, thread_id: Option<&str>) -> Result<String, String> {
         let configured = {
             let state = self
@@ -925,16 +940,7 @@ impl AppRuntime {
             }
         }
 
-        let mut models = self
-            .inner
-            .models
-            .lock()
-            .map_err(|_| "Model cache lock was poisoned.".to_string())?
-            .clone();
-        models.sort_by(|left, right| left.label.cmp(&right.label));
-        models
-            .first()
-            .map(|model| model.key.clone())
+        self.preferred_diff_analysis_model_key()?
             .ok_or_else(|| "Configure a model in Settings before running AI Review.".to_string())
     }
 
@@ -1297,6 +1303,29 @@ fn latest_user_message_timestamp<'a>(
         .unwrap_or(fallback)
 }
 
+fn diff_analysis_model_rank(model: &ModelOption) -> (u8, bool) {
+    let descriptor = format!("{} {}", model.label, model.key).to_ascii_lowercase();
+    let size_rank = if descriptor.contains("nano") {
+        0
+    } else if descriptor.contains("mini")
+        || descriptor.contains("small")
+        || descriptor.contains("haiku")
+        || descriptor.contains("flash")
+        || descriptor.contains("spark")
+    {
+        1
+    } else if descriptor.contains("sonnet")
+        || descriptor.contains("medium")
+        || descriptor.contains("standard")
+    {
+        2
+    } else {
+        3
+    };
+
+    (size_rank, !model.configured)
+}
+
 fn update_thread_title(thread: &mut ThreadRecord, text: &str) {
     if should_derive_thread_title(&thread.title) {
         thread.title = derive_thread_title(text);
@@ -1362,12 +1391,12 @@ fn launch_codex_login() -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::{
-        latest_user_message_timestamp, normalize_state, project_insert_index,
-        sync_thread_model_selection,
+        diff_analysis_model_rank, latest_user_message_timestamp, normalize_state,
+        project_insert_index, sync_thread_model_selection,
     };
     use crate::model::{
-        MessageRecord, MessageRole, MessageStatus, PersistedState, ProjectRecord, QueueEntry,
-        QueueMode, QueueStatus, ThreadRecord, ThreadStatus,
+        MessageRecord, MessageRole, MessageStatus, ModelOption, PersistedState, ProjectRecord,
+        QueueEntry, QueueMode, QueueStatus, ThreadRecord, ThreadStatus,
     };
     use std::collections::HashSet;
 
@@ -1480,6 +1509,31 @@ mod tests {
         let timestamp = latest_user_message_timestamp(messages.iter(), 10);
 
         assert_eq!(timestamp, 55);
+    }
+
+    #[test]
+    fn diff_analysis_model_rank_prefers_small_variants_and_configured_models() {
+        let standard = ModelOption {
+            configured: true,
+            key: "openai::gpt-5.4".to_string(),
+            label: "GPT-5.4".to_string(),
+            ..ModelOption::default()
+        };
+        let mini = ModelOption {
+            configured: true,
+            key: "openai::gpt-5.4-mini".to_string(),
+            label: "GPT-5.4 Mini".to_string(),
+            ..ModelOption::default()
+        };
+        let unconfigured_mini = ModelOption {
+            configured: false,
+            key: "openai::gpt-5.4-mini".to_string(),
+            label: "GPT-5.4 Mini".to_string(),
+            ..ModelOption::default()
+        };
+
+        assert!(diff_analysis_model_rank(&mini) < diff_analysis_model_rank(&standard));
+        assert!(diff_analysis_model_rank(&mini) < diff_analysis_model_rank(&unconfigured_mini));
     }
 }
 

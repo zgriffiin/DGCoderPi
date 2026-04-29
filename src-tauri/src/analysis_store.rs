@@ -139,6 +139,27 @@ mod tests {
         );
     }
 
+    #[test]
+    fn failed_state_round_trips_error_payload() {
+        let data_dir = temp_data_dir("analysis-store-failed");
+        let failed = DiffAnalysis {
+            fingerprint: "sha256:failed".to_string(),
+            model_key: "openai::gpt-5.4".to_string(),
+            status: DiffAnalysisStatus::Failed,
+            error: Some("bridge timeout".to_string()),
+            updated_at_ms: now_ms(),
+            ..DiffAnalysis::default()
+        };
+
+        save_diff_analysis(data_dir.as_path(), &failed).unwrap();
+
+        let loaded = load_diff_analysis(data_dir.as_path(), "sha256:failed")
+            .unwrap()
+            .unwrap();
+        assert_eq!(loaded.status, DiffAnalysisStatus::Failed);
+        assert_eq!(loaded.error.as_deref(), Some("bridge timeout"));
+    }
+
     fn temp_data_dir(prefix: &str) -> std::path::PathBuf {
         let path = std::env::temp_dir().join(format!("{prefix}-{}", Uuid::new_v4()));
         fs::create_dir_all(&path).unwrap();
