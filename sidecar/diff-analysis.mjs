@@ -7,6 +7,17 @@ import {
 } from '@mariozechner/pi-coding-agent';
 
 const REVIEW_TOOL_NAME = 'diff_review_result';
+const EVIDENCE_ITEM_SCHEMA = {
+	type: 'object',
+	additionalProperties: false,
+	properties: {
+		file: { type: 'string' },
+		hunkId: { type: 'string' },
+		startLine: { type: 'integer', minimum: 1 },
+		endLine: { type: 'integer', minimum: 1 }
+	},
+	required: ['file', 'hunkId']
+};
 const REVIEW_TOOL_SCHEMA = {
 	type: 'object',
 	additionalProperties: false,
@@ -21,17 +32,7 @@ const REVIEW_TOOL_SCHEMA = {
 					detail: { type: 'string' },
 					evidence: {
 						type: 'array',
-						items: {
-							type: 'object',
-							additionalProperties: false,
-							properties: {
-								file: { type: 'string' },
-								hunkId: { type: 'string' },
-								startLine: { type: 'integer', minimum: 1 },
-								endLine: { type: 'integer', minimum: 1 }
-							},
-							required: ['file', 'hunkId']
-						}
+						items: EVIDENCE_ITEM_SCHEMA
 					}
 				},
 				required: ['title', 'detail', 'evidence']
@@ -63,17 +64,7 @@ const REVIEW_TOOL_SCHEMA = {
 					whyItMatters: { type: 'string' },
 					evidence: {
 						type: 'array',
-						items: {
-							type: 'object',
-							additionalProperties: false,
-							properties: {
-								file: { type: 'string' },
-								hunkId: { type: 'string' },
-								startLine: { type: 'integer', minimum: 1 },
-								endLine: { type: 'integer', minimum: 1 }
-							},
-							required: ['file', 'hunkId']
-						}
+						items: EVIDENCE_ITEM_SCHEMA
 					}
 				},
 				required: ['level', 'confidence', 'title', 'detail', 'whyItMatters', 'evidence']

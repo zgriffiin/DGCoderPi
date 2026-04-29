@@ -175,6 +175,7 @@
 		{viewedFileIds}
 	/>
 
+	<!-- svelte-ignore a11y_no_noninteractive_tabindex a11y_no_noninteractive_element_interactions -->
 	<div
 		aria-label="Patch review"
 		class="patch-view__body"
