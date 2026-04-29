@@ -6,6 +6,9 @@ import { chromium, expect, test } from '@playwright/test';
 
 const DESKTOP_DEBUG_URL = 'http://127.0.0.1:9333';
 const DESKTOP_PAGE_MARKER = 'DGCoder Pi';
+const sanitizedGitEnv = Object.fromEntries(
+	Object.entries(process.env).filter(([key]) => !key.startsWith('GIT_'))
+);
 
 test.setTimeout(120_000);
 
@@ -104,7 +107,11 @@ function createSampleRepo() {
 }
 
 function runGit(repoRoot: string, args: string[]) {
-	execFileSync('git', args, { cwd: repoRoot, stdio: 'ignore' });
+	execFileSync('git', args, {
+		cwd: repoRoot,
+		env: sanitizedGitEnv,
+		stdio: 'ignore'
+	});
 }
 
 function escapeRegExp(value: string) {
