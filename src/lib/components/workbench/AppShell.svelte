@@ -3,14 +3,13 @@
 	import type { InspectorMode, ThinkingLevel } from '$lib/types/workbench';
 	import { buildShipSlicePrompt } from '$lib/workbench/preset-prompts';
 	import { createWorkbenchController } from '$lib/workbench/controller';
-	import AddProjectModal from './AddProjectModal.svelte';
-	import ComposerPanel from './ComposerPanel.svelte';
-	import ConversationPane from './ConversationPane.svelte';
-	import InspectorRail from './InspectorRail.svelte';
-	import ProjectRail from './ProjectRail.svelte';
-	import SettingsModal from './SettingsModal.svelte';
-	import WorkbenchResizeHandle from './WorkbenchResizeHandle.svelte';
-	import WorkbenchTopbar from './WorkbenchTopbar.svelte';
+	import {
+		createIdleShipReview,
+		createReviewingShipReview,
+		runShipReviewGate,
+		shipReviewScopeMatches
+	} from '$lib/workbench/ship-review';
+	import WorkbenchShellView from './WorkbenchShellView.svelte';
 	import { stageBrowserFiles } from './composer-attachments';
 	import {
 		buildComposerHint,
@@ -20,20 +19,7 @@
 		resolveProjectSelection,
 		resolveThreadSelection
 	} from './workbench-selection';
-	import {
-		DEFAULT_PANEL_WIDTHS,
-		MIN_INSPECTOR_WIDTH,
-		MIN_PROJECT_RAIL_WIDTH,
-		RESIZE_BREAKPOINT,
-		clampWidth,
-		formatWorkbenchGridStyle,
-		loadPanelWidths,
-		maxLeftWidth as computeMaxLeftWidth,
-		maxRightWidth as computeMaxRightWidth,
-		savePanelWidths,
-		type DragState,
-		type ResizablePane
-	} from './workbench-layout';
+	import { MIN_PROJECT_RAIL_WIDTH } from './workbench-layout';
 	const controller = createWorkbenchController();
 
 	let addProjectDraft = $state('');
@@ -45,10 +31,8 @@
 	let selectedProjectId = $state('');
 	let selectedThreadId = $state('');
 	let settingsOpen = $state(false);
-	let activeDrag = $state<DragState | null>(null);
-	let panelWidths = $state(DEFAULT_PANEL_WIDTHS);
-	let viewportWidth = $state(0);
-	let workbenchGrid = $state<HTMLDivElement | null>(null);
+	let shipReview = $state(createIdleShipReview());
+	let shipReviewRequestId = 0;
 
 	const workbenchState = $derived($controller);
 	const snapshot = $derived(workbenchState.snapshot);
@@ -65,21 +49,30 @@
 		activeThread?.attachments.filter((attachment) => attachment.stage === 'staged') ?? []
 	);
 	const composerHint = $derived(buildComposerHint(snapshot, activeThread));
-	const inspectorVisible = $derived(Boolean(inspectorMode));
-	const canResizePanels = $derived(viewportWidth > RESIZE_BREAKPOINT);
-	const workbenchGridStyle = $derived(formatWorkbenchGridStyle(panelWidths));
+	const shellState = $derived({
+		activeProject,
+		activeThread,
+		addProjectDraft,
+		addProjectOpen,
+		composerHint,
+		draft,
+		inspectorMode,
+		manualProjectPathOpen,
+		providerDrafts,
+		selectedModel,
+		selectedModelKey,
+		selectedProjectId,
+		selectedReasoningLevel,
+		selectedThreadId,
+		settingsOpen,
+		shipReview,
+		stagedAttachments,
+		workbenchState
+	});
 
 	onMount(() => {
-		viewportWidth = window.innerWidth;
-		panelWidths = loadPanelWidths(window.localStorage);
-
-		const handleResize = () => {
-			viewportWidth = window.innerWidth;
-		};
-		window.addEventListener('resize', handleResize);
 		void controller.initialize();
 		return () => {
-			window.removeEventListener('resize', handleResize);
 			controller.destroy();
 		};
 	});
@@ -89,9 +82,40 @@
 		selectedThreadId = resolveThreadSelection(snapshot, activeProject, selectedThreadId);
 	});
 
+	$effect(() => {
+		if (
+			shipReview.status !== 'idle' &&
+			!shipReviewScopeMatches(shipReview, activeProject?.id ?? null, activeThread?.id ?? null)
+		) {
+			shipReviewRequestId += 1;
+			shipReview = createIdleShipReview();
+		}
+	});
+
 	function closeAddProjectModal() {
 		addProjectOpen = false;
 		manualProjectPathOpen = false;
+	}
+
+	function handleAddProjectDraftChange(value: string) {
+		addProjectDraft = value;
+	}
+
+	function handleDraftChange(value: string) {
+		draft = value;
+	}
+
+	async function sendShipPrompt(
+		threadId: string,
+		status: 'completed' | 'failed' | 'idle' | 'running'
+	) {
+		if (!shipReviewScopeMatches(shipReview, activeProject?.id ?? null, threadId)) {
+			return;
+		}
+
+		const mode = status === 'running' ? 'follow-up' : 'prompt';
+		await controller.sendPrompt(threadId, buildShipSlicePrompt(), mode);
+		shipReview = createIdleShipReview();
 	}
 
 	function handleProjectSelect(projectId: string) {
@@ -240,14 +264,52 @@
 	}
 
 	async function handleShipSlice() {
-		if (!activeThread) {
+		if (!activeProject || !activeThread || shipReview.status === 'reviewing') {
 			return;
 		}
 
-		const mode = activeThread.status === 'running' ? 'follow-up' : 'prompt';
 		await runAction(async () => {
-			await controller.sendPrompt(activeThread.id, buildShipSlicePrompt(), mode);
+			const projectId = activeProject.id;
+			const threadId = activeThread.id;
+			const threadStatus = activeThread.status;
+			const requestId = shipReviewRequestId + 1;
+			shipReviewRequestId = requestId;
+			shipReview = createReviewingShipReview(projectId, threadId);
+			const result = await runShipReviewGate(
+				controller,
+				projectId,
+				threadId,
+				() =>
+					shipReviewRequestId === requestId &&
+					shipReviewScopeMatches(shipReview, projectId, threadId)
+			);
+			if (shipReviewRequestId !== requestId) {
+				return;
+			}
+			if (!result) {
+				await sendShipPrompt(threadId, threadStatus);
+				return;
+			}
+			shipReview = result;
+			if (result.status === 'needs-decision') {
+				inspectorMode = 'diff';
+			}
 		});
+	}
+
+	async function handleShipReviewContinue() {
+		const thread = activeThread;
+		if (!thread || !shipReviewScopeMatches(shipReview, activeProject?.id ?? null, thread.id)) {
+			shipReview = createIdleShipReview();
+			return;
+		}
+
+		await runAction(async () => sendShipPrompt(thread.id, thread.status));
+	}
+
+	async function handleShipReviewDismiss() {
+		shipReviewRequestId += 1;
+		shipReview = createIdleShipReview();
 	}
 
 	async function handleStop() {
@@ -327,238 +389,72 @@
 		inspectorMode = inspectorMode === mode ? null : mode;
 	}
 
-	function maxLeftWidth() {
-		const totalWidth = workbenchGrid?.clientWidth ?? viewportWidth;
-		return computeMaxLeftWidth(
-			totalWidth,
-			inspectorVisible ? panelWidths.right : 0,
-			inspectorVisible,
-			canResizePanels
-		);
+	function setAddProjectOpen(open: boolean) {
+		addProjectOpen = open;
 	}
 
-	function maxRightWidth() {
-		const totalWidth = workbenchGrid?.clientWidth ?? viewportWidth;
-		return computeMaxRightWidth(totalWidth, panelWidths.left, canResizePanels);
+	function setInspectorMode(mode: InspectorMode | null) {
+		inspectorMode = mode;
 	}
 
-	function setPaneWidth(pane: ResizablePane, requestedWidth: number) {
-		panelWidths = {
-			...panelWidths,
-			[pane]:
-				pane === 'left'
-					? clampWidth(requestedWidth, MIN_PROJECT_RAIL_WIDTH, maxLeftWidth())
-					: clampWidth(requestedWidth, MIN_INSPECTOR_WIDTH, maxRightWidth())
-		};
+	function setManualProjectPathOpen(open: boolean) {
+		manualProjectPathOpen = open;
 	}
 
-	function beginResize(pane: ResizablePane, event: PointerEvent) {
-		if (!canResizePanels) {
-			return;
-		}
-		event.preventDefault();
-		const captureTarget = event.currentTarget;
-		if (!(captureTarget instanceof HTMLElement)) {
-			return;
-		}
-		captureTarget.setPointerCapture(event.pointerId);
-		activeDrag = {
-			captureTarget,
-			pane,
-			pointerId: event.pointerId,
-			startWidth: pane === 'left' ? panelWidths.left : panelWidths.right,
-			startX: event.clientX
-		};
+	function setSettingsOpen(open: boolean) {
+		settingsOpen = open;
 	}
-
-	function nudgePaneWidth(pane: ResizablePane, delta: number) {
-		const currentWidth = pane === 'left' ? panelWidths.left : panelWidths.right;
-		setPaneWidth(pane, currentWidth + delta);
-	}
-
-	function releaseDragCapture(drag: DragState) {
-		if (drag.captureTarget.hasPointerCapture(drag.pointerId)) {
-			drag.captureTarget.releasePointerCapture(drag.pointerId);
-		}
-	}
-
-	$effect(() => {
-		const leftWidth = clampWidth(panelWidths.left, MIN_PROJECT_RAIL_WIDTH, maxLeftWidth());
-		const rightWidth = clampWidth(panelWidths.right, MIN_INSPECTOR_WIDTH, maxRightWidth());
-		if (leftWidth === panelWidths.left && rightWidth === panelWidths.right) {
-			return;
-		}
-
-		panelWidths = {
-			left: leftWidth,
-			right: rightWidth
-		};
-	});
-
-	$effect(() => {
-		if (activeDrag) {
-			return;
-		}
-		savePanelWidths(window.localStorage, panelWidths);
-	});
-
-	$effect(() => {
-		if (!activeDrag) {
-			return;
-		}
-		const drag = activeDrag;
-
-		const handlePointerMove = (event: PointerEvent) => {
-			const delta = event.clientX - drag.startX;
-			setPaneWidth(
-				drag.pane,
-				drag.pane === 'left' ? drag.startWidth + delta : drag.startWidth - delta
-			);
-		};
-		const handlePointerUp = () => {
-			releaseDragCapture(drag);
-			activeDrag = null;
-		};
-
-		window.addEventListener('pointermove', handlePointerMove);
-		window.addEventListener('pointerup', handlePointerUp);
-		return () => {
-			releaseDragCapture(drag);
-			window.removeEventListener('pointermove', handlePointerMove);
-			window.removeEventListener('pointerup', handlePointerUp);
-		};
-	});
 </script>
 
 <div class="workbench">
-	<WorkbenchTopbar
-		{inspectorMode}
-		onAddProject={() => (addProjectOpen = true)}
-		onOpenSettings={() => (settingsOpen = true)}
-		onToggleInspector={toggleInspector}
-		runtimeAvailable={workbenchState.runtimeAvailable}
-	/>
-
-	<div
-		bind:this={workbenchGrid}
-		class="workbench-grid"
-		data-has-inspector={inspectorMode ? 'true' : 'false'}
-		data-can-resize={canResizePanels ? 'true' : 'false'}
-		style={workbenchGridStyle}
-	>
-		<ProjectRail
-			onCreateThread={handleCreateThreadForProject}
-			onMoveProject={handleMoveProject}
-			onOpenDiff={handleOpenDiff}
-			onRefreshStatus={handleRefreshStatus}
-			onRemoveProject={handleRemoveProject}
-			onRemoveThread={(threadId) =>
+	<WorkbenchShellView
+		actions={{
+			closeAddProjectModal,
+			handleAddProject,
+			handleAddProjectDraftChange,
+			handleAttachFiles,
+			handleBrowseProjectFolder,
+			handleCreateThreadForProject,
+			handleDiffAnalysisModelChange,
+			handleDraftChange,
+			handleImportCodexOpenAiKey,
+			handleModelChange,
+			handleMoveProject,
+			handleOpenDiff,
+			handleProjectSelect,
+			handleProviderDraftChange,
+			handleReasoningChange,
+			handleRefreshStatus,
+			handleRemoveAttachment,
+			handleRemoveProject,
+			handleRemoveThread: (threadId) =>
 				runAction(async () => {
 					await controller.removeThread(threadId);
-				})}
-			onRenameProject={handleRenameProject}
-			onRenameThread={handleRenameThread}
-			onSelectProject={handleProjectSelect}
-			onSelectThread={handleThreadSelect}
-			onStopThread={(threadId) =>
+				}),
+			handleRenameProject,
+			handleRenameThread,
+			handleSaveProvider,
+			handleSend,
+			handleShipReviewContinue,
+			handleShipReviewDismiss,
+			handleShipSlice,
+			handleStageComposerFiles,
+			handleStartCodexLogin,
+			handleStop,
+			handleStopThread: (threadId) =>
 				runAction(async () => {
 					await controller.abortThread(threadId);
-				})}
-			projects={snapshot.projects}
-			{selectedProjectId}
-			{selectedThreadId}
-		/>
-
-		{#if canResizePanels}
-			<WorkbenchResizeHandle
-				label="Resize project rail"
-				max={maxLeftWidth()}
-				min={MIN_PROJECT_RAIL_WIDTH}
-				onNudge={(delta) => nudgePaneWidth('left', delta)}
-				onPointerDown={(event) => beginResize('left', event)}
-				pane="left"
-				value={panelWidths.left}
-			/>
-		{/if}
-
-		<div class="center-column">
-			<ConversationPane
-				project={activeProject}
-				runtimeError={workbenchState.error}
-				thread={activeThread}
-			/>
-			<ComposerPanel
-				attachments={stagedAttachments}
-				canSend={Boolean(activeThread) && snapshot.models.length > 0}
-				{draft}
-				hint={composerHint}
-				models={snapshot.models}
-				onAttach={handleAttachFiles}
-				onDraftChange={(value) => (draft = value)}
-				onModelChange={handleModelChange}
-				onRemoveAttachment={handleRemoveAttachment}
-				onReasoningChange={handleReasoningChange}
-				onSend={handleSend}
-				onShipSlice={handleShipSlice}
-				onStageFiles={handleStageComposerFiles}
-				onStop={handleStop}
-				{selectedModel}
-				{selectedModelKey}
-				{selectedReasoningLevel}
-				threadStatus={activeThread?.status ?? 'idle'}
-			/>
-		</div>
-
-		{#if inspectorMode}
-			{#if canResizePanels}
-				<WorkbenchResizeHandle
-					label="Resize inspector rail"
-					max={maxRightWidth()}
-					min={MIN_INSPECTOR_WIDTH}
-					onNudge={(delta) => nudgePaneWidth('right', delta)}
-					onPointerDown={(event) => beginResize('right', event)}
-					pane="right"
-					value={panelWidths.right}
-				/>
-			{/if}
-
-			<InspectorRail
-				{controller}
-				mode={inspectorMode}
-				onClose={() => (inspectorMode = null)}
-				project={activeProject}
-				thread={activeThread}
-			/>
-		{/if}
-	</div>
-
-	<AddProjectModal
-		draftPath={addProjectDraft}
-		manualPathOpen={manualProjectPathOpen}
-		onBrowse={handleBrowseProjectFolder}
-		onClose={closeAddProjectModal}
-		onDraftPathChange={(value) => (addProjectDraft = value)}
-		onSubmit={handleAddProject}
-		onToggleManualPath={() => (manualProjectPathOpen = !manualProjectPathOpen)}
-		open={addProjectOpen}
-		runtimeAvailable={workbenchState.runtimeAvailable}
-	/>
-
-	<SettingsModal
-		codex={snapshot.integrations.codex}
-		diffAnalysisModelKey={snapshot.settings.diffAnalysisModelKey}
-		docparserEnabled={snapshot.settings.features.docparserEnabled}
-		onClose={() => (settingsOpen = false)}
-		onDiffAnalysisModelChange={handleDiffAnalysisModelChange}
-		onImportCodexOpenAiKey={handleImportCodexOpenAiKey}
-		onProviderDraftChange={handleProviderDraftChange}
-		onRefreshStatus={handleRefreshStatus}
-		onSaveProvider={handleSaveProvider}
-		onStartCodexLogin={handleStartCodexLogin}
-		onToggleDocparser={handleToggleDocparser}
-		models={snapshot.models}
-		open={settingsOpen}
-		{providerDrafts}
-		providers={snapshot.settings.providers}
+				}),
+			handleThreadSelect,
+			handleToggleDocparser,
+			setAddProjectOpen,
+			setInspectorMode,
+			setManualProjectPathOpen,
+			setSettingsOpen,
+			toggleInspector
+		}}
+		{controller}
+		minProjectRailWidth={MIN_PROJECT_RAIL_WIDTH}
+		{shellState}
 	/>
 </div>

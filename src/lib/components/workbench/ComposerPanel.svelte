@@ -10,6 +10,7 @@
 		ThinkingLevel,
 		ThreadRecord
 	} from '$lib/types/workbench';
+	import type { ShipReviewStatus } from '$lib/workbench/ship-review';
 	import { readEventValue } from '$lib/workbench/read-event-value';
 
 	type Props = {
@@ -24,12 +25,18 @@
 		onReasoningChange: (reasoningLevel: ThinkingLevel) => void;
 		onRemoveAttachment: (attachmentId: string) => void;
 		onSend: (mode: PromptMode) => void;
+		onShipReviewContinue: () => void;
+		onShipReviewDismiss: () => void;
 		onShipSlice: () => void;
 		onStageFiles: (files: File[]) => void;
 		onStop: () => void;
 		selectedModel: ModelOption | null;
 		selectedModelKey: string;
 		selectedReasoningLevel: ThinkingLevel;
+		shipReviewDetail: string | null;
+		shipReviewIssueCount: number;
+		shipReviewMaxRiskLevel: string | null;
+		shipReviewStatus: ShipReviewStatus;
 		threadStatus: ThreadRecord['status'];
 	};
 
@@ -178,12 +185,18 @@
 		onReasoningChange,
 		onRemoveAttachment,
 		onSend,
+		onShipReviewContinue,
+		onShipReviewDismiss,
 		onShipSlice,
 		onStageFiles,
 		onStop,
 		selectedModel,
 		selectedModelKey,
 		selectedReasoningLevel,
+		shipReviewDetail,
+		shipReviewIssueCount,
+		shipReviewMaxRiskLevel,
+		shipReviewStatus,
 		threadStatus
 	}: Props = $props();
 
@@ -207,6 +220,7 @@
 	});
 
 	const running = $derived(threadStatus === 'running');
+	const reviewingForShip = $derived(shipReviewStatus === 'reviewing');
 	const startLabel = $derived(running ? 'Queue' : 'Start');
 	let lastRequestedReasoningLevel = $state<ThinkingLevel | null>(null);
 
@@ -265,6 +279,35 @@
 		</div>
 	{/if}
 
+	{#if shipReviewStatus !== 'idle' && shipReviewDetail}
+		<div class="ship-review-status" data-status={shipReviewStatus} aria-live="polite">
+			<div>
+				<p>
+					{shipReviewStatus === 'reviewing'
+						? 'Reviewing changes before commit'
+						: shipReviewStatus === 'blocked'
+							? 'Commit blocked'
+							: 'Review needs a decision'}
+				</p>
+				<span>{shipReviewDetail}</span>
+			</div>
+			<div class="ship-review-status__actions">
+				{#if shipReviewStatus === 'blocked'}
+					<Button kind="ghost" size="small" on:click={onShipSlice}>Retry</Button>
+					<Button kind="ghost" size="small" on:click={onShipReviewDismiss}>Dismiss</Button>
+				{:else if shipReviewStatus === 'needs-decision'}
+					<Tag size="sm" type={shipReviewIssueCount > 0 ? 'warm-gray' : 'green'}>
+						{shipReviewIssueCount} issues
+					</Tag>
+					<Button kind="ghost" size="small" on:click={onShipReviewDismiss}>Cancel</Button>
+					<Button kind="primary" size="small" on:click={onShipReviewContinue}>
+						{shipReviewMaxRiskLevel === 'high' ? 'Ship despite high-risk findings' : 'Continue'}
+					</Button>
+				{/if}
+			</div>
+		</div>
+	{/if}
+
 	<div class="composer-panel__footer">
 		<div class="composer-panel__controls">
 			<Button disabled={!running} icon={Stop} kind="ghost" size="small" on:click={onStop}>
@@ -319,7 +362,7 @@
 				Attach
 			</Button>
 			<Button
-				disabled={!canSend}
+				disabled={!canSend || reviewingForShip}
 				kind="ghost"
 				size="small"
 				title="Run validations, commit, push, create or update the PR, address review findings, and merge to main."

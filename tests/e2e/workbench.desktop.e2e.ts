@@ -1,16 +1,18 @@
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
-import os from 'node:os';
+import { rmSync } from 'node:fs';
 import path from 'node:path';
-import { execFileSync } from 'node:child_process';
 import { chromium, expect, test } from '@playwright/test';
+import {
+	addProjectByPath,
+	createCleanRepo,
+	createSampleRepo,
+	createThreadForProject,
+	verifyShipWithDiffShowsReviewGate,
+	verifyShipWithoutDiffContinues
+} from './workbench-ship-helpers';
 
 const DESKTOP_DEBUG_URL = 'http://127.0.0.1:9333';
 const DESKTOP_PAGE_MARKER = 'DGCoder';
-const sanitizedGitEnv = Object.fromEntries(
-	Object.entries(process.env).filter(([key]) => !key.startsWith('GIT_'))
-);
-
-test.setTimeout(120_000);
+test.setTimeout(240_000);
 
 async function isWorkbenchPage(page: import('@playwright/test').Page) {
 	try {
@@ -70,48 +72,6 @@ async function addProjectAndThread(page: import('@playwright/test').Page) {
 	await expect(page.getByRole('button', { name: 'Start' })).toBeVisible();
 	await expect(page.getByRole('button', { exact: true, name: 'Attach' })).toBeVisible();
 	await expect(page.getByRole('button', { exact: true, name: 'Ship' })).toBeVisible();
-}
-
-function createSampleRepo() {
-	const repoRoot = mkdtempSync(path.join(os.tmpdir(), 'pi-diff-viewer-'));
-	mkdirSync(path.join(repoRoot, 'src'), { recursive: true });
-	mkdirSync(path.join(repoRoot, 'docs'), { recursive: true });
-	writeFileSync(
-		path.join(repoRoot, 'src', 'counter.ts'),
-		'export function counterLabel(count: number) {\n\treturn `Count: ${count}`;\n}\n'
-	);
-	writeFileSync(path.join(repoRoot, 'README.md'), '# Sample repo\n');
-	runGit(repoRoot, ['init', '-b', 'main']);
-	runGit(repoRoot, ['config', 'commit.gpgsign', 'false']);
-	runGit(repoRoot, ['config', 'user.email', 'pi@example.com']);
-	runGit(repoRoot, ['config', 'user.name', 'Pi']);
-	runGit(repoRoot, ['add', '.']);
-	runGit(repoRoot, ['commit', '-m', 'initial']);
-
-	writeFileSync(
-		path.join(repoRoot, 'src', 'counter.ts'),
-		[
-			'export function counterLabel(count: number, pending = false) {',
-			"\tconst suffix = pending ? ' (pending)' : '';",
-			'\treturn `Count: ${count}${suffix}`;',
-			'}',
-			''
-		].join('\n')
-	);
-	writeFileSync(
-		path.join(repoRoot, 'docs', 'notes.md'),
-		['# Notes', '', '- Added pending label handling.', ''].join('\n')
-	);
-
-	return repoRoot;
-}
-
-function runGit(repoRoot: string, args: string[]) {
-	execFileSync('git', args, {
-		cwd: repoRoot,
-		env: sanitizedGitEnv,
-		stdio: 'ignore'
-	});
 }
 
 function escapeRegExp(value: string) {
@@ -484,6 +444,7 @@ async function verifyPromptFlow(page: import('@playwright/test').Page) {
 
 test('runs the real desktop workflow through Tauri', async () => {
 	const sampleRepo = createSampleRepo();
+	const cleanRepo = createCleanRepo();
 	let browser: import('@playwright/test').Browser | undefined;
 	let page: import('@playwright/test').Page | undefined;
 	try {
@@ -491,25 +452,21 @@ test('runs the real desktop workflow through Tauri', async () => {
 		browser = desktop.browser;
 		page = desktop.page;
 		await addProjectAndThread(page);
-		await page.getByRole('button', { name: 'Add project' }).click();
-		await page.getByRole('button', { name: 'Paste path' }).click();
-		await page.getByLabel('Repository path').fill(sampleRepo);
-		await page.getByRole('button', { name: 'Add from path' }).click();
-		await page
-			.getByRole('button', {
-				name: new RegExp(`Create thread in ${escapeRegExp(path.basename(sampleRepo))}`)
-			})
-			.click();
+		await addProjectByPath(page, sampleRepo);
+		await createThreadForProject(page, sampleRepo);
 		await verifyLeftPanelActions(page, sampleRepo);
 		await verifySettingsAndDiff(page, sampleRepo, 'Sample workspace');
+		await verifyShipWithDiffShowsReviewGate(page);
 		await attachReadmeToSelectedThread(page);
 		await verifyPastedImageWarning(page);
 		await page.getByRole('button', { name: 'Create thread in Sample workspace' }).click();
 		await expect(page.getByText('Send a message to start the conversation.')).toBeVisible();
 		await verifyPromptFlow(page);
 		await removeSelectedProjectFromRail(page);
+		await verifyShipWithoutDiffContinues(page, cleanRepo);
 	} finally {
 		await browser?.close();
 		await removeDirectoryWithRetries(sampleRepo);
+		await removeDirectoryWithRetries(cleanRepo);
 	}
 });

@@ -200,6 +200,49 @@ textarea {
 	gap: 0.5rem;
 }
 
+.ship-review-status {
+	align-items: center;
+	background: var(--cds-layer-accent, #e0e0e0);
+	border-left: 3px solid var(--cds-support-info, #0f62fe);
+	display: flex;
+	gap: 0.75rem;
+	justify-content: space-between;
+	min-width: 0;
+	padding: 0.5rem 0.75rem;
+}
+
+.ship-review-status[data-status='blocked'] {
+	border-left-color: var(--cds-support-error, #da1e28);
+}
+
+.ship-review-status[data-status='needs-decision'] {
+	border-left-color: var(--cds-support-warning, #f1c21b);
+}
+
+.ship-review-status p,
+.ship-review-status span {
+	margin: 0;
+}
+
+.ship-review-status p {
+	font-weight: 600;
+}
+
+.ship-review-status span {
+	color: var(--cds-text-secondary, #525252);
+	display: block;
+	line-height: 1.25;
+	margin-top: 0.125rem;
+	overflow-wrap: anywhere;
+}
+
+.ship-review-status__actions {
+	align-items: center;
+	display: flex;
+	flex: 0 0 auto;
+	gap: 0.5rem;
+}
+
 .project-list,
 .activity-list {
 	flex: 1 1 auto;
