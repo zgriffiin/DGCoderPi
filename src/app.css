@@ -529,7 +529,7 @@ textarea {
 	height: 100%;
 	min-width: 0;
 	grid-template-rows: minmax(0, 1fr) auto;
-	overflow: hidden;
+	overflow: visible;
 }
 
 .conversation-pane {

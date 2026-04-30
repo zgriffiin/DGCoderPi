@@ -344,6 +344,9 @@ function createThreadActions(
 				runCommand<AppUpdate>('remove_attachment', { input: { attachmentId, threadId } })
 			);
 		},
+		async removeThread(threadId: string) {
+			await runAndApplyUpdate(runCommand<AppUpdate>('remove_thread', { input: { threadId } }));
+		},
 		async renameThread(threadId: string, title: string) {
 			await runAndApplyUpdate(
 				runCommand<AppUpdate>('rename_thread', { input: { threadId, title } })

@@ -283,9 +283,11 @@
 			{#if modelItems.length > 0}
 				<div class="composer-select" title="Model">
 					<Dropdown
+						direction="top"
 						hideLabel
 						items={modelItems}
 						label="Model"
+						portalMenu={false}
 						selectedId={selectedModelKey}
 						size="sm"
 						labelText="Model"
@@ -301,9 +303,11 @@
 			<div class="composer-select" title="Reasoning">
 				<Dropdown
 					disabled={!canSend || !selectedModel?.supportsReasoning}
+					direction="top"
 					hideLabel
 					items={reasoningItems}
 					label="Reasoning"
+					portalMenu={false}
 					selectedId={effectiveReasoningLevel}
 					size="sm"
 					labelText="Reasoning"

@@ -132,9 +132,7 @@
 
 	async function handleAddProject() {
 		const path = addProjectDraft.trim();
-		if (!path) {
-			return;
-		}
+		if (!path) return;
 
 		await runAction(async () => {
 			await controller.addProject(path);
@@ -174,9 +172,7 @@
 	}
 
 	async function handleModelChange(modelKey: string) {
-		if (!activeThread) {
-			return;
-		}
+		if (!activeThread) return;
 
 		await runAction(async () => {
 			await controller.selectModel(activeThread.id, modelKey);
@@ -456,6 +452,10 @@
 			onOpenDiff={handleOpenDiff}
 			onRefreshStatus={handleRefreshStatus}
 			onRemoveProject={handleRemoveProject}
+			onRemoveThread={(threadId) =>
+				runAction(async () => {
+					await controller.removeThread(threadId);
+				})}
 			onRenameProject={handleRenameProject}
 			onRenameThread={handleRenameThread}
 			onSelectProject={handleProjectSelect}

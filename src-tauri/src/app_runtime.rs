@@ -28,10 +28,10 @@ use crate::{
         ActivityRecord, AddProjectInput, AppEvent, AppHealth, AppIntegrations, AppSnapshot,
         AppUpdate, AttachmentParseStatus, AttachmentStage, CreateThreadInput, MessageRecord,
         MessageRole, MessageStatus, ModelOption, MoveProjectInput, PersistedState, PromptMode,
-        ProviderKeyInput, RemoveAttachmentInput, RemoveProjectInput, RenameProjectInput,
-        RenameThreadInput, SelectModelInput, SelectReasoningInput, SendPromptInput,
-        SetDiffAnalysisModelInput, StageAttachmentDataInput, StageAttachmentInput, ThreadRecord,
-        ThreadStatus, ToggleFeatureInput,
+        ProviderKeyInput, RemoveAttachmentInput, RemoveProjectInput, RemoveThreadInput,
+        RenameProjectInput, RenameThreadInput, SelectModelInput, SelectReasoningInput,
+        SendPromptInput, SetDiffAnalysisModelInput, StageAttachmentDataInput, StageAttachmentInput,
+        ThreadRecord, ThreadStatus, ToggleFeatureInput,
     },
     pi_bridge::{
         attachment_status_from_bridge, BridgeActivity, BridgeEnvironment, BridgeEvent,
@@ -330,6 +330,29 @@ impl AppRuntime {
             })
         })?;
         self.persist_and_return(update)
+    }
+
+    pub fn remove_thread(&self, input: RemoveThreadInput) -> Result<AppUpdate, String> {
+        let project_id = self.mutate_state(|state| {
+            let (project_index, thread_index) = locate_thread(state, &input.thread_id)
+                .ok_or_else(|| "Thread not found.".to_string())?;
+            let project = &mut state.projects[project_index];
+            if matches!(project.threads[thread_index].status, ThreadStatus::Running) {
+                return Err("Stop the thread before deleting it.".to_string());
+            }
+
+            project.threads.remove(thread_index);
+            if state.selected_thread_id.as_deref() == Some(&input.thread_id) {
+                state.selected_thread_id = project
+                    .threads
+                    .get(thread_index)
+                    .or_else(|| project.threads.last())
+                    .map(|thread| thread.id.clone());
+                state.selected_project_id = Some(project.id.clone());
+            }
+            Ok(project.id.clone())
+        })?;
+        self.persist_and_return(self.project_update(&project_id)?)
     }
 
     pub fn rename_thread(&self, input: RenameThreadInput) -> Result<AppUpdate, String> {

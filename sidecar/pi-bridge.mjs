@@ -33,7 +33,13 @@ const UNSUPPORTED_CHATGPT_CODEX_MODELS = new Set([
 	'gpt-5.1-codex-mini'
 ]);
 const SUPPORTED_THINKING_LEVELS = ['off', 'minimal', 'low', 'medium', 'high', 'xhigh'];
-const PREFERRED_MODEL_KEYS = ['openai-codex::gpt-5.4'];
+const PREFERRED_MODEL_KEYS = [
+	'openai-codex::gpt-5.5',
+	'openai-codex::gpt-5.4',
+	'openai::gpt-5.5',
+	'openai::gpt-5.4',
+	'openai::gpt-5.4-mini'
+];
 const MAX_IMAGE_ATTACHMENT_BYTES = 5 * 1024 * 1024;
 
 function formatBytes(bytes) {
@@ -44,6 +50,32 @@ function formatBytes(bytes) {
 		return `${Math.round((bytes / 1024) * 10) / 10} KB`;
 	}
 	return `${bytes} bytes`;
+}
+
+function isSupportedWorkbenchModel(model, usingChatGptSubscription) {
+	if (
+		(model.provider === 'openai' || model.provider === 'openai-codex') &&
+		!model.id.startsWith('gpt-5')
+	) {
+		return false;
+	}
+	return !(
+		usingChatGptSubscription &&
+		model.provider === 'openai-codex' &&
+		UNSUPPORTED_CHATGPT_CODEX_MODELS.has(model.id)
+	);
+}
+
+function modelLabel(model, codexCredential) {
+	const providerLabel =
+		model.provider === 'openai-codex'
+			? codexCredential?.type === 'oauth'
+				? 'Pro Account'
+				: 'API'
+			: model.provider === 'openai'
+				? 'API'
+				: PROVIDERS.find(([provider]) => provider === model.provider)?.[1];
+	return providerLabel ? `${model.name} (${providerLabel})` : model.name;
 }
 
 class BridgeRuntime {
@@ -149,20 +181,13 @@ class BridgeRuntime {
 		return {
 			models: this.modelRegistry
 				.getAvailable()
-				.filter(
-					(model) =>
-						!(
-							usingChatGptSubscription &&
-							model.provider === 'openai-codex' &&
-							UNSUPPORTED_CHATGPT_CODEX_MODELS.has(model.id)
-						)
-				)
+				.filter((model) => isSupportedWorkbenchModel(model, usingChatGptSubscription))
 				.map((model) => ({
 					availableThinkingLevels: model.reasoning ? SUPPORTED_THINKING_LEVELS : ['off'],
 					configured: true,
 					id: model.id,
 					key: `${model.provider}::${model.id}`,
-					label: model.name,
+					label: modelLabel(model, codexCredential),
 					provider: model.provider,
 					supportsImages: Array.isArray(model.input) && model.input.includes('image'),
 					supportsReasoning: Boolean(model.reasoning)
@@ -306,6 +331,11 @@ class BridgeRuntime {
 		if (!model) {
 			throw new Error(`Configured model was not found: ${modelKey}`);
 		}
+		const codexCredential = this.authStorage.get('openai-codex');
+		const usingChatGptSubscription = codexCredential?.type === 'oauth';
+		if (!isSupportedWorkbenchModel(model, usingChatGptSubscription)) {
+			throw new Error(`Configured model is no longer supported: ${modelKey}`);
+		}
 		return model;
 	}
 
@@ -323,12 +353,23 @@ class BridgeRuntime {
 			if (!sessionEntry) return;
 			try {
 				touchSession(sessionEntry);
+				const assistantCursor = assistantMessageCount(sessionEntry.session);
 				await command();
 				if (this.sessions.get(threadId) !== sessionEntry) {
 					return;
 				}
 
 				touchSession(sessionEntry);
+				const assistantError = findLatestAssistantError(sessionEntry.session, assistantCursor);
+				if (assistantError) {
+					logSessionCommandFailure(assistantError, sessionEntry);
+					this.emitThreadUpdate(threadId, sessionEntry.session, {
+						detail: describeSessionCommandError(assistantError, sessionEntry),
+						title: 'Session command failed',
+						tone: 'system'
+					});
+					return;
+				}
 				this.emitThreadUpdate(threadId, sessionEntry.session, null);
 			} catch (error) {
 				if (this.sessions.get(threadId) !== sessionEntry) {
@@ -336,8 +377,9 @@ class BridgeRuntime {
 				}
 
 				touchSession(sessionEntry);
+				logSessionCommandFailure(error, sessionEntry);
 				this.emitThreadUpdate(threadId, sessionEntry.session, {
-					detail: error instanceof Error ? error.message : String(error),
+					detail: describeSessionCommandError(error, sessionEntry),
 					title: 'Session command failed',
 					tone: 'system'
 				});
@@ -398,6 +440,61 @@ class BridgeRuntime {
 
 function writeMessage(message) {
 	process.stdout.write(`${JSON.stringify(message)}\n`);
+}
+
+function describeSessionCommandError(error, sessionEntry) {
+	const message = error instanceof Error ? error.message : String(error);
+	const modelKey = sessionEntry?.modelKey ?? 'unknown model';
+	const thinkingLevel = sessionEntry?.thinkingLevel ?? 'unknown reasoning';
+	return `${modelKey} (${thinkingLevel}) failed: ${message}`;
+}
+
+function logSessionCommandFailure(error, sessionEntry) {
+	const details = {
+		cause: serializeErrorCause(error),
+		error: error instanceof Error ? error.message : String(error),
+		modelKey: sessionEntry?.modelKey ?? null,
+		provider: sessionEntry?.model?.provider ?? null,
+		stack: error instanceof Error ? error.stack : null,
+		thinkingLevel: sessionEntry?.thinkingLevel ?? null
+	};
+	console.error('[session-command-failed]', JSON.stringify(details));
+}
+
+function assistantMessageCount(session) {
+	const messages = Array.isArray(session?.messages) ? session.messages : [];
+	return messages.filter((message) => message?.role === 'assistant').length;
+}
+
+function findLatestAssistantError(session, previousAssistantCount) {
+	const messages = Array.isArray(session?.messages) ? session.messages : [];
+	const newAssistantMessages = messages
+		.filter((message) => message?.role === 'assistant')
+		.slice(previousAssistantCount);
+	const latestAssistant = [...newAssistantMessages]
+		.reverse()
+		.find((message) => message?.role === 'assistant');
+	if (latestAssistant?.stopReason !== 'error' || !latestAssistant.errorMessage) {
+		return null;
+	}
+	return new Error(latestAssistant.errorMessage);
+}
+
+function serializeErrorCause(error) {
+	if (!(error instanceof Error) || !error.cause) {
+		return null;
+	}
+
+	const cause = error.cause;
+	if (cause instanceof Error) {
+		return {
+			code: cause.code ?? null,
+			message: cause.message,
+			name: cause.name
+		};
+	}
+
+	return String(cause);
 }
 
 async function dispatch(runtime, line) {

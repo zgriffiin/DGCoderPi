@@ -73,6 +73,9 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Install ImageMagick resources
+        run: pnpm setup:imagemagick
+
       - name: Rust checks
         run: |
           cargo fmt --manifest-path src-tauri/Cargo.toml --check
@@ -147,6 +150,9 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Install ImageMagick resources
+        run: pnpm setup:imagemagick
+
       - name: Tauri environment info
         run: pnpm tauri:info
 
@@ -186,6 +192,9 @@ jobs:
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+
+      - name: Install ImageMagick resources
+        run: pnpm setup:imagemagick
 
       - name: Rust checks
         run: |

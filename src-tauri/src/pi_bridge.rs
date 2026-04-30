@@ -120,6 +120,7 @@ impl PiBridge {
         let script_path = repo_root.join("sidecar").join("pi-bridge.mjs");
         let mut command = Command::new("node");
         command
+            .arg("--use-system-ca")
             .arg(script_path)
             .current_dir(repo_root)
             .stdin(Stdio::piped())

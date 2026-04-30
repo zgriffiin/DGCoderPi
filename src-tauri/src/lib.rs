@@ -68,6 +68,7 @@ pub fn run() {
             commands::move_project,
             commands::remove_attachment,
             commands::remove_project,
+            commands::remove_thread,
             commands::refresh_diff_analysis,
             commands::rename_project,
             commands::rename_thread,
