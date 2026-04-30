@@ -31,7 +31,9 @@
 		"test:component": "vitest --project client --run",
 		"tauri:dev": "node scripts/run-tauri-dev.mjs",
 		"tauri:dev:raw": "tauri dev",
-		"tauri:build": "tauri build",
+		"tauri:smoke": "tauri build --debug --no-bundle",
+		"tauri:package": "tauri build",
+		"tauri:build": "pnpm tauri:package",
 		"tauri:info": "tauri info"
 	},
 	"simple-git-hooks": {

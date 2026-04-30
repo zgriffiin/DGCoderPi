@@ -71,6 +71,7 @@ pub fn run() {
             commands::load_runtime_health,
             commands::start_codex_login,
             commands::stage_attachment,
+            commands::stage_attachment_data,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

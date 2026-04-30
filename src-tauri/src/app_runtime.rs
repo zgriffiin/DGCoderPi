@@ -30,8 +30,8 @@ use crate::{
         MessageRole, MessageStatus, ModelOption, MoveProjectInput, PersistedState, PromptMode,
         ProviderKeyInput, RemoveAttachmentInput, RemoveProjectInput, RenameProjectInput,
         RenameThreadInput, SelectModelInput, SelectReasoningInput, SendPromptInput,
-        SetDiffAnalysisModelInput, StageAttachmentInput, ThreadRecord, ThreadStatus,
-        ToggleFeatureInput,
+        SetDiffAnalysisModelInput, StageAttachmentDataInput, StageAttachmentInput, ThreadRecord,
+        ThreadStatus, ToggleFeatureInput,
     },
     pi_bridge::{
         attachment_status_from_bridge, BridgeActivity, BridgeEnvironment, BridgeEvent,
@@ -402,9 +402,7 @@ impl AppRuntime {
     }
 
     pub fn stage_attachment(&self, input: StageAttachmentInput) -> Result<AppUpdate, String> {
-        let attachment_id = Uuid::new_v4().to_string();
         self.ensure_thread_exists(&input.thread_id)?;
-        let attachment_dir = attachment_directory(&self.inner.data_dir).join(&input.thread_id);
         let source_path = PathBuf::from(&input.source_path);
         let source_name = source_path
             .file_name()
@@ -416,38 +414,42 @@ impl AppRuntime {
             return Err("Attachments must be regular files.".to_string());
         }
 
-        fs::create_dir_all(&attachment_dir).map_err(|error| error.to_string())?;
-
-        let file_name = format!("{}-{}", &attachment_id[..8], source_name);
-        let file_path = attachment_dir.join(file_name);
+        let (attachment_id, file_path) =
+            self.create_attachment_target(&input.thread_id, &source_name)?;
         fs::copy(&source_path, &file_path).map_err(|error| error.to_string())?;
         let mime_type = infer_mime_type(&source_path);
-        let size_bytes = source_metadata.len();
+        let update = self.record_staged_attachment(
+            &input.thread_id,
+            &attachment_id,
+            &source_name,
+            &mime_type,
+            &file_path,
+            source_metadata.len(),
+        )?;
+        self.persist_update(&update)?;
 
-        let update = self.mutate_thread(&input.thread_id, |thread| {
-            let mut attachment = make_attachment(
-                attachment_id.clone(),
-                source_name.clone(),
-                mime_type.clone(),
-                file_path.to_string_lossy().to_string(),
-                size_bytes,
-            );
+        self.spawn_attachment_parse(&input.thread_id, &attachment_id, file_path);
+        Ok(update)
+    }
 
-            if attachment.kind == crate::model::AttachmentKind::Binary {
-                attachment.parse_status = AttachmentParseStatus::Idle;
-            } else {
-                attachment.parse_status = AttachmentParseStatus::Parsing;
-            }
-
-            thread.attachments.push(attachment);
-            append_activity(
-                thread,
-                "Attachment staged",
-                format!("{} is ready for the next turn.", source_name),
-                crate::model::ActivityTone::System,
-            );
-            Ok(())
-        })?;
+    pub fn stage_attachment_data(
+        &self,
+        input: StageAttachmentDataInput,
+    ) -> Result<AppUpdate, String> {
+        self.ensure_thread_exists(&input.thread_id)?;
+        let attachment_name = normalized_attachment_name(&input.name, input.mime_type.as_deref());
+        let (attachment_id, file_path) =
+            self.create_attachment_target(&input.thread_id, &attachment_name)?;
+        fs::write(&file_path, &input.bytes).map_err(|error| error.to_string())?;
+        let mime_type = attachment_mime_type(&attachment_name, input.mime_type.as_deref());
+        let update = self.record_staged_attachment(
+            &input.thread_id,
+            &attachment_id,
+            &attachment_name,
+            &mime_type,
+            &file_path,
+            input.bytes.len() as u64,
+        )?;
         self.persist_update(&update)?;
 
         self.spawn_attachment_parse(&input.thread_id, &attachment_id, file_path);
@@ -1162,6 +1164,57 @@ impl AppRuntime {
         })
     }
 
+    fn create_attachment_target(
+        &self,
+        thread_id: &str,
+        attachment_name: &str,
+    ) -> Result<(String, PathBuf), String> {
+        let attachment_id = Uuid::new_v4().to_string();
+        let attachment_dir = attachment_directory(&self.inner.data_dir).join(thread_id);
+        fs::create_dir_all(&attachment_dir).map_err(|error| error.to_string())?;
+        let file_name = format!("{}-{}", &attachment_id[..8], attachment_name);
+        Ok((attachment_id, attachment_dir.join(file_name)))
+    }
+
+    fn record_staged_attachment(
+        &self,
+        thread_id: &str,
+        attachment_id: &str,
+        attachment_name: &str,
+        mime_type: &str,
+        file_path: &Path,
+        size_bytes: u64,
+    ) -> Result<AppUpdate, String> {
+        let attachment_id = attachment_id.to_string();
+        let attachment_name = attachment_name.to_string();
+        let mime_type = mime_type.to_string();
+        let attachment_path = file_path.to_string_lossy().to_string();
+        self.mutate_thread(thread_id, |thread| {
+            let mut attachment = make_attachment(
+                attachment_id.clone(),
+                attachment_name.clone(),
+                mime_type.clone(),
+                attachment_path.clone(),
+                size_bytes,
+            );
+
+            if attachment.kind == crate::model::AttachmentKind::Binary {
+                attachment.parse_status = AttachmentParseStatus::Idle;
+            } else {
+                attachment.parse_status = AttachmentParseStatus::Parsing;
+            }
+
+            thread.attachments.push(attachment);
+            append_activity(
+                thread,
+                "Attachment staged",
+                format!("{} is ready for the next turn.", attachment_name),
+                crate::model::ActivityTone::System,
+            );
+            Ok(())
+        })
+    }
+
     fn spawn_attachment_parse(&self, thread_id: &str, attachment_id: &str, path: PathBuf) {
         let runtime = self.clone();
         let thread_id = thread_id.to_string();
@@ -1353,6 +1406,39 @@ fn validated_name(value: &str, label: &str) -> Result<String, String> {
         return Err(format!("{label} cannot be empty."));
     }
     Ok(trimmed.to_string())
+}
+
+fn attachment_mime_type(name: &str, preferred_mime_type: Option<&str>) -> String {
+    preferred_mime_type
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+        .unwrap_or_else(|| {
+            mime_guess::from_path(Path::new(name))
+                .first_or_octet_stream()
+                .essence_str()
+                .to_string()
+        })
+}
+
+fn normalized_attachment_name(name: &str, mime_type: Option<&str>) -> String {
+    let trimmed = name.trim();
+    let candidate = Path::new(trimmed)
+        .file_name()
+        .and_then(|value| value.to_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string);
+    if let Some(candidate) = candidate {
+        return candidate;
+    }
+
+    let extension = mime_type
+        .and_then(|value| {
+            mime_guess::get_mime_extensions_str(value).and_then(|values| values.first().copied())
+        })
+        .unwrap_or("bin");
+    format!("pasted-file.{extension}")
 }
 
 fn append_activity(

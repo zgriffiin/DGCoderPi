@@ -630,9 +630,9 @@ textarea {
 	border: 1px solid var(--cds-border-subtle);
 	border-radius: 1rem;
 	display: grid;
-	gap: 0.375rem;
-	max-width: min(42rem, 78%);
-	padding: 0.875rem 1rem 0.75rem;
+	gap: 0.25rem;
+	max-width: min(56rem, 88%);
+	padding: 0.625rem 0.75rem 0.5rem;
 }
 
 .message-row[data-tone='assistant'] .message-row__bubble {
@@ -643,7 +643,7 @@ textarea {
 .inspector-item p,
 .empty-panel p {
 	font-size: 0.75rem;
-	line-height: 1.5;
+	line-height: 1.35;
 	margin: 0;
 	overflow-wrap: break-word;
 	white-space: pre-wrap;
@@ -665,7 +665,7 @@ textarea {
 .message-row__body--markdown h5,
 .message-row__body--markdown h6,
 .message-row__body--markdown hr {
-	margin: 0 0 0.75rem;
+	margin: 0 0 0.375rem;
 }
 
 .message-row__body--markdown p:last-child,
@@ -691,16 +691,16 @@ textarea {
 .message-row__body--markdown h6 {
 	font-size: 0.75rem;
 	font-weight: 600;
-	line-height: 1.4;
+	line-height: 1.25;
 }
 
 .message-row__body--markdown ul,
 .message-row__body--markdown ol {
-	padding-left: 1.125rem;
+	padding-left: 1rem;
 }
 
 .message-row__body--markdown li + li {
-	margin-top: 0.25rem;
+	margin-top: 0.125rem;
 }
 
 .message-row__body--markdown a {
@@ -723,7 +723,7 @@ textarea {
 	border: 1px solid var(--cds-border-subtle, #3f3f3f);
 	border-radius: 0.5rem;
 	overflow: auto;
-	padding: 0.75rem;
+	padding: 0.5rem 0.625rem;
 }
 
 .message-row__body--markdown pre code {
@@ -734,7 +734,7 @@ textarea {
 .message-row__body--markdown blockquote {
 	border-left: 2px solid var(--cds-border-subtle, #6f6f6f);
 	color: var(--cds-text-secondary, #c6c6c6);
-	padding-left: 0.75rem;
+	padding-left: 0.5rem;
 }
 
 .message-row__body--markdown hr {
@@ -746,6 +746,16 @@ textarea {
 	color: var(--cds-text-secondary, #8d8d8d);
 	font-size: 0.6875rem;
 	margin: 0;
+}
+
+.attachment-chip__meta {
+	display: grid;
+	gap: 0.25rem;
+	justify-items: start;
+}
+
+.attachment-chip__meta .bx--tag {
+	max-width: max-content;
 }
 
 .message-row__state,

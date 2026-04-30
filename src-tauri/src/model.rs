@@ -380,6 +380,15 @@ pub struct StageAttachmentInput {
 
 #[derive(Clone, Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct StageAttachmentDataInput {
+    pub bytes: Vec<u8>,
+    pub mime_type: Option<String>,
+    pub name: String,
+    pub thread_id: String,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct RemoveAttachmentInput {
     pub attachment_id: String,
     pub thread_id: String,

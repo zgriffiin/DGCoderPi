@@ -7,7 +7,8 @@ use crate::{
         AddProjectInput, AppHealth, AppSnapshot, AppUpdate, CreateThreadInput, MoveProjectInput,
         ProviderKeyInput, RemoveAttachmentInput, RemoveProjectInput, RenameProjectInput,
         RenameThreadInput, SelectModelInput, SelectReasoningInput, SendPromptInput,
-        SetDiffAnalysisModelInput, StageAttachmentInput, ToggleFeatureInput,
+        SetDiffAnalysisModelInput, StageAttachmentDataInput, StageAttachmentInput,
+        ToggleFeatureInput,
     },
 };
 
@@ -120,6 +121,14 @@ pub fn stage_attachment(
     runtime: State<'_, AppRuntime>,
 ) -> UpdateCommandResult {
     runtime.stage_attachment(input)
+}
+
+#[tauri::command]
+pub fn stage_attachment_data(
+    input: StageAttachmentDataInput,
+    runtime: State<'_, AppRuntime>,
+) -> UpdateCommandResult {
+    runtime.stage_attachment_data(input)
 }
 
 #[tauri::command]
