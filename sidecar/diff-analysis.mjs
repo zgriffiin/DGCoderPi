@@ -261,8 +261,11 @@ function compactDiffPayload(diff) {
 }
 
 function reviewResultJsonExample(files) {
-	const firstFile = files.find((file) => file.hunks.length > 0) ?? files[0];
-	const firstHunk = firstFile?.hunks[0];
+	const safeFiles =
+		Array.isArray(files) && files.length > 0 ? files : [{ path: 'path/to/file.ts', hunks: [] }];
+	const firstFile =
+		safeFiles.find((file) => Array.isArray(file.hunks) && file.hunks.length > 0) ?? safeFiles[0];
+	const firstHunk = Array.isArray(firstFile?.hunks) ? firstFile.hunks[0] : null;
 	const filePath = firstFile?.path ?? 'path/to/file.ts';
 	const hunkId = firstHunk?.id ?? `${filePath}:1:1:0`;
 	return {
