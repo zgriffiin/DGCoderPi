@@ -100,9 +100,14 @@
 	}
 
 	function handleDragOver(event: DragEvent) {
-		if (fileListFromDataTransfer(event.dataTransfer).length > 0) {
-			event.preventDefault();
+		const types = Array.from(event.dataTransfer?.types ?? []);
+		const hasFiles = types.some((value) => value.toLowerCase() === 'files');
+		if (!hasFiles || !event.dataTransfer) {
+			return;
 		}
+
+		event.preventDefault();
+		event.dataTransfer.dropEffect = 'copy';
 	}
 
 	function handleDrop(event: DragEvent) {
