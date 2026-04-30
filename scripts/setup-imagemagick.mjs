@@ -66,8 +66,9 @@ async function attemptWingetDownload() {
 		return null;
 	}
 
-	const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'dgcoder-imagemagick-'));
+	let tempRoot = null;
 	try {
+		tempRoot = await mkdtemp(path.join(os.tmpdir(), 'dgcoder-imagemagick-'));
 		runChecked('winget', [
 			'download',
 			'--id',
@@ -95,7 +96,9 @@ async function attemptWingetDownload() {
 		};
 	} catch (error) {
 		console.warn(`[imagemagick] ${error instanceof Error ? error.message : String(error)}`);
-		await rm(tempRoot, { force: true, recursive: true });
+		if (tempRoot) {
+			await rm(tempRoot, { force: true, recursive: true });
+		}
 		return null;
 	}
 }
