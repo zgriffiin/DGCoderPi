@@ -31,11 +31,12 @@
 
 	type Props = {
 		controller: WorkbenchController;
+		onClose: () => void;
 		project: ProjectRecord | null;
 		thread: ThreadRecord | null;
 	};
 
-	let { controller, project, thread }: Props = $props();
+	let { controller, onClose, project, thread }: Props = $props();
 
 	let diff = $state<ProjectDiffSnapshot | null>(null);
 	let diffAnalysis = $state<DiffAnalysis | null>(null);
@@ -288,6 +289,7 @@
 	{diffError}
 	{diffLoading}
 	{hideWhitespace}
+	{onClose}
 	onRefreshAnalysis={refreshDiffAnalysisNow}
 	onReviewModeChange={handleReviewModeChange}
 	onToggleCollapse={handleToggleCollapsed}

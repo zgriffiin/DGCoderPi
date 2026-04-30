@@ -265,6 +265,12 @@ export type AppEvent =
 			selectedThreadId: string | null;
 	  }
 	| {
+			type: 'project-removed';
+			projectId: string;
+			selectedProjectId: string | null;
+			selectedThreadId: string | null;
+	  }
+	| {
 			type: 'thread-upserted';
 			projectId: string;
 			selectedProjectId: string | null;

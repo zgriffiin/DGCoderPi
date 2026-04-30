@@ -3,9 +3,9 @@
 </script>
 
 <svelte:head>
-	<title>DGCoder Pi</title>
+	<title>DGCoder</title>
 	<meta
-		content="Desktop workbench scaffold for Pi-driven coding tasks, built with SvelteKit, Carbon, and Tauri."
+		content="Desktop workbench for coding-agent repository tasks, built with SvelteKit, Carbon, and Tauri."
 		name="description"
 	/>
 </svelte:head>

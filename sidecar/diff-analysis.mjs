@@ -6,7 +6,12 @@ import {
 	defineTool
 } from '@mariozechner/pi-coding-agent';
 import { normalizePriority } from './priority-utils.mjs';
-import { REVIEW_FIELD_ALIASES, hasStructuredReviewShape } from './review-shape.mjs';
+import {
+	coerceStructuredReviewShape,
+	firstValue,
+	hasStructuredReviewShape,
+	safeText
+} from './review-shape.mjs';
 
 const REVIEW_TOOL_NAME = 'diff_review_result';
 const DIAGNOSTIC_TEXT_PREVIEW_ENABLED = process.env.DGCODER_PI_DIFF_ANALYSIS_DEBUG === 'true';
@@ -177,12 +182,12 @@ export async function analyzeDiff(runtime, payload) {
 
 function buildSystemPrompt() {
 	return [
-		'You are Pi Diff Review.',
+		'You are DGCoder Diff Review.',
 		'Explain a code diff for a technical user who may not be a daily programmer.',
 		'Ground every claim in the provided files and hunk ids.',
 		'Prefer product behavior and user-facing consequences over internal jargon.',
 		`Always finish by calling ${REVIEW_TOOL_NAME}.`,
-		`If the tool call is unavailable, reply with JSON only using the ${REVIEW_TOOL_NAME} shape.`,
+		'If tool calls are unavailable, reply with JSON only. Do not include Markdown, prose, or code fences.',
 		'Keep each list concise and avoid filler.'
 	].join('\n');
 }
@@ -202,8 +207,11 @@ function buildPrompt(payload) {
 		`Branch: ${payload.diff.branch}`,
 		`Diff fingerprint: ${payload.diff.fingerprint}`,
 		`Stats: ${payload.diff.stats.filesChanged} files, ${payload.diff.stats.additions} additions, ${payload.diff.stats.deletions} deletions.`,
+		`Review batch: ${payload.batchIndex ?? 1} of ${payload.batchCount ?? 1}.`,
 		'',
 		'Review requirements:',
+		'- Review only the files and hunks included in this batch payload.',
+		'- Write findings so they can be merged with other batch reviews.',
 		'- Change Brief: 2-5 plain-English bullets about what changed.',
 		'- Impact: concrete workflows, features, settings, or runtime behavior affected.',
 		'- Risk Review: include only concrete concerns with level and confidence.',
@@ -211,6 +219,9 @@ function buildPrompt(payload) {
 		'- Suggested Follow-Up: only grounded next questions or prompts.',
 		'- Every item must point to real files and hunk ids when possible.',
 		'- If the diff is mechanical, say so plainly instead of inventing risk.',
+		'- Return the result by calling the diff_review_result tool.',
+		'- If no tool call is made, your entire assistant message must be one JSON object with this exact top-level shape:',
+		JSON.stringify(reviewResultJsonExample(payload.diff.files), null, 2),
 		'',
 		'Thread context:',
 		threadContext,
@@ -246,6 +257,39 @@ function compactDiffPayload(diff) {
 				lines: hunk.lines.slice(0, 40)
 			}))
 		}))
+	};
+}
+
+function reviewResultJsonExample(files) {
+	const safeFiles =
+		Array.isArray(files) && files.length > 0 ? files : [{ path: 'path/to/file.ts', hunks: [] }];
+	const firstFile =
+		safeFiles.find((file) => Array.isArray(file.hunks) && file.hunks.length > 0) ?? safeFiles[0];
+	const firstHunk = Array.isArray(firstFile?.hunks) ? firstFile.hunks[0] : null;
+	const filePath = firstFile?.path ?? 'path/to/file.ts';
+	const hunkId = firstHunk?.id ?? `${filePath}:1:1:0`;
+	return {
+		changeBrief: [
+			{
+				title: 'What changed',
+				detail: 'Plain-language summary grounded in the diff.',
+				evidence: [{ file: filePath, hunkId, startLine: 1, endLine: 1 }]
+			}
+		],
+		impact: [
+			{
+				area: 'Runtime behavior',
+				detail: 'What user-visible behavior may change.',
+				evidence: [filePath]
+			}
+		],
+		risks: [],
+		focusQueue: [
+			{ file: filePath, hunkId, priority: 'medium', reason: 'Best hunk to inspect first.' }
+		],
+		suggestedFollowUps: [
+			{ prompt: 'Ask a grounded follow-up question.', reason: 'Why this is useful.' }
+		]
 	};
 }
 
@@ -321,26 +365,31 @@ function reviewResultCandidates(text) {
 
 function tryParseStructuredReview(candidate) {
 	try {
-		const parsed = JSON.parse(candidate);
-		return hasStructuredReviewShape(parsed) ? parsed : null;
+		const parsed = unwrapStructuredReview(JSON.parse(candidate));
+		const coerced = coerceStructuredReviewShape(parsed);
+		return hasStructuredReviewShape(coerced) ? coerced : null;
 	} catch {
 		return null;
 	}
 }
 
-function coerceStructuredReviewShape(value) {
-	return {
-		changeBrief: readReviewField(value, 'changeBrief'),
-		impact: readReviewField(value, 'impact'),
-		risks: readReviewField(value, 'risks'),
-		focusQueue: readReviewField(value, 'focusQueue'),
-		suggestedFollowUps: readReviewField(value, 'suggestedFollowUps')
-	};
-}
-
-function readReviewField(value, key) {
-	const matched = REVIEW_FIELD_ALIASES[key].map((alias) => value?.[alias]).find(isUsableValue);
-	return Array.isArray(matched) ? matched : [];
+function unwrapStructuredReview(value) {
+	if (hasStructuredReviewShape(value)) {
+		return value;
+	}
+	if (hasStructuredReviewShape(value?.diffReviewResult)) {
+		return value.diffReviewResult;
+	}
+	if (hasStructuredReviewShape(value?.diff_review_result)) {
+		return value.diff_review_result;
+	}
+	if (hasStructuredReviewShape(value?.review)) {
+		return value.review;
+	}
+	if (hasStructuredReviewShape(value?.result)) {
+		return value.result;
+	}
+	return value;
 }
 
 function normalizeReviewResult(payload, review) {
@@ -432,31 +481,8 @@ function normalizeLineNumber(value) {
 	return null;
 }
 
-function safeText(value) {
-	return typeof value === 'string' ? value.trim() : '';
-}
-
 function firstText(item, keys) {
 	return safeText(firstValue(item, keys));
-}
-
-function firstValue(item, keys) {
-	for (const key of keys) {
-		if (isUsableValue(item?.[key])) {
-			return item[key];
-		}
-	}
-	return null;
-}
-
-function isUsableValue(value) {
-	if (Array.isArray(value)) {
-		return value.length > 0;
-	}
-	if (typeof value === 'string') {
-		return value.trim().length > 0;
-	}
-	return value !== undefined && value !== null;
 }
 
 function truncateText(value, maxChars) {

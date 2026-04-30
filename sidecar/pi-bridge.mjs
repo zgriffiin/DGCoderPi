@@ -132,7 +132,7 @@ class BridgeRuntime {
 			touchSession(sessionEntry);
 			await sessionEntry.session.abort();
 			this.emitThreadUpdate(payload.threadId, sessionEntry.session, {
-				detail: 'Pi was asked to stop the current run.',
+				detail: 'The current run was stopped.',
 				title: 'Run stopped',
 				tone: 'system'
 			});

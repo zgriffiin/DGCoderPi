@@ -64,6 +64,16 @@ function hasReviewField(value, key) {
 	return REVIEW_FIELD_ALIASES[key].some((alias) => Array.isArray(value?.[alias]));
 }
 
+export function coerceStructuredReviewShape(value) {
+	return {
+		changeBrief: readReviewField(value, 'changeBrief'),
+		impact: readReviewField(value, 'impact'),
+		risks: readReviewField(value, 'risks'),
+		focusQueue: readReviewField(value, 'focusQueue'),
+		suggestedFollowUps: readReviewField(value, 'suggestedFollowUps')
+	};
+}
+
 function readReviewField(value, key) {
 	const matched = REVIEW_FIELD_ALIASES[key].map((alias) => value?.[alias]).find(isUsableValue);
 	return Array.isArray(matched) ? matched : [];
@@ -77,7 +87,7 @@ function hasTextFields(item, fieldAliases) {
 	return fieldAliases.every((aliases) => safeText(firstValue(item, aliases)));
 }
 
-function firstValue(item, keys) {
+export function firstValue(item, keys) {
 	for (const key of keys) {
 		if (isUsableValue(item?.[key])) {
 			return item[key];
@@ -92,6 +102,6 @@ function isUsableValue(value) {
 	return value !== undefined && value !== null;
 }
 
-function safeText(value) {
+export function safeText(value) {
 	return typeof value === 'string' ? value.trim() : '';
 }

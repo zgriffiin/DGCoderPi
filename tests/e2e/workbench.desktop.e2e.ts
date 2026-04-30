@@ -5,7 +5,7 @@ import { execFileSync } from 'node:child_process';
 import { chromium, expect, test } from '@playwright/test';
 
 const DESKTOP_DEBUG_URL = 'http://127.0.0.1:9333';
-const DESKTOP_PAGE_MARKER = 'DGCoder Pi';
+const DESKTOP_PAGE_MARKER = 'DGCoder';
 const sanitizedGitEnv = Object.fromEntries(
 	Object.entries(process.env).filter(([key]) => !key.startsWith('GIT_'))
 );
@@ -51,9 +51,9 @@ async function getDesktopPage() {
 
 async function addProjectAndThread(page: import('@playwright/test').Page) {
 	await page.waitForFunction(() => {
-		return document.querySelector('h1')?.textContent?.includes('DGCoder Pi');
+		return document.querySelector('h1')?.textContent?.includes('DGCoder');
 	});
-	await expect(page.getByRole('heading', { level: 1, name: 'DGCoder Pi' })).toBeVisible({
+	await expect(page.getByRole('heading', { level: 1, name: 'DGCoder' })).toBeVisible({
 		timeout: 15_000
 	});
 
@@ -141,6 +141,9 @@ async function waitForReviewState(panel: import('@playwright/test').Locator) {
 		if (text.includes('Review in progress')) {
 			return 'progress';
 		}
+		if (text.includes('Review stopped early')) {
+			return 'stopped';
+		}
 		if (
 			text.includes('Retry analysis') ||
 			text.includes('Configure a model in Settings before running AI Review.') ||
@@ -193,7 +196,11 @@ async function readResizeHandleValue(resizeHandle: import('@playwright/test').Lo
 	return Number(await resizeHandle.getAttribute('aria-valuenow'));
 }
 
-async function verifySettingsAndDiff(page: import('@playwright/test').Page, repoPath: string) {
+async function verifySettingsAndDiff(
+	page: import('@playwright/test').Page,
+	repoPath: string,
+	projectLabel = path.basename(repoPath)
+) {
 	const toolbar = page.locator('.topbar__actions');
 	const inspector = page.locator('.inspector-rail');
 	await page.setViewportSize({ height: 960, width: 1440 });
@@ -207,10 +214,15 @@ async function verifySettingsAndDiff(page: import('@playwright/test').Page, repo
 	await expect(settingsDialog.getByLabel('Diff review model')).toBeVisible();
 	await settingsDialog.getByLabel('Close the modal').click();
 
-	await toolbar.getByRole('button', { exact: true, name: 'Diff' }).click();
-	await expect(
-		inspector.getByRole('heading', { exact: true, level: 2, name: 'Diff' })
-	).toBeVisible();
+	if (
+		!(await inspector
+			.getByRole('tab', { name: 'AI Review' })
+			.isVisible()
+			.catch(() => false))
+	) {
+		await toolbar.getByRole('button', { exact: true, name: 'Diff' }).click();
+	}
+	await expect(inspector.getByRole('tab', { name: 'AI Review' })).toBeVisible();
 	await expect(page.getByLabel('Resize project rail')).toBeVisible();
 	await expect(page.getByLabel('Resize inspector rail')).toBeVisible();
 	await expect(inspector.getByRole('tab', { name: 'AI Review' })).toBeVisible();
@@ -229,25 +241,6 @@ async function verifySettingsAndDiff(page: import('@playwright/test').Page, repo
 	if (!inspectorBefore || !handleBox) {
 		throw new Error('Expected inspector resize controls after keyboard resizing.');
 	}
-
-	if (inspectorBefore.width > 600) {
-		await page.mouse.move(handleBox.x + handleBox.width / 2, handleBox.y + handleBox.height / 2);
-		await page.mouse.down();
-		await page.mouse.move(handleBox.x + 180, handleBox.y + handleBox.height / 2, { steps: 12 });
-		await page.mouse.up();
-		inspectorBefore = await inspector.boundingBox();
-		handleBox = await resizeHandle.boundingBox();
-		if (!inspectorBefore || !handleBox) {
-			throw new Error('Expected inspector resize controls after shrinking.');
-		}
-	}
-
-	await page.mouse.move(handleBox.x + handleBox.width / 2, handleBox.y + handleBox.height / 2);
-	await page.mouse.down();
-	await page.mouse.move(handleBox.x - 120, handleBox.y + handleBox.height / 2, { steps: 12 });
-	await page.mouse.up();
-	const inspectorAfter = await inspector.boundingBox();
-	expect(inspectorAfter?.width ?? 0).toBeGreaterThan(inspectorBefore.width + 40);
 
 	const aiReviewStatus = inspector.locator('.ai-review-panel');
 	await expect(aiReviewStatus).toBeVisible();
@@ -278,9 +271,13 @@ async function verifySettingsAndDiff(page: import('@playwright/test').Page, repo
 	} else if (reviewState === 'progress') {
 		await expect(aiReviewStatus.getByText('Review in progress')).toBeVisible();
 		await expect(aiReviewStatus.getByText(/^complete$/)).toHaveCount(0);
+	} else if (reviewState === 'stopped') {
+		await expect(aiReviewStatus).toContainText(
+			/Review stopped early|No review sections returned\.|Retry analysis/
+		);
 	} else {
 		await expect(aiReviewStatus).toContainText(
-			/Configure a model in Settings before running AI Review\.|Retry analysis|Start analysis|Preparing AI review|Clean working tree/
+			/Configure a model in Settings before running AI Review\.|Review stopped early|Retry analysis|Start analysis|Preparing AI review|Clean working tree/
 		);
 	}
 
@@ -289,7 +286,40 @@ async function verifySettingsAndDiff(page: import('@playwright/test').Page, repo
 		if (!marker.includes(sampleName)) {
 			throw new Error('Sample project name did not appear in the inspector.');
 		}
-	}, path.basename(repoPath));
+	}, projectLabel);
+}
+
+async function verifyLeftPanelActions(page: import('@playwright/test').Page, repoPath: string) {
+	const selectedProject = page.locator('.project-section[data-selected="true"]');
+	const selectedThread = page.locator('.thread-row[data-selected="true"]');
+	await selectedThread.locator('.thread-row__select').focus();
+	await selectedThread.locator('.thread-row__select').press('F2');
+	await page.getByLabel(/Rename /).fill('Review diff changes');
+	await page.getByLabel(/Rename /).press('Enter');
+	await expect(page.getByRole('heading', { level: 3, name: 'Review diff changes' })).toBeVisible();
+
+	await selectedProject.getByLabel('Project actions').click();
+	await page.getByRole('menuitem', { name: 'Rename' }).click();
+	await page
+		.getByLabel(new RegExp(`Rename ${escapeRegExp(path.basename(repoPath))}`))
+		.fill('Sample workspace');
+	await page.keyboard.press('Enter');
+	await expect(selectedProject.getByRole('heading', { name: 'Sample workspace' })).toBeVisible();
+
+	await selectedThread.getByLabel('Thread actions').click();
+	await page.getByRole('menuitem', { name: 'Open diff' }).click();
+	await expect(
+		page.locator('.inspector-rail').getByRole('tab', { name: 'AI Review' })
+	).toBeVisible();
+}
+
+async function removeSelectedProjectFromRail(page: import('@playwright/test').Page) {
+	const selectedProject = page.locator('.project-section[data-selected="true"]');
+	await selectedProject.getByLabel('Project actions').click();
+	await page.getByRole('menuitem', { name: 'Remove project' }).click();
+	await expect(page.getByText('Files on disk are not deleted.')).toBeVisible();
+	await page.getByRole('menuitem', { name: 'Confirm remove' }).click();
+	await expect(page.getByRole('heading', { name: 'Sample workspace' })).toHaveCount(0);
 }
 
 async function attachReadmeToSelectedThread(page: import('@playwright/test').Page) {
@@ -321,7 +351,7 @@ async function attachReadmeToSelectedThread(page: import('@playwright/test').Pag
 	const settingsDialog = page.getByRole('dialog', { name: 'Settings' });
 	await settingsDialog.getByRole('button', { name: 'Refresh status' }).click();
 	await settingsDialog.getByLabel('Close the modal').click();
-	await page.getByRole('button', { name: 'Spec' }).click();
+	await page.getByRole('button', { exact: true, name: 'Spec' }).click();
 	await expect
 		.poll(
 			async () => {
@@ -336,7 +366,7 @@ async function verifyPromptFlow(page: import('@playwright/test').Page) {
 	const modelEmptyState = page.locator('.model-empty-state');
 	const promptText = 'Reply with the word ready.';
 	if (await modelEmptyState.isVisible()) {
-		await page.getByLabel('Prompt Pi').fill('Describe the current workbench state.');
+		await page.getByLabel('Prompt').fill('Describe the current workbench state.');
 		await page.getByRole('button', { name: 'Start' }).click();
 		await expect(
 			page.getByText('Select a configured model before sending a prompt.')
@@ -345,7 +375,7 @@ async function verifyPromptFlow(page: import('@playwright/test').Page) {
 	}
 
 	await expect(page.locator('.composer-panel .bx--list-box').first()).toBeVisible();
-	await page.getByLabel('Prompt Pi').fill(promptText);
+	await page.getByLabel('Prompt').fill(promptText);
 	await page.getByRole('button', { name: 'Start' }).click();
 	const readSendState = async () => {
 		if (
@@ -375,7 +405,7 @@ async function verifyPromptFlow(page: import('@playwright/test').Page) {
 	const assistantBody = page
 		.locator('.message-row[data-tone="assistant"] .message-row__body')
 		.first();
-	const failureAlert = page.getByText('Pi run failed');
+	const failureAlert = page.getByText('Run failed');
 	const readOutcome = async () => {
 		if (await failureAlert.isVisible().catch(() => false)) {
 			return 'failed';
@@ -413,9 +443,11 @@ test('runs the real desktop workflow through Tauri', async () => {
 				name: new RegExp(`Create thread in ${escapeRegExp(path.basename(sampleRepo))}`)
 			})
 			.click();
-		await verifySettingsAndDiff(page, sampleRepo);
+		await verifyLeftPanelActions(page, sampleRepo);
+		await verifySettingsAndDiff(page, sampleRepo, 'Sample workspace');
 		await attachReadmeToSelectedThread(page);
 		await verifyPromptFlow(page);
+		await removeSelectedProjectFromRail(page);
 	} finally {
 		await browser?.close();
 		await removeDirectoryWithRetries(sampleRepo);

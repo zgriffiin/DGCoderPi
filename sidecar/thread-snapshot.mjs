@@ -6,11 +6,15 @@ import {
 
 export function buildActivity(event) {
 	if (event.type === 'agent_start') {
-		return { detail: 'Pi accepted the current turn.', title: 'Run started', tone: 'system' };
+		return { detail: 'The agent accepted the current turn.', title: 'Run started', tone: 'system' };
 	}
 
 	if (event.type === 'agent_end') {
-		return { detail: 'Pi finished the current turn.', title: 'Run complete', tone: 'system' };
+		return {
+			detail: 'The agent finished the current turn.',
+			title: 'Run complete',
+			tone: 'system'
+		};
 	}
 
 	if (event.type === 'tool_execution_start') {
