@@ -25,6 +25,18 @@
 		return 'Spec';
 	}
 
+	function attachmentStatusType(parseStatus: ThreadRecord['attachments'][number]['parseStatus']) {
+		if (parseStatus === 'ready') {
+			return 'green';
+		}
+
+		if (parseStatus === 'failed') {
+			return 'red';
+		}
+
+		return 'cool-gray';
+	}
+
 	let { controller, mode, onClose, project, thread }: Props = $props();
 </script>
 
@@ -109,16 +121,13 @@
 								<div class="inspector-item">
 									<div class="inspector-item__header">
 										<p>{attachment.name}</p>
-										<Tag
-											type={attachment.parseStatus === 'ready'
-												? 'green'
-												: attachment.parseStatus === 'failed'
-													? 'red'
-													: 'cool-gray'}
-										>
+										<Tag type={attachmentStatusType(attachment.parseStatus)}>
 											{attachment.parseStatus}
 										</Tag>
 									</div>
+									{#if attachment.warnings.length > 0}
+										<p>{attachment.warnings[0]}</p>
+									{/if}
 									{#if attachment.previewText}
 										<p>{attachment.previewText}</p>
 									{:else}

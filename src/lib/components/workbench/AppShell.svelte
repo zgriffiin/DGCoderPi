@@ -11,6 +11,7 @@
 	import SettingsModal from './SettingsModal.svelte';
 	import WorkbenchResizeHandle from './WorkbenchResizeHandle.svelte';
 	import WorkbenchTopbar from './WorkbenchTopbar.svelte';
+	import { stageBrowserFiles } from './composer-attachments';
 	import {
 		buildComposerHint,
 		findActiveProject,
@@ -202,6 +203,16 @@
 			for (const path of paths) {
 				await controller.stageAttachment(activeThread.id, path);
 			}
+		});
+	}
+
+	async function handleStageComposerFiles(files: File[]) {
+		if (!activeThread) {
+			return;
+		}
+
+		await runAction(async () => {
+			await stageBrowserFiles(controller, activeThread.id, files);
 		});
 	}
 
@@ -489,6 +500,7 @@
 				onReasoningChange={handleReasoningChange}
 				onSend={handleSend}
 				onShipSlice={handleShipSlice}
+				onStageFiles={handleStageComposerFiles}
 				onStop={handleStop}
 				{selectedModel}
 				{selectedModelKey}

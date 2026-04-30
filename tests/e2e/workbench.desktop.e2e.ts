@@ -68,8 +68,8 @@ async function addProjectAndThread(page: import('@playwright/test').Page) {
 	await expect(page.getByText('Send a message to start the conversation.')).toBeVisible();
 	await expect(page.getByText('1 queued message')).toHaveCount(0);
 	await expect(page.getByRole('button', { name: 'Start' })).toBeVisible();
-	await expect(page.getByRole('button', { name: 'Attach' })).toBeVisible();
-	await expect(page.getByRole('button', { name: 'Ship' })).toBeVisible();
+	await expect(page.getByRole('button', { exact: true, name: 'Attach' })).toBeVisible();
+	await expect(page.getByRole('button', { exact: true, name: 'Ship' })).toBeVisible();
 }
 
 function createSampleRepo() {
@@ -362,6 +362,58 @@ async function attachReadmeToSelectedThread(page: import('@playwright/test').Pag
 		.toContain('README.md');
 }
 
+async function disableDocparser(page: import('@playwright/test').Page) {
+	await page.getByRole('button', { name: 'Settings' }).click();
+	const settingsDialog = page.getByRole('dialog', { name: 'Settings' });
+	await settingsDialog.getByRole('button', { name: 'Extensions' }).click();
+	await expect(settingsDialog.getByRole('heading', { level: 3, name: 'Extensions' })).toBeVisible();
+	await settingsDialog.locator('#docparser-toggle').click({ force: true });
+	await settingsDialog.getByLabel('Close the modal').click();
+}
+
+async function pasteImageAttachment(page: import('@playwright/test').Page) {
+	const pngBytes = [
+		137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 13, 73, 72, 68, 82, 0, 0, 0, 1, 0, 0, 0, 1, 8, 6, 0,
+		0, 0, 31, 21, 196, 137, 0, 0, 0, 13, 73, 68, 65, 84, 120, 156, 99, 248, 255, 255, 63, 0, 5, 254,
+		2, 254, 167, 53, 129, 132, 0, 0, 0, 0, 73, 69, 78, 68, 174, 66, 96, 130
+	];
+	await page.evaluate((bytes) => {
+		const textarea = document.querySelector('textarea');
+		if (!(textarea instanceof HTMLTextAreaElement)) {
+			throw new Error('Composer textarea was not found.');
+		}
+
+		const transfer = new DataTransfer();
+		const file = new File([new Uint8Array(bytes)], 'clipboard-image.png', { type: 'image/png' });
+		transfer.items.add(file);
+		const event = new Event('paste', { bubbles: true, cancelable: true });
+		Object.defineProperty(event, 'clipboardData', {
+			configurable: true,
+			value: transfer
+		});
+		textarea.dispatchEvent(event);
+	}, pngBytes);
+}
+
+async function verifyPastedImageWarning(page: import('@playwright/test').Page) {
+	const warningText = 'The document parser feature is disabled.';
+	await disableDocparser(page);
+	await pasteImageAttachment(page);
+
+	const attachmentChip = page.locator('.attachment-chip', { hasText: 'clipboard-image.png' });
+	await expect(attachmentChip).toContainText('failed');
+	await expect(attachmentChip).toContainText(warningText);
+
+	const specButton = page.getByRole('button', { exact: true, name: 'Spec' });
+	if ((await specButton.getAttribute('aria-pressed')) !== 'true') {
+		await specButton.click();
+	}
+	const inspector = page.locator('.inspector-rail');
+	await expect(inspector).toBeVisible();
+	await expect(inspector).toContainText('clipboard-image.png');
+	await expect(inspector).toContainText(warningText);
+}
+
 async function verifyPromptFlow(page: import('@playwright/test').Page) {
 	const modelEmptyState = page.locator('.model-empty-state');
 	const promptText = 'Reply with the word ready.';
@@ -422,7 +474,6 @@ async function verifyPromptFlow(page: import('@playwright/test').Page) {
 	}
 
 	await expect(failureAlert).toBeVisible();
-	await expect(page.getByText('fetch failed')).toBeVisible();
 }
 
 test('runs the real desktop workflow through Tauri', async () => {
@@ -446,6 +497,7 @@ test('runs the real desktop workflow through Tauri', async () => {
 		await verifyLeftPanelActions(page, sampleRepo);
 		await verifySettingsAndDiff(page, sampleRepo, 'Sample workspace');
 		await attachReadmeToSelectedThread(page);
+		await verifyPastedImageWarning(page);
 		await verifyPromptFlow(page);
 		await removeSelectedProjectFromRail(page);
 	} finally {

@@ -25,6 +25,7 @@
 		onRemoveAttachment: (attachmentId: string) => void;
 		onSend: (mode: PromptMode) => void;
 		onShipSlice: () => void;
+		onStageFiles: (files: File[]) => void;
 		onStop: () => void;
 		selectedModel: ModelOption | null;
 		selectedModelKey: string;
@@ -80,6 +81,70 @@
 		onSend('prompt');
 	}
 
+	function fileListFromDataTransfer(dataTransfer: DataTransfer | null) {
+		if (!dataTransfer) {
+			return [];
+		}
+
+		return Array.from(dataTransfer.files).filter((file) => file.size > 0);
+	}
+
+	function handlePaste(event: ClipboardEvent) {
+		const files = fileListFromDataTransfer(event.clipboardData);
+		if (files.length === 0) {
+			return;
+		}
+
+		event.preventDefault();
+		onStageFiles(files);
+	}
+
+	function handleDragOver(event: DragEvent) {
+		if (fileListFromDataTransfer(event.dataTransfer).length > 0) {
+			event.preventDefault();
+		}
+	}
+
+	function handleDrop(event: DragEvent) {
+		const files = fileListFromDataTransfer(event.dataTransfer);
+		if (files.length === 0) {
+			return;
+		}
+
+		event.preventDefault();
+		onStageFiles(files);
+	}
+
+	function attachmentStatusType(attachment: AttachmentRecord) {
+		if (attachment.parseStatus === 'failed') {
+			return 'red';
+		}
+
+		if (attachment.parseStatus === 'ready') {
+			return 'green';
+		}
+
+		return 'cool-gray';
+	}
+
+	function attachmentDetail(attachment: AttachmentRecord) {
+		return (
+			attachment.warnings[0] ?? `${attachment.mimeType} · ${formatFileSize(attachment.sizeBytes)}`
+		);
+	}
+
+	function formatFileSize(sizeBytes: number) {
+		if (sizeBytes >= 1024 * 1024) {
+			return `${Math.round((sizeBytes / (1024 * 1024)) * 10) / 10} MB`;
+		}
+
+		if (sizeBytes >= 1024) {
+			return `${Math.round((sizeBytes / 1024) * 10) / 10} KB`;
+		}
+
+		return `${sizeBytes} bytes`;
+	}
+
 	let {
 		attachments,
 		canSend,
@@ -93,6 +158,7 @@
 		onRemoveAttachment,
 		onSend,
 		onShipSlice,
+		onStageFiles,
 		onStop,
 		selectedModel,
 		selectedModelKey,
@@ -137,17 +203,20 @@
 </script>
 
 <section class="composer-panel">
-	<TextArea
-		disabled={!canSend}
-		hideLabel
-		labelText="Prompt"
-		maxlength={4000}
-		placeholder={hint}
-		rows={3}
-		value={draft}
-		on:input={(event) => onDraftChange(readEventValue(event))}
-		on:keydown={handleKeydown}
-	/>
+	<div role="presentation" ondragover={handleDragOver} ondrop={handleDrop}>
+		<TextArea
+			disabled={!canSend}
+			hideLabel
+			labelText="Prompt"
+			maxlength={4000}
+			placeholder={hint}
+			rows={3}
+			value={draft}
+			on:input={(event) => onDraftChange(readEventValue(event))}
+			on:keydown={handleKeydown}
+			on:paste={handlePaste}
+		/>
+	</div>
 
 	{#if attachments.length > 0}
 		<div class="attachment-strip">
@@ -155,7 +224,10 @@
 				<div class="attachment-chip">
 					<div>
 						<p>{attachment.name}</p>
-						<span>{attachment.parseStatus}</span>
+						<div class="attachment-chip__meta">
+							<Tag size="sm" type={attachmentStatusType(attachment)}>{attachment.parseStatus}</Tag>
+							<span>{attachmentDetail(attachment)}</span>
+						</div>
 					</div>
 					<div class="attachment-chip__actions">
 						{#if attachment.stage === 'staged'}
