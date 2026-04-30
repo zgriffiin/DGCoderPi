@@ -105,9 +105,11 @@ async function attemptWingetDownload() {
 
 async function findDownloadedPackage(tempRoot) {
 	const names = await readdir(tempRoot);
-	const packageName = names.find((name) => name.endsWith('.msix') || name.endsWith('.msixbundle'));
+	const packageName = names.find(
+		(name) => name.endsWith('.appx') || name.endsWith('.msix') || name.endsWith('.msixbundle')
+	);
 	if (!packageName) {
-		throw new Error('winget did not download an ImageMagick MSIX package.');
+		throw new Error('winget did not download an ImageMagick APPX or MSIX package.');
 	}
 	return path.join(tempRoot, packageName);
 }
