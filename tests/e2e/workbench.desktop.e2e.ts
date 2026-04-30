@@ -141,6 +141,9 @@ async function waitForReviewState(panel: import('@playwright/test').Locator) {
 		if (text.includes('Review in progress')) {
 			return 'progress';
 		}
+		if (text.includes('Review stopped early')) {
+			return 'stopped';
+		}
 		if (
 			text.includes('Retry analysis') ||
 			text.includes('Configure a model in Settings before running AI Review.') ||
@@ -268,9 +271,13 @@ async function verifySettingsAndDiff(
 	} else if (reviewState === 'progress') {
 		await expect(aiReviewStatus.getByText('Review in progress')).toBeVisible();
 		await expect(aiReviewStatus.getByText(/^complete$/)).toHaveCount(0);
+	} else if (reviewState === 'stopped') {
+		await expect(aiReviewStatus).toContainText(
+			/Review stopped early|No review sections returned\.|Retry analysis/
+		);
 	} else {
 		await expect(aiReviewStatus).toContainText(
-			/Configure a model in Settings before running AI Review\.|Retry analysis|Start analysis|Preparing AI review|Clean working tree/
+			/Configure a model in Settings before running AI Review\.|Review stopped early|Retry analysis|Start analysis|Preparing AI review|Clean working tree/
 		);
 	}
 

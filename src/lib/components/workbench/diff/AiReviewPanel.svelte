@@ -240,7 +240,7 @@
 				</section>
 			{/if}
 
-			{#if !hasReviewContent()}
+			{#if !hasReviewContent() && !isGenerating()}
 				<div class="empty-panel">
 					<p>No review sections returned.</p>
 					<Button kind="ghost" size="small" onclick={onRefresh}>Retry analysis</Button>

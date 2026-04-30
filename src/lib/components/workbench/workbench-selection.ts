@@ -27,12 +27,21 @@ export function resolveProjectSelection(snapshot: AppSnapshot, currentSelection:
 		return '';
 	}
 
+	const persistedProjectId = snapshot.selectedProjectId;
 	if (!currentSelection) {
-		return snapshot.selectedProjectId ?? snapshot.projects[0].id;
+		return persistedProjectId &&
+			snapshot.projects.some((project) => project.id === persistedProjectId)
+			? persistedProjectId
+			: snapshot.projects[0].id;
 	}
 
-	return snapshot.projects.some((project) => project.id === currentSelection)
-		? currentSelection
+	if (snapshot.projects.some((project) => project.id === currentSelection)) {
+		return currentSelection;
+	}
+
+	return persistedProjectId &&
+		snapshot.projects.some((project) => project.id === persistedProjectId)
+		? persistedProjectId
 		: snapshot.projects[0].id;
 }
 
@@ -45,12 +54,19 @@ export function resolveThreadSelection(
 		return '';
 	}
 
+	const persistedThreadId = snapshot.selectedThreadId;
 	if (!currentSelection) {
-		return snapshot.selectedThreadId ?? newestThread(project.threads)?.id ?? project.threads[0].id;
+		return persistedThreadId && project.threads.some((thread) => thread.id === persistedThreadId)
+			? persistedThreadId
+			: (newestThread(project.threads)?.id ?? project.threads[0].id);
 	}
 
-	return project.threads.some((thread) => thread.id === currentSelection)
-		? currentSelection
+	if (project.threads.some((thread) => thread.id === currentSelection)) {
+		return currentSelection;
+	}
+
+	return persistedThreadId && project.threads.some((thread) => thread.id === persistedThreadId)
+		? persistedThreadId
 		: (newestThread(project.threads)?.id ?? project.threads[0].id);
 }
 
