@@ -66,10 +66,12 @@ function isSupportedWorkbenchModel(model, usingChatGptSubscription) {
 	);
 }
 
-function modelLabel(model) {
+function modelLabel(model, codexCredential) {
 	const providerLabel =
 		model.provider === 'openai-codex'
-			? 'Pro Account'
+			? codexCredential?.type === 'oauth'
+				? 'Pro Account'
+				: 'API'
 			: model.provider === 'openai'
 				? 'API'
 				: PROVIDERS.find(([provider]) => provider === model.provider)?.[1];
@@ -185,7 +187,7 @@ class BridgeRuntime {
 					configured: true,
 					id: model.id,
 					key: `${model.provider}::${model.id}`,
-					label: modelLabel(model),
+					label: modelLabel(model, codexCredential),
 					provider: model.provider,
 					supportsImages: Array.isArray(model.input) && model.input.includes('image'),
 					supportsReasoning: Boolean(model.reasoning)
@@ -328,6 +330,11 @@ class BridgeRuntime {
 		const model = this.modelRegistry.find(provider, modelId);
 		if (!model) {
 			throw new Error(`Configured model was not found: ${modelKey}`);
+		}
+		const codexCredential = this.authStorage.get('openai-codex');
+		const usingChatGptSubscription = codexCredential?.type === 'oauth';
+		if (!isSupportedWorkbenchModel(model, usingChatGptSubscription)) {
+			throw new Error(`Configured model is no longer supported: ${modelKey}`);
 		}
 		return model;
 	}
