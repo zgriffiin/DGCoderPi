@@ -49,7 +49,7 @@ export function resolveThreadSelection(
 	snapshot: AppSnapshot,
 	project: ProjectRecord | null,
 	currentSelection: string
-) {
+): string {
 	if (!project?.threads[0]) {
 		return '';
 	}
