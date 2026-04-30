@@ -1,5 +1,6 @@
 use std::{
     collections::HashMap,
+    env,
     io::{BufRead, BufReader, Write},
     path::Path,
     process::{Child, ChildStderr, ChildStdin, Command, Stdio},
@@ -112,18 +113,20 @@ impl PiBridge {
     pub fn start(
         repo_root: &Path,
         app_data_dir: &Path,
+        resource_dir: &Path,
         features: &FeatureSettings,
         on_event: Arc<dyn Fn(BridgeEvent) + Send + Sync>,
     ) -> Result<Self, String> {
         let script_path = repo_root.join("sidecar").join("pi-bridge.mjs");
-        let mut child = Command::new("node")
+        let mut command = Command::new("node");
+        command
             .arg(script_path)
             .current_dir(repo_root)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
-            .map_err(|error| error.to_string())?;
+            .stderr(Stdio::piped());
+        configure_bundled_imagemagick_env(&mut command, repo_root, resource_dir);
+        let mut child = command.spawn().map_err(|error| error.to_string())?;
 
         let stdin = child
             .stdin
@@ -288,6 +291,41 @@ impl PiBridge {
             *status = next_status.to_string();
         }
     }
+}
+
+fn configure_bundled_imagemagick_env(command: &mut Command, repo_root: &Path, resource_dir: &Path) {
+    let separator = if cfg!(target_os = "windows") {
+        ";"
+    } else {
+        ":"
+    };
+    let existing_path = env::var("PATH").unwrap_or_default();
+    let mut image_magick_paths = candidate_imagemagick_dirs(repo_root, resource_dir)
+        .into_iter()
+        .filter(|path| path.exists())
+        .map(|path| path.to_string_lossy().to_string())
+        .collect::<Vec<_>>();
+    if image_magick_paths.is_empty() {
+        return;
+    }
+
+    image_magick_paths.push(existing_path);
+    command.env("PATH", image_magick_paths.join(separator));
+}
+
+fn candidate_imagemagick_dirs(repo_root: &Path, resource_dir: &Path) -> Vec<std::path::PathBuf> {
+    vec![
+        repo_root
+            .join("src-tauri")
+            .join("resources")
+            .join("imagemagick")
+            .join("windows"),
+        resource_dir
+            .join("resources")
+            .join("imagemagick")
+            .join("windows"),
+        resource_dir.join("imagemagick").join("windows"),
+    ]
 }
 
 impl Drop for PiBridge {

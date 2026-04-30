@@ -6,8 +6,8 @@
 	"build": {
 		"frontendDist": "../build",
 		"devUrl": "http://127.0.0.1:5182",
-		"beforeDevCommand": "pnpm dev",
-		"beforeBuildCommand": "pnpm build"
+		"beforeDevCommand": "pnpm setup:imagemagick && pnpm dev",
+		"beforeBuildCommand": "pnpm setup:imagemagick && pnpm build"
 	},
 	"app": {
 		"windows": [
@@ -27,6 +27,7 @@
 	},
 	"bundle": {
 		"active": true,
+		"resources": ["resources/imagemagick/windows"],
 		"targets": "all",
 		"icon": [
 			"icons/32x32.png",

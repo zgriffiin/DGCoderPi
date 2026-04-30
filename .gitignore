@@ -10,6 +10,7 @@ node_modules
 /storybook-static
 /.fallow
 /src-tauri/gen
+/src-tauri/resources/imagemagick
 /src-tauri/target
 
 # OS

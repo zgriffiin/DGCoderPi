@@ -28,6 +28,7 @@
 		"storybook": "storybook dev -p 6006",
 		"build-storybook": "storybook build",
 		"setup:playwright": "playwright install chromium",
+		"setup:imagemagick": "node scripts/setup-imagemagick.mjs",
 		"test:component": "vitest --project client --run",
 		"tauri:dev": "node scripts/run-tauri-dev.mjs",
 		"tauri:dev:raw": "tauri dev",

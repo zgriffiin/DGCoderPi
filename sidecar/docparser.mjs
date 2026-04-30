@@ -5,6 +5,8 @@ import { pathToFileURL } from 'node:url';
  * @typedef {{ previewText: string | null, status: "ready" | "failed", warnings: string[] }} ParsedAttachment
  */
 
+const IMAGE_EXTENSION_PATTERN = /\.(avif|bmp|gif|heic|heif|jpeg|jpg|png|tiff|webp)$/i;
+
 let loadExtensionsPromise;
 let toolPromise;
 
@@ -66,12 +68,35 @@ function extractPreview(result) {
 	return firstText?.text ?? null;
 }
 
+function isImagePath(filePath) {
+	return IMAGE_EXTENSION_PATTERN.test(path.basename(filePath));
+}
+
+function normalizeImageWarning(error) {
+	const message = error instanceof Error ? error.message : String(error);
+	if (/imagemagick/i.test(message)) {
+		return 'Image preview unavailable. Install ImageMagick or run /docparser:doctor.';
+	}
+
+	return 'Image preview unavailable. The image can still be attached and sent to image-capable models.';
+}
+
 /**
  * @param {{ enabled: boolean, filePath: string }} input
  * @returns {Promise<ParsedAttachment>}
  */
 export async function parseAttachment(input) {
 	if (!input.enabled) {
+		if (isImagePath(input.filePath)) {
+			return {
+				previewText: null,
+				status: 'ready',
+				warnings: [
+					'Image preview unavailable. Enable the document parser for inline image parsing.'
+				]
+			};
+		}
+
 		return {
 			previewText: null,
 			status: 'failed',
@@ -79,18 +104,30 @@ export async function parseAttachment(input) {
 		};
 	}
 
-	const tool = await loadDocumentParseTool();
-	const result = await tool.execute(
-		`docparse-${Date.now()}`,
-		{ path: input.filePath },
-		undefined,
-		undefined,
-		{ cwd: path.dirname(input.filePath) }
-	);
+	try {
+		const tool = await loadDocumentParseTool();
+		const result = await tool.execute(
+			`docparse-${Date.now()}`,
+			{ path: input.filePath },
+			undefined,
+			undefined,
+			{ cwd: path.dirname(input.filePath) }
+		);
 
-	return {
-		previewText: extractPreview(result),
-		status: 'ready',
-		warnings: collectWarnings(result.details)
-	};
+		return {
+			previewText: extractPreview(result),
+			status: 'ready',
+			warnings: collectWarnings(result.details)
+		};
+	} catch (error) {
+		if (isImagePath(input.filePath)) {
+			return {
+				previewText: null,
+				status: 'ready',
+				warnings: [normalizeImageWarning(error)]
+			};
+		}
+
+		throw error;
+	}
 }
