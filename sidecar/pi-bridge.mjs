@@ -228,10 +228,7 @@ class BridgeRuntime {
 					? base.extensions.filter((extension) => extension.resolvedPath === docparserPath)
 					: []
 			}),
-			noContextFiles: true,
 			noExtensions: !this.features.docparserEnabled,
-			noPromptTemplates: true,
-			noSkills: true,
 			noThemes: true
 		});
 	}
@@ -239,9 +236,10 @@ class BridgeRuntime {
 	async ensureSession(payload) {
 		const existing = this.sessions.get(payload.threadId);
 		const model = this.resolveModel(payload.modelKey);
+		const requestedCwd = typeof payload.cwd === 'string' ? payload.cwd.trim() : '';
 		if (
 			existing &&
-			existing.cwd === payload.cwd &&
+			existing.cwd === requestedCwd &&
 			existing.modelKey === payload.modelKey &&
 			existing.thinkingLevel === payload.thinkingLevel
 		) {
@@ -249,7 +247,7 @@ class BridgeRuntime {
 			return existing;
 		}
 
-		const sessionManager = sessionManagerForPayload(existing, payload.cwd);
+		const { cwd, sessionManager } = sessionManagerForPayload(existing, payload, this.agentDir);
 
 		if (existing) {
 			recordSessionPreferences(existing, model, payload.thinkingLevel);
@@ -262,13 +260,13 @@ class BridgeRuntime {
 			compaction: { enabled: false },
 			retry: { enabled: true, maxRetries: 2 }
 		});
-		const loader = this.createLoader(payload.cwd, settingsManager);
+		const loader = this.createLoader(cwd, settingsManager);
 		await loader.reload();
 
 		const { session } = await createAgentSession({
 			agentDir: this.agentDir,
 			authStorage: this.authStorage,
-			cwd: payload.cwd,
+			cwd,
 			model,
 			modelRegistry: this.modelRegistry,
 			resourceLoader: loader,
@@ -282,7 +280,7 @@ class BridgeRuntime {
 		});
 
 		const entry = {
-			cwd: payload.cwd,
+			cwd,
 			lastTouchedAt: Date.now(),
 			model,
 			modelKey: payload.modelKey,
@@ -294,7 +292,7 @@ class BridgeRuntime {
 		this.sessions.set(payload.threadId, entry);
 		evictDormantSessions(this.sessions);
 		this.emitThreadUpdate(payload.threadId, session, {
-			detail: `Session ready in ${payload.cwd}.`,
+			detail: `Session ready in ${cwd}.`,
 			title: 'Thread ready',
 			tone: 'system'
 		});

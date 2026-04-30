@@ -5,8 +5,11 @@ import {
 	SettingsManager,
 	defineTool
 } from '@mariozechner/pi-coding-agent';
+import { normalizePriority } from './priority-utils.mjs';
+import { REVIEW_FIELD_ALIASES, hasStructuredReviewShape } from './review-shape.mjs';
 
 const REVIEW_TOOL_NAME = 'diff_review_result';
+const DIAGNOSTIC_TEXT_PREVIEW_ENABLED = process.env.DGCODER_PI_DIFF_ANALYSIS_DEBUG === 'true';
 const EVIDENCE_ITEM_SCHEMA = {
 	type: 'object',
 	additionalProperties: false,
@@ -156,10 +159,17 @@ export async function analyzeDiff(runtime, payload) {
 
 	try {
 		await session.prompt(buildPrompt(payload));
-		if (!capturedResult) {
+		const structuredResult = capturedResult
+			? hasStructuredReviewShape(capturedResult)
+				? capturedResult
+				: null
+			: extractStructuredReviewResult(session.getLastAssistantText());
+		if (!structuredResult) {
+			const diagnostics = buildDiffAnalysisDiagnostics(session, model, payload.modelKey);
+			console.error('[diff-analysis]', JSON.stringify(diagnostics));
 			throw new Error('Diff analysis did not return a structured result.');
 		}
-		return normalizeReviewResult(payload, capturedResult);
+		return normalizeReviewResult(payload, structuredResult);
 	} finally {
 		session.dispose();
 	}
@@ -172,6 +182,7 @@ function buildSystemPrompt() {
 		'Ground every claim in the provided files and hunk ids.',
 		'Prefer product behavior and user-facing consequences over internal jargon.',
 		`Always finish by calling ${REVIEW_TOOL_NAME}.`,
+		`If the tool call is unavailable, reply with JSON only using the ${REVIEW_TOOL_NAME} shape.`,
 		'Keep each list concise and avoid filler.'
 	].join('\n');
 }
@@ -238,6 +249,100 @@ function compactDiffPayload(diff) {
 	};
 }
 
+function buildDiffAnalysisDiagnostics(session, model, modelKey) {
+	const lastAssistant = [...session.messages]
+		.reverse()
+		.find((message) => message.role === 'assistant');
+	const assistantBlocks = Array.isArray(lastAssistant?.content)
+		? lastAssistant.content.map((block) => block.type)
+		: [];
+	const toolCalls = Array.isArray(lastAssistant?.content)
+		? lastAssistant.content
+				.filter((block) => block.type === 'toolCall')
+				.map((block) => ({
+					id: block.id,
+					name: block.name
+				}))
+		: [];
+
+	const diagnostics = {
+		api: model.api,
+		assistantBlocks,
+		baseUrl: model.baseUrl,
+		model: model.id,
+		modelKey,
+		provider: model.provider,
+		toolCallCount: toolCalls.length,
+		toolCalls
+	};
+
+	if (DIAGNOSTIC_TEXT_PREVIEW_ENABLED) {
+		diagnostics.lastAssistantTextPreview = truncateText(session.getLastAssistantText(), 800);
+	}
+
+	return diagnostics;
+}
+
+function extractStructuredReviewResult(text) {
+	if (!text) {
+		return null;
+	}
+
+	for (const candidate of reviewResultCandidates(text)) {
+		const parsed = tryParseStructuredReview(candidate);
+		if (parsed) {
+			return coerceStructuredReviewShape(parsed);
+		}
+	}
+
+	return null;
+}
+
+function reviewResultCandidates(text) {
+	const candidates = new Set();
+	const trimmed = text.trim();
+	if (trimmed) {
+		candidates.add(trimmed);
+	}
+
+	const fencedMatch = trimmed.match(/```(?:json)?\s*([\s\S]*?)```/i);
+	if (fencedMatch?.[1]?.trim()) {
+		candidates.add(fencedMatch[1].trim());
+	}
+
+	const firstBrace = trimmed.indexOf('{');
+	const lastBrace = trimmed.lastIndexOf('}');
+	if (firstBrace !== -1 && lastBrace > firstBrace) {
+		candidates.add(trimmed.slice(firstBrace, lastBrace + 1));
+	}
+
+	return [...candidates];
+}
+
+function tryParseStructuredReview(candidate) {
+	try {
+		const parsed = JSON.parse(candidate);
+		return hasStructuredReviewShape(parsed) ? parsed : null;
+	} catch {
+		return null;
+	}
+}
+
+function coerceStructuredReviewShape(value) {
+	return {
+		changeBrief: readReviewField(value, 'changeBrief'),
+		impact: readReviewField(value, 'impact'),
+		risks: readReviewField(value, 'risks'),
+		focusQueue: readReviewField(value, 'focusQueue'),
+		suggestedFollowUps: readReviewField(value, 'suggestedFollowUps')
+	};
+}
+
+function readReviewField(value, key) {
+	const matched = REVIEW_FIELD_ALIASES[key].map((alias) => value?.[alias]).find(isUsableValue);
+	return Array.isArray(matched) ? matched : [];
+}
+
 function normalizeReviewResult(payload, review) {
 	return {
 		changeBrief: normalizeBriefItems(review.changeBrief),
@@ -258,27 +363,27 @@ function normalizeReviewResult(payload, review) {
 
 function normalizeBriefItems(items) {
 	return (Array.isArray(items) ? items : []).slice(0, 5).map((item) => ({
-		title: safeText(item?.title),
-		detail: safeText(item?.detail),
+		title: firstText(item, ['title', 'heading', 'summary', 'label']),
+		detail: firstText(item, ['detail', 'description', 'body', 'text']),
 		evidence: normalizeEvidence(item?.evidence)
 	}));
 }
 
 function normalizeImpactItems(items) {
 	return (Array.isArray(items) ? items : []).slice(0, 5).map((item) => ({
-		area: safeText(item?.area),
-		detail: safeText(item?.detail),
+		area: firstText(item, ['area', 'title', 'name']),
+		detail: firstText(item, ['detail', 'description', 'body', 'text']),
 		evidence: Array.isArray(item?.evidence) ? item.evidence.map((value) => safeText(value)) : []
 	}));
 }
 
 function normalizeRiskItems(items) {
 	return (Array.isArray(items) ? items : []).slice(0, 6).map((item) => ({
-		level: normalizePriority(item?.level),
-		confidence: normalizePriority(item?.confidence),
-		title: safeText(item?.title),
-		detail: safeText(item?.detail),
-		whyItMatters: safeText(item?.whyItMatters),
+		level: normalizePriority(firstValue(item, ['level', 'severity'])),
+		confidence: normalizePriority(firstValue(item, ['confidence', 'certainty'])),
+		title: firstText(item, ['title', 'heading', 'label']),
+		detail: firstText(item, ['detail', 'description', 'body', 'text']),
+		whyItMatters: firstText(item, ['whyItMatters', 'impact', 'consequence']),
 		evidence: normalizeEvidence(item?.evidence)
 	}));
 }
@@ -290,34 +395,73 @@ function normalizeFocusQueue(items, files) {
 	return (Array.isArray(items) ? items : [])
 		.slice(0, 6)
 		.map((item) => ({
-			file: safeText(item?.file),
-			hunkId: safeText(item?.hunkId),
+			file: firstText(item, ['file', 'path']),
+			hunkId: firstText(item, ['hunkId', 'hunk_id', 'id']),
 			priority: normalizePriority(item?.priority),
-			reason: safeText(item?.reason)
+			reason: firstText(item, ['reason', 'detail', 'description'])
 		}))
 		.filter((item) => validHunks.get(item.hunkId) === item.file);
 }
 
 function normalizeFollowUps(items) {
 	return (Array.isArray(items) ? items : []).slice(0, 4).map((item) => ({
-		prompt: safeText(item?.prompt),
-		reason: safeText(item?.reason)
+		prompt: firstText(item, ['prompt', 'question', 'text']),
+		reason: firstText(item, ['reason', 'detail', 'description'])
 	}));
 }
 
 function normalizeEvidence(items) {
-	return (Array.isArray(items) ? items : []).slice(0, 3).map((item) => ({
-		file: safeText(item?.file),
-		hunkId: safeText(item?.hunkId),
-		startLine: Number.isInteger(item?.startLine) && item.startLine > 0 ? item.startLine : null,
-		endLine: Number.isInteger(item?.endLine) && item.endLine > 0 ? item.endLine : null
-	}));
+	return (Array.isArray(items) ? items : [])
+		.slice(0, 3)
+		.map((item) => ({
+			file: firstText(item, ['file', 'path']),
+			hunkId: firstText(item, ['hunkId', 'hunk_id', 'id']),
+			startLine: normalizeLineNumber(firstValue(item, ['startLine', 'start_line', 'lineStart'])),
+			endLine: normalizeLineNumber(firstValue(item, ['endLine', 'end_line', 'lineEnd']))
+		}))
+		.filter((item) => item.file && item.hunkId);
 }
 
-function normalizePriority(value) {
-	return value === 'high' || value === 'medium' ? value : 'low';
+function normalizeLineNumber(value) {
+	if (Number.isInteger(value) && value > 0) {
+		return value;
+	}
+	if (typeof value === 'string' && /^[1-9]\d*$/.test(value)) {
+		return Number(value);
+	}
+	return null;
 }
 
 function safeText(value) {
 	return typeof value === 'string' ? value.trim() : '';
+}
+
+function firstText(item, keys) {
+	return safeText(firstValue(item, keys));
+}
+
+function firstValue(item, keys) {
+	for (const key of keys) {
+		if (isUsableValue(item?.[key])) {
+			return item[key];
+		}
+	}
+	return null;
+}
+
+function isUsableValue(value) {
+	if (Array.isArray(value)) {
+		return value.length > 0;
+	}
+	if (typeof value === 'string') {
+		return value.trim().length > 0;
+	}
+	return value !== undefined && value !== null;
+}
+
+function truncateText(value, maxChars) {
+	if (!value || value.length <= maxChars) {
+		return value ?? '';
+	}
+	return `${value.slice(0, maxChars)}...`;
 }

@@ -25,6 +25,14 @@
 	function isGenerating() {
 		return analysis?.status === 'in-progress' || analysis?.status === 'pending';
 	}
+
+	function progressLabel(analysis: DiffAnalysis) {
+		if (analysis.progress > 0) {
+			return `${analysis.progress}%`;
+		}
+
+		return analysis.partial ? 'partial' : 'starting';
+	}
 </script>
 
 <div class="ai-review-panel">
@@ -52,9 +60,11 @@
 		<div class="inspector-block ai-review-panel__status">
 			<div class="inspector-summary">
 				<p>{isGenerating() ? 'Review in progress' : 'Grounded review ready'}</p>
-				<Tag type={analysis.partial ? 'warm-gray' : 'green'}>
-					{analysis.partial ? `${analysis.progress}%` : 'complete'}
-				</Tag>
+				{#if isGenerating() || analysis.partial}
+					<Tag type="warm-gray">
+						{progressLabel(analysis)}
+					</Tag>
+				{/if}
 			</div>
 			<p>
 				{diff.stats.filesChanged} files, {diff.stats.additions} additions, {diff.stats.deletions}

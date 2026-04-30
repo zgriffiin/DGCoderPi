@@ -61,6 +61,15 @@
 		providers
 	}: Props = $props();
 
+	const diffReviewModels = $derived(
+		models.filter((model) => !model.key.startsWith('openai-codex::'))
+	);
+	const selectedDiffAnalysisModelKey = $derived(
+		diffReviewModels.some((model) => model.key === diffAnalysisModelKey)
+			? diffAnalysisModelKey
+			: null
+	);
+
 	$effect(() => {
 		if (open) {
 			section = 'accounts';
@@ -177,8 +186,8 @@
 									<h4>Diff review model</h4>
 									<p>Used for AI Review in the diff inspector.</p>
 								</div>
-								<Tag type={diffAnalysisModelKey ? 'blue' : 'cool-gray'}>
-									{diffAnalysisModelKey ? 'configured' : 'auto'}
+								<Tag type={selectedDiffAnalysisModelKey ? 'blue' : 'cool-gray'}>
+									{selectedDiffAnalysisModelKey ? 'configured' : 'auto'}
 								</Tag>
 							</div>
 							<div class="provider-row__controls">
@@ -186,7 +195,7 @@
 									id="diff-analysis-model"
 									labelText="Diff review model"
 									size="sm"
-									value={diffAnalysisModelKey ?? ''}
+									value={selectedDiffAnalysisModelKey ?? ''}
 									on:change={(event) => {
 										const value = readEventValue(event);
 										const trimmed = value.trim();
@@ -194,10 +203,14 @@
 									}}
 								>
 									<SelectItem text="Auto-select smallest available model" value="" />
-									{#each models as model (model.key)}
+									{#each diffReviewModels as model (model.key)}
 										<SelectItem text={model.label} value={model.key} />
 									{/each}
 								</Select>
+								<p>
+									Codex login-only models are excluded. AI Review currently requires an API-backed
+									model.
+								</p>
 							</div>
 						</section>
 

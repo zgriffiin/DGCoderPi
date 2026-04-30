@@ -17,6 +17,7 @@
 		"fallow:commit": "pnpm exec fallow dead-code --changed-since HEAD --production --fail-on-issues && pnpm exec fallow health --changed-since HEAD --production --complexity --fail-on-issues && pnpm exec fallow dupes --changed-since HEAD --production --fail-on-issues",
 		"fallow:audit": "pnpm exec fallow audit --production",
 		"lint": "prettier --check . && eslint . && pnpm policy:runtime",
+		"lint:changed": "node scripts/run-lint-changed.mjs",
 		"format": "prettier --write .",
 		"rust:check": "node scripts/run-rust-check.mjs",
 		"test:unit": "vitest --project server --run",
@@ -28,7 +29,8 @@
 		"build-storybook": "storybook build",
 		"setup:playwright": "playwright install chromium",
 		"test:component": "vitest --project client --run",
-		"tauri:dev": "tauri dev",
+		"tauri:dev": "node scripts/run-tauri-dev.mjs",
+		"tauri:dev:raw": "tauri dev",
 		"tauri:build": "tauri build",
 		"tauri:info": "tauri info"
 	},

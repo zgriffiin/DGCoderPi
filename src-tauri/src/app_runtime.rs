@@ -15,6 +15,10 @@ use uuid::Uuid;
 use crate::{
     analysis_store::{load_diff_analysis as load_cached_diff_analysis, save_diff_analysis},
     diff_analysis::{analyze_diff, build_thread_context, failed_analysis, pending_analysis},
+    diff_analysis_model_selection::{
+        diff_analysis_model_rank, should_use_thread_model_for_diff_analysis,
+        unsupported_diff_analysis_model_message,
+    },
     diff_engine::{project_diff, ProjectDiffOptions},
     diff_model::{
         DiffAnalysis, DiffAnalysisInput, DiffAnalysisRequest, DiffAnalysisStatus,
@@ -54,6 +58,15 @@ struct AppRuntimeInner {
     data_dir: PathBuf,
     models: Mutex<Vec<ModelOption>>,
     state: Mutex<PersistedState>,
+}
+
+struct PreparedPrompt {
+    attachments: Vec<BridgePromptAttachment>,
+    cwd: String,
+    messages: Vec<MessageRecord>,
+    model_key: String,
+    thinking_level: String,
+    thread_status: ThreadStatus,
 }
 
 impl AppRuntime {
@@ -411,10 +424,9 @@ impl AppRuntime {
     }
 
     pub fn send_prompt(&self, input: SendPromptInput) -> Result<AppUpdate, String> {
-        let (cwd, model_key, thinking_level, attachments, thread_status) =
-            self.prepare_prompt(&input.thread_id)?;
+        let prepared = self.prepare_prompt(&input.thread_id)?;
         let effective_mode = if matches!(input.mode, PromptMode::Prompt)
-            && matches!(thread_status, ThreadStatus::Running)
+            && matches!(prepared.thread_status, ThreadStatus::Running)
         {
             PromptMode::FollowUp
         } else {
@@ -425,7 +437,8 @@ impl AppRuntime {
             PromptMode::FollowUp => "follow-up",
             PromptMode::Steer => "steer",
         };
-        let staged_attachment_paths = attachments
+        let staged_attachment_paths = prepared
+            .attachments
             .iter()
             .map(|attachment| attachment.path.clone())
             .collect::<Vec<_>>();
@@ -472,7 +485,7 @@ impl AppRuntime {
                 &pending_message,
                 &pending_queue_entry,
                 &staged_attachment_paths,
-                &thread_status,
+                &prepared.thread_status,
             ) {
                 eprintln!(
                     "Failed to roll back prompt state after persistence error `{persist_error}`: {rollback_error}"
@@ -482,12 +495,13 @@ impl AppRuntime {
         }
 
         let bridge_input = crate::pi_bridge::BridgePromptRequest {
-            attachments: &attachments,
+            attachments: &prepared.attachments,
             command_name,
-            cwd: &cwd,
-            model_key: &model_key,
+            cwd: &prepared.cwd,
+            messages: &prepared.messages,
+            model_key: &prepared.model_key,
             text: &input.text,
-            thinking_level: &thinking_level,
+            thinking_level: &prepared.thinking_level,
             thread_id: &input.thread_id,
         };
 
@@ -499,7 +513,7 @@ impl AppRuntime {
                 &pending_message,
                 &pending_queue_entry,
                 &staged_attachment_paths,
-                &thread_status,
+                &prepared.thread_status,
             ) {
                 eprintln!(
                     "Failed to roll back prompt state after bridge error `{bridge_error}`: {rollback_error}"
@@ -948,6 +962,17 @@ impl AppRuntime {
         Ok(models.first().map(|model| model.key.clone()))
     }
 
+    fn is_configured_model_key(&self, model_key: &str) -> Result<bool, String> {
+        let models = self
+            .inner
+            .models
+            .lock()
+            .map_err(|_| "Model cache lock was poisoned.".to_string())?;
+        Ok(models
+            .iter()
+            .any(|model| model.key == model_key && model.configured))
+    }
+
     fn resolve_diff_analysis_model_key(&self, thread_id: Option<&str>) -> Result<String, String> {
         let configured = {
             let state = self
@@ -958,27 +983,62 @@ impl AppRuntime {
             state.settings.diff_analysis_model_key.clone()
         };
         if let Some(model_key) = configured {
+            if let Some(message) = unsupported_diff_analysis_model_message(&model_key) {
+                return Err(message);
+            }
+            if !self.is_configured_model_key(&model_key)? {
+                return Err(
+                    "Configure the selected Diff Review model in Settings before running AI Review."
+                        .to_string(),
+                );
+            }
             return Ok(model_key);
         }
 
-        if let Some(thread_id) = thread_id {
+        let preferred = self.preferred_diff_analysis_model_key()?;
+
+        let thread_model_key = if let Some(thread_id) = thread_id {
             let state = self
                 .inner
                 .state
                 .lock()
                 .map_err(|_| "State lock was poisoned.".to_string())?;
             if let Some((project_index, thread_index)) = locate_thread(&state, thread_id) {
-                if let Some(model_key) = state.projects[project_index].threads[thread_index]
+                state.projects[project_index].threads[thread_index]
                     .model_key
                     .clone()
-                {
-                    return Ok(model_key);
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
+        if let Some(model_key) = thread_model_key {
+            let thread_model_configured = self.is_configured_model_key(&model_key)?;
+            if thread_model_configured && should_use_thread_model_for_diff_analysis(&model_key) {
+                return Ok(model_key);
+            }
+
+            if let Some(preferred_key) = preferred.as_ref() {
+                if unsupported_diff_analysis_model_message(preferred_key).is_none() {
+                    return Ok(preferred_key.clone());
+                }
+            }
+
+            if thread_model_configured {
+                if let Some(message) = unsupported_diff_analysis_model_message(&model_key) {
+                    return Err(message);
                 }
             }
         }
 
-        self.preferred_diff_analysis_model_key()?
-            .ok_or_else(|| "Configure a model in Settings before running AI Review.".to_string())
+        match preferred {
+            Some(model_key) => {
+                unsupported_diff_analysis_model_message(&model_key).map_or(Ok(model_key), Err)
+            }
+            None => Err("Configure a model in Settings before running AI Review.".to_string()),
+        }
     }
 
     fn clear_active_diff_job(&self, fingerprint: &str) {
@@ -987,19 +1047,7 @@ impl AppRuntime {
         }
     }
 
-    fn prepare_prompt(
-        &self,
-        thread_id: &str,
-    ) -> Result<
-        (
-            String,
-            String,
-            String,
-            Vec<BridgePromptAttachment>,
-            ThreadStatus,
-        ),
-        String,
-    > {
+    fn prepare_prompt(&self, thread_id: &str) -> Result<PreparedPrompt, String> {
         let state = self
             .inner
             .state
@@ -1010,6 +1058,7 @@ impl AppRuntime {
         let project = &state.projects[project_index];
         let thread = &project.threads[thread_index];
         let project_path = project.path.clone();
+        let messages = thread.messages.clone();
         let model_key = thread
             .model_key
             .clone()
@@ -1048,13 +1097,14 @@ impl AppRuntime {
             "off".to_string()
         };
 
-        Ok((
-            project_path,
+        Ok(PreparedPrompt {
+            attachments,
+            cwd: project_path,
+            messages,
             model_key,
             thinking_level,
-            attachments,
             thread_status,
-        ))
+        })
     }
 
     fn spawn_attachment_parse(&self, thread_id: &str, attachment_id: &str, path: PathBuf) {
@@ -1346,29 +1396,6 @@ fn latest_user_message_timestamp<'a>(
         .unwrap_or(fallback)
 }
 
-fn diff_analysis_model_rank(model: &ModelOption) -> (u8, bool) {
-    let descriptor = format!("{} {}", model.label, model.key).to_ascii_lowercase();
-    let size_rank = if descriptor.contains("nano") {
-        0
-    } else if descriptor.contains("mini")
-        || descriptor.contains("small")
-        || descriptor.contains("haiku")
-        || descriptor.contains("flash")
-        || descriptor.contains("spark")
-    {
-        1
-    } else if descriptor.contains("sonnet")
-        || descriptor.contains("medium")
-        || descriptor.contains("standard")
-    {
-        2
-    } else {
-        3
-    };
-
-    (size_rank, !model.configured)
-}
-
 struct ActiveDiffJobGuard {
     fingerprint: String,
     runtime: AppRuntime,
@@ -1445,12 +1472,12 @@ fn launch_codex_login() -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::{
-        diff_analysis_model_rank, latest_user_message_timestamp, normalize_state,
-        project_insert_index, sync_thread_model_selection,
+        latest_user_message_timestamp, normalize_state, project_insert_index,
+        sync_thread_model_selection,
     };
     use crate::model::{
-        MessageRecord, MessageRole, MessageStatus, ModelOption, PersistedState, ProjectRecord,
-        QueueEntry, QueueMode, QueueStatus, ThreadRecord, ThreadStatus,
+        MessageRecord, MessageRole, MessageStatus, PersistedState, ProjectRecord, QueueEntry,
+        QueueMode, QueueStatus, ThreadRecord, ThreadStatus,
     };
     use std::collections::HashSet;
 
@@ -1563,31 +1590,6 @@ mod tests {
         let timestamp = latest_user_message_timestamp(messages.iter(), 10);
 
         assert_eq!(timestamp, 55);
-    }
-
-    #[test]
-    fn diff_analysis_model_rank_prefers_small_variants_and_configured_models() {
-        let standard = ModelOption {
-            configured: true,
-            key: "openai::gpt-5.4".to_string(),
-            label: "GPT-5.4".to_string(),
-            ..ModelOption::default()
-        };
-        let mini = ModelOption {
-            configured: true,
-            key: "openai::gpt-5.4-mini".to_string(),
-            label: "GPT-5.4 Mini".to_string(),
-            ..ModelOption::default()
-        };
-        let unconfigured_mini = ModelOption {
-            configured: false,
-            key: "openai::gpt-5.4-mini".to_string(),
-            label: "GPT-5.4 Mini".to_string(),
-            ..ModelOption::default()
-        };
-
-        assert!(diff_analysis_model_rank(&mini) < diff_analysis_model_rank(&standard));
-        assert!(diff_analysis_model_rank(&mini) < diff_analysis_model_rank(&unconfigured_mini));
     }
 }
 

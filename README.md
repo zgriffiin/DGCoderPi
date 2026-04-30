@@ -23,6 +23,7 @@ Windows-first desktop coding workbench. It keeps the simplicity of Pi interactio
 
 - `pnpm check`
 - `pnpm lint`
+- `pnpm lint:changed`
 - `pnpm fallow:commit`
 - `pnpm fallow:audit`
 - `pnpm test:unit`
@@ -45,6 +46,7 @@ Windows-first desktop coding workbench. It keeps the simplicity of Pi interactio
 ## Review Workflow
 
 - Commits are guarded by formatting, linting, type checks, and the local `fallow` gate through the Git `pre-commit` hook.
+- Use `pnpm lint:changed` for day-to-day patch validation; reserve `pnpm lint` for full-repository baseline checks.
 - Pushes are guarded by frontend tests, Rust checks, `fallow audit`, and local CodeRabbit CLI review through the Git `pre-push` hook.
 - CodeRabbit CLI findings should be fixed locally before push. Pull request CodeRabbit findings should be fixed before merge.
 - The repo CodeRabbit configuration reviews draft PRs and PRs targeting any base branch, not only the default branch.

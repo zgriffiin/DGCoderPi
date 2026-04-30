@@ -33,6 +33,7 @@ These skills live in `.codex/skills` and are the default guidance for this repo.
 ## Quality Workflow
 
 - Before a commit is considered ready, pass the local pre-commit gate: formatter, lint, type checks, and the `fallow` commit gate.
+- Use `pnpm lint:changed` for patch-scope validation during active development. `pnpm lint` remains the full-repo baseline gate and may fail until repository-wide Prettier drift is cleaned up.
 - Before a push is considered ready, pass the local pre-push gate: frontend tests, Rust checks, `fallow audit`, and local CodeRabbit CLI review.
 - On Windows, prefer CodeRabbit CLI through WSL if the CLI is not installed directly in the shell. That matches the current CodeRabbit guidance for Windows environments.
 - Do not ignore, defer, or hand-wave CodeRabbit findings. Agents are expected to fix or explicitly eliminate the cause of every local CodeRabbit finding before push.

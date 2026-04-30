@@ -7,6 +7,29 @@ on:
   pull_request:
 
 jobs:
+  changes:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: read
+    outputs:
+      windows_package: ${{ steps.filter.outputs.windows_package }}
+
+    steps:
+      - uses: dorny/paths-filter@d1c1ffe0248fe513906c8e24db8ea791d46f8590 # v3
+        id: filter
+        with:
+          filters: |
+            windows_package:
+              - '.github/workflows/ci.yml'
+              - 'package.json'
+              - 'pnpm-lock.yaml'
+              - 'scripts/run-desktop-e2e.mjs'
+              - 'scripts/run-tauri-dev.mjs'
+              - 'src-tauri/**'
+              - 'svelte.config.js'
+              - 'vite.config.ts'
+
   frontend:
     runs-on: ubuntu-latest
 
@@ -48,6 +71,8 @@ jobs:
         run: pnpm build-storybook
 
   windows-tauri-smoke:
+    if: github.event_name == 'pull_request'
+    needs: changes
     runs-on: windows-latest
 
     steps:
@@ -65,6 +90,58 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy,rustfmt
+
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        with:
+          shared-key: windows-tauri
+          workspaces: |
+            src-tauri -> src-tauri/target
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Rust checks
+        run: |
+          cargo fmt --manifest-path src-tauri/Cargo.toml --check
+          cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
+          cargo test --manifest-path src-tauri/Cargo.toml
+
+      - name: Tauri environment info
+        run: pnpm tauri:info
+
+      - name: Tauri smoke build (debug, no bundle)
+        if: needs.changes.outputs.windows_package != 'true'
+        run: pnpm tauri:build -- --debug --no-bundle
+
+      - name: Package Windows app
+        if: needs.changes.outputs.windows_package == 'true'
+        run: pnpm tauri:build
+
+  windows-tauri-package-main:
+    if: github.event_name == 'push'
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          cache: pnpm
+          node-version: 24
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy,rustfmt
+
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        with:
+          shared-key: windows-tauri
+          workspaces: |
+            src-tauri -> src-tauri/target
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile

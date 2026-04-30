@@ -6,6 +6,7 @@ const repoRoot = process.cwd();
 const debugPort = '9333';
 const runtimeRoot = path.resolve(repoRoot, 'tests', 'runtime');
 const runId = process.env.DGCODER_PI_TEST_RUN_ID ?? 'default';
+const tauriDevCleanup = process.env.TAURI_DEV_CLEANUP ?? 'true';
 
 if (!/^[A-Za-z0-9_-]+$/.test(runId)) {
 	console.error(
@@ -31,6 +32,7 @@ const child = spawn('cmd.exe', ['/d', '/s', '/c', 'pnpm tauri:dev'], {
 		...process.env,
 		DGCODER_PI_DATA_DIR: resolvedDataDir,
 		PATH: `${path.join(process.env.USERPROFILE ?? '', '.cargo', 'bin')};${process.env.PATH ?? ''}`,
+		TAURI_DEV_CLEANUP: tauriDevCleanup,
 		WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: `--remote-debugging-port=${debugPort}`
 	},
 	stdio: 'inherit'

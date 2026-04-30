@@ -1,17 +1,10 @@
 <script lang="ts">
-	import { Button } from 'carbon-components-svelte';
-	import Add from 'carbon-icons-svelte/lib/Add.svelte';
-	import Code from 'carbon-icons-svelte/lib/Code.svelte';
-	import DocumentRequirements from 'carbon-icons-svelte/lib/DocumentRequirements.svelte';
-	import Settings from 'carbon-icons-svelte/lib/Settings.svelte';
-	import Task from 'carbon-icons-svelte/lib/Task.svelte';
 	import { onMount } from 'svelte';
 	import type {
 		AppSnapshot,
 		InspectorMode,
 		ProjectRecord,
-		ThinkingLevel,
-		ThreadRecord
+		ThinkingLevel
 	} from '$lib/types/workbench';
 	import { buildShipSlicePrompt } from '$lib/workbench/preset-prompts';
 	import { createWorkbenchController } from '$lib/workbench/controller';
@@ -21,49 +14,28 @@
 	import InspectorRail from './InspectorRail.svelte';
 	import ProjectRail from './ProjectRail.svelte';
 	import SettingsModal from './SettingsModal.svelte';
-
-	function buildComposerHint(snapshot: AppSnapshot, thread: ThreadRecord | null) {
-		if (!thread) {
-			return 'Pick a thread before sending.';
-		}
-
-		if (snapshot.models.length === 0) {
-			return 'No models available. Configure a provider in Settings.';
-		}
-
-		return 'Ask Pi to inspect or change.';
-	}
-
-	function findActiveProject(projects: ProjectRecord[], selectedProjectId: string) {
-		return projects.find((project) => project.id === selectedProjectId) ?? projects[0] ?? null;
-	}
-
-	function latestUserTimestamp(thread: ThreadRecord) {
-		const latestUserMessage = [...thread.messages]
-			.reverse()
-			.find((message) => message.role === 'user');
-		return latestUserMessage?.timestampMs ?? thread.updatedAtMs;
-	}
-
-	function newestThread(threads: ThreadRecord[]) {
-		return (
-			[...threads].sort(
-				(left, right) => latestUserTimestamp(right) - latestUserTimestamp(left)
-			)[0] ?? null
-		);
-	}
-
-	function findActiveThread(project: ProjectRecord | null, selectedThreadId: string) {
-		if (!project) {
-			return null;
-		}
-
-		return (
-			project.threads.find((thread) => thread.id === selectedThreadId) ??
-			newestThread(project.threads)
-		);
-	}
-
+	import WorkbenchResizeHandle from './WorkbenchResizeHandle.svelte';
+	import WorkbenchTopbar from './WorkbenchTopbar.svelte';
+	import {
+		buildComposerHint,
+		findActiveProject,
+		findActiveThread,
+		newestThread
+	} from './workbench-selection';
+	import {
+		DEFAULT_PANEL_WIDTHS,
+		MIN_INSPECTOR_WIDTH,
+		MIN_PROJECT_RAIL_WIDTH,
+		RESIZE_BREAKPOINT,
+		clampWidth,
+		formatWorkbenchGridStyle,
+		loadPanelWidths,
+		maxLeftWidth as computeMaxLeftWidth,
+		maxRightWidth as computeMaxRightWidth,
+		savePanelWidths,
+		type DragState,
+		type ResizablePane
+	} from './workbench-layout';
 	function resolveProjectSelection(snapshot: AppSnapshot, currentSelection: string) {
 		if (!snapshot.projects[0]) {
 			return '';
@@ -109,6 +81,10 @@
 	let selectedProjectId = $state('');
 	let selectedThreadId = $state('');
 	let settingsOpen = $state(false);
+	let activeDrag = $state<DragState | null>(null);
+	let panelWidths = $state(DEFAULT_PANEL_WIDTHS);
+	let viewportWidth = $state(0);
+	let workbenchGrid = $state<HTMLDivElement | null>(null);
 
 	const workbenchState = $derived($controller);
 	const snapshot = $derived(workbenchState.snapshot);
@@ -125,10 +101,23 @@
 		activeThread?.attachments.filter((attachment) => attachment.stage === 'staged') ?? []
 	);
 	const composerHint = $derived(buildComposerHint(snapshot, activeThread));
+	const inspectorVisible = $derived(Boolean(inspectorMode));
+	const canResizePanels = $derived(viewportWidth > RESIZE_BREAKPOINT);
+	const workbenchGridStyle = $derived(formatWorkbenchGridStyle(panelWidths));
 
 	onMount(() => {
+		viewportWidth = window.innerWidth;
+		panelWidths = loadPanelWidths(window.localStorage);
+
+		const handleResize = () => {
+			viewportWidth = window.innerWidth;
+		};
+		window.addEventListener('resize', handleResize);
 		void controller.initialize();
-		return () => controller.destroy();
+		return () => {
+			window.removeEventListener('resize', handleResize);
+			controller.destroy();
+		};
 	});
 
 	$effect(() => {
@@ -337,58 +326,126 @@
 	function toggleInspector(mode: InspectorMode) {
 		inspectorMode = inspectorMode === mode ? null : mode;
 	}
+
+	function maxLeftWidth() {
+		const totalWidth = workbenchGrid?.clientWidth ?? viewportWidth;
+		return computeMaxLeftWidth(
+			totalWidth,
+			inspectorVisible ? panelWidths.right : 0,
+			inspectorVisible,
+			canResizePanels
+		);
+	}
+
+	function maxRightWidth() {
+		const totalWidth = workbenchGrid?.clientWidth ?? viewportWidth;
+		return computeMaxRightWidth(totalWidth, panelWidths.left, canResizePanels);
+	}
+
+	function setPaneWidth(pane: ResizablePane, requestedWidth: number) {
+		panelWidths = {
+			...panelWidths,
+			[pane]:
+				pane === 'left'
+					? clampWidth(requestedWidth, MIN_PROJECT_RAIL_WIDTH, maxLeftWidth())
+					: clampWidth(requestedWidth, MIN_INSPECTOR_WIDTH, maxRightWidth())
+		};
+	}
+
+	function beginResize(pane: ResizablePane, event: PointerEvent) {
+		if (!canResizePanels) {
+			return;
+		}
+		event.preventDefault();
+		const captureTarget = event.currentTarget;
+		if (!(captureTarget instanceof HTMLElement)) {
+			return;
+		}
+		captureTarget.setPointerCapture(event.pointerId);
+		activeDrag = {
+			captureTarget,
+			pane,
+			pointerId: event.pointerId,
+			startWidth: pane === 'left' ? panelWidths.left : panelWidths.right,
+			startX: event.clientX
+		};
+	}
+
+	function nudgePaneWidth(pane: ResizablePane, delta: number) {
+		const currentWidth = pane === 'left' ? panelWidths.left : panelWidths.right;
+		setPaneWidth(pane, currentWidth + delta);
+	}
+
+	function releaseDragCapture(drag: DragState) {
+		if (drag.captureTarget.hasPointerCapture(drag.pointerId)) {
+			drag.captureTarget.releasePointerCapture(drag.pointerId);
+		}
+	}
+
+	$effect(() => {
+		const leftWidth = clampWidth(panelWidths.left, MIN_PROJECT_RAIL_WIDTH, maxLeftWidth());
+		const rightWidth = clampWidth(panelWidths.right, MIN_INSPECTOR_WIDTH, maxRightWidth());
+		if (leftWidth === panelWidths.left && rightWidth === panelWidths.right) {
+			return;
+		}
+
+		panelWidths = {
+			left: leftWidth,
+			right: rightWidth
+		};
+	});
+
+	$effect(() => {
+		if (activeDrag) {
+			return;
+		}
+		savePanelWidths(window.localStorage, panelWidths);
+	});
+
+	$effect(() => {
+		if (!activeDrag) {
+			return;
+		}
+		const drag = activeDrag;
+
+		const handlePointerMove = (event: PointerEvent) => {
+			const delta = event.clientX - drag.startX;
+			setPaneWidth(
+				drag.pane,
+				drag.pane === 'left' ? drag.startWidth + delta : drag.startWidth - delta
+			);
+		};
+		const handlePointerUp = () => {
+			releaseDragCapture(drag);
+			activeDrag = null;
+		};
+
+		window.addEventListener('pointermove', handlePointerMove);
+		window.addEventListener('pointerup', handlePointerUp);
+		return () => {
+			releaseDragCapture(drag);
+			window.removeEventListener('pointermove', handlePointerMove);
+			window.removeEventListener('pointerup', handlePointerUp);
+		};
+	});
 </script>
 
 <div class="workbench">
-	<header class="topbar">
-		<div class="topbar__brand">
-			<div class="brand-mark">PI</div>
-			<div class="topbar__title">
-				<h1>DGCoder Pi</h1>
-			</div>
-		</div>
+	<WorkbenchTopbar
+		{inspectorMode}
+		onAddProject={() => (addProjectOpen = true)}
+		onOpenSettings={() => (settingsOpen = true)}
+		onToggleInspector={toggleInspector}
+		runtimeAvailable={workbenchState.runtimeAvailable}
+	/>
 
-		<div class="topbar__actions">
-			<Button
-				disabled={!workbenchState.runtimeAvailable}
-				icon={Add}
-				kind="secondary"
-				size="small"
-				on:click={() => (addProjectOpen = true)}
-			>
-				Add project
-			</Button>
-			<Button
-				icon={Task}
-				kind={inspectorMode === 'tasks' ? 'primary' : 'ghost'}
-				size="small"
-				on:click={() => toggleInspector('tasks')}
-			>
-				Tasks
-			</Button>
-			<Button
-				icon={Code}
-				kind={inspectorMode === 'diff' ? 'primary' : 'ghost'}
-				size="small"
-				on:click={() => toggleInspector('diff')}
-			>
-				Diff
-			</Button>
-			<Button
-				icon={DocumentRequirements}
-				kind={inspectorMode === 'spec' ? 'primary' : 'ghost'}
-				size="small"
-				on:click={() => toggleInspector('spec')}
-			>
-				Spec
-			</Button>
-			<Button icon={Settings} kind="ghost" size="small" on:click={() => (settingsOpen = true)}>
-				Settings
-			</Button>
-		</div>
-	</header>
-
-	<div class="workbench-grid" data-has-inspector={inspectorMode ? 'true' : 'false'}>
+	<div
+		bind:this={workbenchGrid}
+		class="workbench-grid"
+		data-has-inspector={inspectorMode ? 'true' : 'false'}
+		data-can-resize={canResizePanels ? 'true' : 'false'}
+		style={workbenchGridStyle}
+	>
 		<ProjectRail
 			onCreateThread={handleCreateThreadForProject}
 			onMoveProject={handleMoveProject}
@@ -398,6 +455,18 @@
 			{selectedProjectId}
 			{selectedThreadId}
 		/>
+
+		{#if canResizePanels}
+			<WorkbenchResizeHandle
+				label="Resize project rail"
+				max={maxLeftWidth()}
+				min={MIN_PROJECT_RAIL_WIDTH}
+				onNudge={(delta) => nudgePaneWidth('left', delta)}
+				onPointerDown={(event) => beginResize('left', event)}
+				pane="left"
+				value={panelWidths.left}
+			/>
+		{/if}
 
 		<div class="center-column">
 			<ConversationPane
@@ -427,6 +496,18 @@
 		</div>
 
 		{#if inspectorMode}
+			{#if canResizePanels}
+				<WorkbenchResizeHandle
+					label="Resize inspector rail"
+					max={maxRightWidth()}
+					min={MIN_INSPECTOR_WIDTH}
+					onNudge={(delta) => nudgePaneWidth('right', delta)}
+					onPointerDown={(event) => beginResize('right', event)}
+					pane="right"
+					value={panelWidths.right}
+				/>
+			{/if}
+
 			<InspectorRail
 				{controller}
 				mode={inspectorMode}
