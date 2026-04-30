@@ -26,6 +26,24 @@
 		return analysis?.status === 'in-progress' || analysis?.status === 'pending';
 	}
 
+	function hasReviewContent() {
+		return Boolean(
+			analysis &&
+			(analysis.changeBrief.length > 0 ||
+				analysis.impact.length > 0 ||
+				analysis.risks.length > 0 ||
+				analysis.focusQueue.length > 0 ||
+				analysis.suggestedFollowUps.length > 0)
+		);
+	}
+
+	function statusLabel() {
+		if (analysis?.status === 'failed') {
+			return 'Review stopped early';
+		}
+		return isGenerating() ? 'Review in progress' : 'Grounded review ready';
+	}
+
 	function progressLabel(analysis: DiffAnalysis) {
 		if (analysis.progress > 0) {
 			return `${analysis.progress}%`;
@@ -46,7 +64,7 @@
 			<p>{requestError}</p>
 			<Button kind="ghost" size="small" onclick={onRefresh}>Retry analysis</Button>
 		</div>
-	{:else if analysis?.status === 'failed'}
+	{:else if analysis?.status === 'failed' && !hasReviewContent()}
 		<div class="empty-panel">
 			<p>{analysis.error ?? 'AI review failed.'}</p>
 			<Button kind="ghost" size="small" onclick={onRefresh}>Retry analysis</Button>
@@ -59,155 +77,175 @@
 	{:else}
 		<div class="inspector-block ai-review-panel__status">
 			<div class="inspector-summary">
-				<p>{isGenerating() ? 'Review in progress' : 'Grounded review ready'}</p>
+				<p>{statusLabel()}</p>
 				{#if isGenerating() || analysis.partial}
 					<Tag type="warm-gray">
 						{progressLabel(analysis)}
 					</Tag>
 				{/if}
 			</div>
-			<p>
-				{diff.stats.filesChanged} files, {diff.stats.additions} additions, {diff.stats.deletions}
-				deletions
-			</p>
 			<Button kind="ghost" size="small" onclick={onRefresh}>Refresh review</Button>
+			{#if analysis.status === 'failed' && analysis.error}
+				<p>{analysis.error}</p>
+			{/if}
 		</div>
 
-		<section class="inspector-block">
-			<div class="inspector-item">
-				<div class="inspector-item__header">
-					<p>Change Brief</p>
-				</div>
-				<ul class="ai-review-list">
-					{#each analysis.changeBrief as item, itemIndex (itemIndex)}
-						<li>
-							<strong>{item.title}</strong>
-							<p>{item.detail}</p>
-							{#if item.evidence.length}
-								<div class="ai-review-evidence">
-									{#each item.evidence as evidence, evidenceIndex (evidenceIndex)}
-										<button
-											type="button"
-											class="diff-link-button"
-											onclick={() => onJumpToHunk(evidence.hunkId)}
+		<div class="ai-review-panel__body">
+			{#if analysis.changeBrief.length}
+				<section class="inspector-block">
+					<div class="inspector-item">
+						<div class="inspector-item__header">
+							<p>Change Brief</p>
+						</div>
+						<ul class="ai-review-list">
+							{#each analysis.changeBrief as item, itemIndex (itemIndex)}
+								<li>
+									<strong>{item.title}</strong>
+									<p>{item.detail}</p>
+									{#if item.evidence.length}
+										<div class="ai-review-evidence">
+											{#each item.evidence as evidence, evidenceIndex (evidenceIndex)}
+												<button
+													type="button"
+													class="diff-link-button"
+													onclick={() => onJumpToHunk(evidence.hunkId)}
+												>
+													{evidenceLabel(evidence)}
+												</button>
+											{/each}
+										</div>
+									{/if}
+								</li>
+							{/each}
+						</ul>
+					</div>
+				</section>
+			{/if}
+
+			{#if analysis.impact.length}
+				<section class="inspector-block">
+					<div class="inspector-item">
+						<div class="inspector-item__header">
+							<p>Impact</p>
+						</div>
+						<ul class="ai-review-list">
+							{#each analysis.impact as item, itemIndex (itemIndex)}
+								<li>
+									<strong>{item.area}</strong>
+									<p>{item.detail}</p>
+								</li>
+							{/each}
+						</ul>
+					</div>
+				</section>
+			{/if}
+
+			{#if analysis.risks.length}
+				<section class="inspector-block">
+					<div class="inspector-item">
+						<div class="inspector-item__header">
+							<p>Risk Review</p>
+						</div>
+						<ul class="ai-review-list">
+							{#each analysis.risks as item, itemIndex (itemIndex)}
+								<li>
+									<div class="ai-review-risk-header">
+										<strong>{item.title}</strong>
+										<div class="patch-file__tags">
+											<Tag
+												type={item.level === 'high'
+													? 'red'
+													: item.level === 'medium'
+														? 'warm-gray'
+														: 'cool-gray'}
+											>
+												{item.level} risk
+											</Tag>
+											<Tag type="outline">{item.confidence} confidence</Tag>
+										</div>
+									</div>
+									<p>{item.detail}</p>
+									<p>{item.whyItMatters}</p>
+									{#if item.evidence.length}
+										<div class="ai-review-evidence">
+											{#each item.evidence as evidence, evidenceIndex (evidenceIndex)}
+												<button
+													type="button"
+													class="diff-link-button"
+													onclick={() => onJumpToHunk(evidence.hunkId)}
+												>
+													{evidenceLabel(evidence)}
+												</button>
+											{/each}
+										</div>
+									{/if}
+								</li>
+							{/each}
+						</ul>
+					</div>
+				</section>
+			{/if}
+
+			{#if analysis.focusQueue.length}
+				<section class="inspector-block">
+					<div class="inspector-item">
+						<div class="inspector-item__header">
+							<p>Files To Inspect</p>
+						</div>
+						<ul class="ai-review-list">
+							{#each analysis.focusQueue as item, itemIndex (itemIndex)}
+								<li>
+									<div class="ai-review-risk-header">
+										<strong>{item.file}</strong>
+										<Tag
+											type={item.priority === 'high'
+												? 'red'
+												: item.priority === 'medium'
+													? 'warm-gray'
+													: 'cool-gray'}
 										>
-											{evidenceLabel(evidence)}
-										</button>
-									{/each}
-								</div>
-							{/if}
-						</li>
-					{/each}
-				</ul>
-			</div>
-		</section>
-
-		<section class="inspector-block">
-			<div class="inspector-item">
-				<div class="inspector-item__header">
-					<p>Impact</p>
-				</div>
-				<ul class="ai-review-list">
-					{#each analysis.impact as item, itemIndex (itemIndex)}
-						<li>
-							<strong>{item.area}</strong>
-							<p>{item.detail}</p>
-						</li>
-					{/each}
-				</ul>
-			</div>
-		</section>
-
-		<section class="inspector-block">
-			<div class="inspector-item">
-				<div class="inspector-item__header">
-					<p>Risk Review</p>
-				</div>
-				<ul class="ai-review-list">
-					{#each analysis.risks as item, itemIndex (itemIndex)}
-						<li>
-							<div class="ai-review-risk-header">
-								<strong>{item.title}</strong>
-								<div class="patch-file__tags">
-									<Tag
-										type={item.level === 'high'
-											? 'red'
-											: item.level === 'medium'
-												? 'warm-gray'
-												: 'cool-gray'}
-									>
-										{item.level} risk
-									</Tag>
-									<Tag type="outline">{item.confidence} confidence</Tag>
-								</div>
-							</div>
-							<p>{item.detail}</p>
-							<p>{item.whyItMatters}</p>
-							<div class="ai-review-evidence">
-								{#each item.evidence as evidence, evidenceIndex (evidenceIndex)}
+											{item.priority}
+										</Tag>
+									</div>
+									<p>{item.reason}</p>
 									<button
 										type="button"
 										class="diff-link-button"
-										onclick={() => onJumpToHunk(evidence.hunkId)}
+										onclick={() => onJumpToHunk(item.hunkId)}
 									>
-										{evidenceLabel(evidence)}
+										Jump to hunk
 									</button>
-								{/each}
-							</div>
-						</li>
-					{/each}
-				</ul>
-			</div>
-		</section>
+								</li>
+							{/each}
+						</ul>
+					</div>
+				</section>
+			{/if}
 
-		<section class="inspector-block">
-			<div class="inspector-item">
-				<div class="inspector-item__header">
-					<p>Focus Queue</p>
-				</div>
-				<ul class="ai-review-list">
-					{#each analysis.focusQueue as item, itemIndex (itemIndex)}
-						<li>
-							<div class="ai-review-risk-header">
-								<strong>{item.file}</strong>
-								<Tag
-									type={item.priority === 'high'
-										? 'red'
-										: item.priority === 'medium'
-											? 'warm-gray'
-											: 'cool-gray'}
-								>
-									{item.priority}
-								</Tag>
-							</div>
-							<p>{item.reason}</p>
-							<button
-								type="button"
-								class="diff-link-button"
-								onclick={() => onJumpToHunk(item.hunkId)}
-							>
-								Jump to hunk
-							</button>
-						</li>
-					{/each}
-				</ul>
-			</div>
-		</section>
+			{#if analysis.suggestedFollowUps.length}
+				<section class="inspector-block">
+					<div class="inspector-item">
+						<div class="inspector-item__header">
+							<p>Suggested Follow-Up</p>
+						</div>
+						<ul class="ai-review-list">
+							{#each analysis.suggestedFollowUps as item, itemIndex (itemIndex)}
+								<li>
+									<p>{item.prompt}</p>
+									<span>{item.reason}</span>
+								</li>
+							{/each}
+						</ul>
+					</div>
+				</section>
+			{/if}
 
-		<section class="inspector-block">
-			<div class="inspector-item">
-				<div class="inspector-item__header">
-					<p>Suggested Follow-Up</p>
+			{#if !hasReviewContent()}
+				<div class="empty-panel">
+					<p>No review sections returned.</p>
+					<Button kind="ghost" size="small" onclick={onRefresh}>Retry analysis</Button>
 				</div>
-				<ul class="ai-review-list">
-					{#each analysis.suggestedFollowUps as item, itemIndex (itemIndex)}
-						<li>
-							<p>{item.prompt}</p>
-							<span>{item.reason}</span>
-						</li>
-					{/each}
-				</ul>
-			</div>
-		</section>
+			{/if}
+		</div>
 	{/if}
 </div>

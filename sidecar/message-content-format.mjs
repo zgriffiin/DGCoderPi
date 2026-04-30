@@ -34,7 +34,7 @@ export function flattenUserContent(content) {
 
 export function flattenAssistantContent(content) {
 	if (content == null) {
-		return 'Pi is preparing the next step.';
+		return 'The agent is preparing the next step.';
 	}
 
 	if (typeof content === 'string') {
@@ -57,7 +57,7 @@ export function flattenAssistantContent(content) {
 		})
 		.filter(Boolean);
 
-	return lines.length > 0 ? lines.join('\n') : 'Pi is preparing the next step.';
+	return lines.length > 0 ? lines.join('\n') : 'The agent is preparing the next step.';
 }
 
 export function flattenToolResultContent(content) {

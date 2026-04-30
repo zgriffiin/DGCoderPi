@@ -28,9 +28,10 @@ use crate::{
         ActivityRecord, AddProjectInput, AppEvent, AppHealth, AppIntegrations, AppSnapshot,
         AppUpdate, AttachmentParseStatus, AttachmentStage, CreateThreadInput, MessageRecord,
         MessageRole, MessageStatus, ModelOption, MoveProjectInput, PersistedState, PromptMode,
-        ProviderKeyInput, RemoveAttachmentInput, SelectModelInput, SelectReasoningInput,
-        SendPromptInput, SetDiffAnalysisModelInput, StageAttachmentInput, ThreadRecord,
-        ThreadStatus, ToggleFeatureInput,
+        ProviderKeyInput, RemoveAttachmentInput, RemoveProjectInput, RenameProjectInput,
+        RenameThreadInput, SelectModelInput, SelectReasoningInput, SendPromptInput,
+        SetDiffAnalysisModelInput, StageAttachmentInput, ThreadRecord, ThreadStatus,
+        ToggleFeatureInput,
     },
     pi_bridge::{
         attachment_status_from_bridge, BridgeActivity, BridgeEnvironment, BridgeEvent,
@@ -278,6 +279,58 @@ impl AppRuntime {
             Ok(())
         })?;
         self.persist_and_return(self.project_order_update()?)
+    }
+
+    pub fn rename_project(&self, input: RenameProjectInput) -> Result<AppUpdate, String> {
+        let name = validated_name(&input.name, "Project name")?;
+        self.mutate_state(|state| {
+            let project = state
+                .projects
+                .iter_mut()
+                .find(|project| project.id == input.project_id)
+                .ok_or_else(|| "Project not found.".to_string())?;
+            project.name = name;
+            Ok(())
+        })?;
+        self.persist_and_return(self.project_update(&input.project_id)?)
+    }
+
+    pub fn remove_project(&self, input: RemoveProjectInput) -> Result<AppUpdate, String> {
+        let update = self.mutate_state(|state| {
+            let removed_index = state
+                .projects
+                .iter()
+                .position(|project| project.id == input.project_id)
+                .ok_or_else(|| "Project not found.".to_string())?;
+            state.projects.remove(removed_index);
+            if state.selected_project_id.as_deref() == Some(&input.project_id) {
+                let next_project = state
+                    .projects
+                    .get(removed_index)
+                    .or_else(|| state.projects.last());
+                state.selected_project_id = next_project.map(|project| project.id.clone());
+                state.selected_thread_id = next_project
+                    .and_then(|project| project.threads.first())
+                    .map(|thread| thread.id.clone());
+            }
+            Ok(AppUpdate {
+                events: vec![AppEvent::ProjectRemoved {
+                    project_id: input.project_id.clone(),
+                    selected_project_id: state.selected_project_id.clone(),
+                    selected_thread_id: state.selected_thread_id.clone(),
+                }],
+            })
+        })?;
+        self.persist_and_return(update)
+    }
+
+    pub fn rename_thread(&self, input: RenameThreadInput) -> Result<AppUpdate, String> {
+        let title = validated_name(&input.title, "Thread title")?;
+        let update = self.mutate_thread(&input.thread_id, |thread| {
+            thread.title = title;
+            Ok(())
+        })?;
+        self.persist_and_return(update)
     }
 
     pub fn select_model(&self, input: SelectModelInput) -> Result<AppUpdate, String> {
@@ -532,7 +585,7 @@ impl AppRuntime {
             append_activity(
                 thread,
                 "Run stopped",
-                "Pi was asked to stop the current run.".to_string(),
+                "The current run was stopped.".to_string(),
                 crate::model::ActivityTone::System,
             );
             Ok(())
@@ -903,6 +956,8 @@ impl AppRuntime {
         });
 
         Ok(DiffAnalysisRequest {
+            batch_count: 1,
+            batch_index: 1,
             diff: snapshot.clone(),
             model_key: model_key.to_string(),
             project_name: project.name.clone(),
@@ -1197,7 +1252,8 @@ impl AppRuntime {
                     append_activity(
                         thread,
                         "Bridge offline",
-                        "Pi bridge disconnected before the current run completed.".to_string(),
+                        "The agent bridge disconnected before the current run completed."
+                            .to_string(),
                         crate::model::ActivityTone::System,
                     );
                     affected_thread_ids.push(thread.id.clone());
@@ -1272,7 +1328,7 @@ impl AppRuntime {
             .lock()
             .map_err(|_| "Bridge slot lock was poisoned.".to_string())?
             .clone()
-            .ok_or_else(|| "Pi bridge is not initialized.".to_string())
+            .ok_or_else(|| "The agent bridge is not initialized.".to_string())
     }
 }
 
@@ -1289,6 +1345,14 @@ fn locate_thread(state: &PersistedState, thread_id: &str) -> Option<(usize, usiz
                 .find(|(_, thread)| thread.id == thread_id)
                 .map(|(thread_index, _)| (project_index, thread_index))
         })
+}
+
+fn validated_name(value: &str, label: &str) -> Result<String, String> {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return Err(format!("{label} cannot be empty."));
+    }
+    Ok(trimmed.to_string())
 }
 
 fn append_activity(

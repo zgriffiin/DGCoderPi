@@ -182,6 +182,8 @@ pub struct DiffThreadContext {
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DiffAnalysisRequest {
+    pub batch_count: u32,
+    pub batch_index: u32,
     pub diff: ProjectDiffSnapshot,
     pub model_key: String,
     pub project_name: String,

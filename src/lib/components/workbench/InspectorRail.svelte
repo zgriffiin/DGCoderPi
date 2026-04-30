@@ -29,10 +29,12 @@
 </script>
 
 <aside class="inspector-rail">
-	<div class="inspector-rail__header">
-		<h2>{modeTitle(mode)}</h2>
-		<Button icon={Close} kind="ghost" size="small" onclick={onClose}>Close</Button>
-	</div>
+	{#if mode !== 'diff'}
+		<div class="inspector-rail__header">
+			<h2>{modeTitle(mode)}</h2>
+			<Button icon={Close} kind="ghost" size="small" onclick={onClose}>Close</Button>
+		</div>
+	{/if}
 
 	{#if mode === 'tasks'}
 		<div class="inspector-stack">
@@ -84,7 +86,7 @@
 			{/if}
 		</div>
 	{:else if mode === 'diff'}
-		<DiffInspectorPanel {controller} {project} {thread} />
+		<DiffInspectorPanel {controller} {onClose} {project} {thread} />
 	{:else}
 		<div class="inspector-stack">
 			{#if project}

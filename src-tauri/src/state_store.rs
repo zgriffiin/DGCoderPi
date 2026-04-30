@@ -422,6 +422,7 @@ fn is_persisted_event(event: &AppEvent) -> bool {
     matches!(
         event,
         AppEvent::ProjectUpserted { .. }
+            | AppEvent::ProjectRemoved { .. }
             | AppEvent::ProjectOrderChanged { .. }
             | AppEvent::ThreadUpserted { .. }
             | AppEvent::SettingsUpdated { .. }
@@ -431,6 +432,7 @@ fn is_persisted_event(event: &AppEvent) -> bool {
 fn event_type(event: &AppEvent) -> &'static str {
     match event {
         AppEvent::ProjectUpserted { .. } => "project-upserted",
+        AppEvent::ProjectRemoved { .. } => "project-removed",
         AppEvent::ProjectOrderChanged { .. } => "project-order-changed",
         AppEvent::ThreadUpserted { .. } => "thread-upserted",
         AppEvent::SettingsUpdated { .. } => "settings-updated",

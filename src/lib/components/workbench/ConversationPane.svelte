@@ -197,7 +197,7 @@
 			kind="error"
 			lowContrast
 			subtitle={thread.lastError}
-			title="Pi run failed"
+			title="Run failed"
 		/>
 	{/if}
 

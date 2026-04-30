@@ -21,9 +21,9 @@
 
 <header class="topbar">
 	<div class="topbar__brand">
-		<div class="brand-mark">PI</div>
+		<div class="brand-mark">D</div>
 		<div class="topbar__title">
-			<h1>DGCoder Pi</h1>
+			<h1>DGCoder</h1>
 		</div>
 	</div>
 

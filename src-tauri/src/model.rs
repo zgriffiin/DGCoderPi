@@ -34,6 +34,12 @@ pub enum AppEvent {
         selected_thread_id: Option<String>,
     },
     #[serde(rename_all = "camelCase")]
+    ProjectRemoved {
+        project_id: String,
+        selected_project_id: Option<String>,
+        selected_thread_id: Option<String>,
+    },
+    #[serde(rename_all = "camelCase")]
     ThreadUpserted {
         project_id: String,
         selected_project_id: Option<String>,
@@ -334,6 +340,19 @@ pub struct MoveProjectInput {
 
 #[derive(Clone, Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct RenameProjectInput {
+    pub name: String,
+    pub project_id: String,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RemoveProjectInput {
+    pub project_id: String,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ProviderKeyInput {
     pub key: String,
     pub provider: String,
@@ -395,4 +414,11 @@ pub struct SelectModelInput {
 pub struct SelectReasoningInput {
     pub reasoning_level: ThinkingLevel,
     pub thread_id: String,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RenameThreadInput {
+    pub thread_id: String,
+    pub title: String,
 }

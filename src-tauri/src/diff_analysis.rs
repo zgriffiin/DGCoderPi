@@ -11,7 +11,7 @@ use crate::{
     state_store::now_ms,
 };
 
-const MAX_CHUNK_TEXT_BYTES: usize = 18_000;
+const MAX_CHUNK_TEXT_BYTES: usize = 48_000;
 const MAX_CHANGE_BRIEF_ITEMS: usize = 5;
 const MAX_IMPACT_ITEMS: usize = 5;
 const MAX_RISK_ITEMS: usize = 6;
@@ -83,11 +83,24 @@ where
                 files: chunk_files,
                 ..request.diff.clone()
             },
+            batch_count: total_chunks as u32,
+            batch_index: (index + 1) as u32,
             model_key: request.model_key.clone(),
             project_name: request.project_name.clone(),
             thread_context: request.thread_context.clone(),
         };
-        let chunk_analysis = bridge.analyze_diff(&chunk_request)?;
+        let chunk_analysis = match bridge.analyze_diff(&chunk_request) {
+            Ok(analysis) => analysis,
+            Err(error) if has_review_content(&aggregate) => {
+                aggregate.error = Some(error);
+                aggregate.partial = true;
+                aggregate.status = DiffAnalysisStatus::Failed;
+                aggregate.updated_at_ms = now_ms();
+                on_progress(&aggregate)?;
+                return Ok(aggregate);
+            }
+            Err(error) => return Err(error),
+        };
         merge_analysis(&mut aggregate, &chunk_analysis);
         aggregate.partial = index + 1 != total_chunks;
         aggregate.progress = (((index + 1) * 100) / total_chunks.max(1)) as u32;
@@ -275,6 +288,14 @@ fn finalize_analysis(analysis: &mut DiffAnalysis) {
             });
         }
     }
+}
+
+fn has_review_content(analysis: &DiffAnalysis) -> bool {
+    !analysis.change_brief.is_empty()
+        || !analysis.impact.is_empty()
+        || !analysis.risks.is_empty()
+        || !analysis.focus_queue.is_empty()
+        || !analysis.suggested_follow_ups.is_empty()
 }
 
 fn best_available_evidence(analysis: &DiffAnalysis) -> Vec<DiffEvidence> {

@@ -8,7 +8,7 @@ export function buildComposerHint(snapshot: AppSnapshot, thread: ThreadRecord | 
 		return 'No models available. Configure a provider in Settings.';
 	}
 
-	return 'Ask Pi to inspect or change.';
+	return 'Ask the agent to inspect or change.';
 }
 
 export function findActiveProject(projects: ProjectRecord[], selectedProjectId: string) {
@@ -20,6 +20,38 @@ export function newestThread(threads: ThreadRecord[]) {
 		[...threads].sort((left, right) => latestUserTimestamp(right) - latestUserTimestamp(left))[0] ??
 		null
 	);
+}
+
+export function resolveProjectSelection(snapshot: AppSnapshot, currentSelection: string) {
+	if (!snapshot.projects[0]) {
+		return '';
+	}
+
+	if (!currentSelection) {
+		return snapshot.selectedProjectId ?? snapshot.projects[0].id;
+	}
+
+	return snapshot.projects.some((project) => project.id === currentSelection)
+		? currentSelection
+		: snapshot.projects[0].id;
+}
+
+export function resolveThreadSelection(
+	snapshot: AppSnapshot,
+	project: ProjectRecord | null,
+	currentSelection: string
+) {
+	if (!project?.threads[0]) {
+		return '';
+	}
+
+	if (!currentSelection) {
+		return snapshot.selectedThreadId ?? newestThread(project.threads)?.id ?? project.threads[0].id;
+	}
+
+	return project.threads.some((thread) => thread.id === currentSelection)
+		? currentSelection
+		: (newestThread(project.threads)?.id ?? project.threads[0].id);
 }
 
 export function findActiveThread(project: ProjectRecord | null, selectedThreadId: string) {

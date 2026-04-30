@@ -1,11 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import type {
-		AppSnapshot,
-		InspectorMode,
-		ProjectRecord,
-		ThinkingLevel
-	} from '$lib/types/workbench';
+	import type { InspectorMode, ThinkingLevel } from '$lib/types/workbench';
 	import { buildShipSlicePrompt } from '$lib/workbench/preset-prompts';
 	import { createWorkbenchController } from '$lib/workbench/controller';
 	import AddProjectModal from './AddProjectModal.svelte';
@@ -20,7 +15,9 @@
 		buildComposerHint,
 		findActiveProject,
 		findActiveThread,
-		newestThread
+		newestThread,
+		resolveProjectSelection,
+		resolveThreadSelection
 	} from './workbench-selection';
 	import {
 		DEFAULT_PANEL_WIDTHS,
@@ -36,40 +33,6 @@
 		type DragState,
 		type ResizablePane
 	} from './workbench-layout';
-	function resolveProjectSelection(snapshot: AppSnapshot, currentSelection: string) {
-		if (!snapshot.projects[0]) {
-			return '';
-		}
-
-		if (!currentSelection) {
-			return snapshot.selectedProjectId ?? snapshot.projects[0].id;
-		}
-
-		return snapshot.projects.some((project) => project.id === currentSelection)
-			? currentSelection
-			: snapshot.projects[0].id;
-	}
-
-	function resolveThreadSelection(
-		snapshot: AppSnapshot,
-		project: ProjectRecord | null,
-		currentSelection: string
-	) {
-		if (!project?.threads[0]) {
-			return '';
-		}
-
-		if (!currentSelection) {
-			return (
-				snapshot.selectedThreadId ?? newestThread(project.threads)?.id ?? project.threads[0].id
-			);
-		}
-
-		return project.threads.some((thread) => thread.id === currentSelection)
-			? currentSelection
-			: (newestThread(project.threads)?.id ?? project.threads[0].id);
-	}
-
 	const controller = createWorkbenchController();
 
 	let addProjectDraft = $state('');
@@ -193,6 +156,22 @@
 		});
 	}
 
+	async function handleRenameProject(projectId: string, name: string) {
+		await runAction(async () => {
+			await controller.renameProject(projectId, name);
+		});
+	}
+
+	async function handleRemoveProject(projectId: string) {
+		await runAction(async () => {
+			await controller.removeProject(projectId);
+			if (selectedProjectId === projectId) {
+				selectedProjectId = '';
+				selectedThreadId = '';
+			}
+		});
+	}
+
 	async function handleModelChange(modelKey: string) {
 		if (!activeThread) {
 			return;
@@ -233,6 +212,12 @@
 
 		await runAction(async () => {
 			await controller.removeAttachment(activeThread.id, attachmentId);
+		});
+	}
+
+	async function handleRenameThread(threadId: string, title: string) {
+		await runAction(async () => {
+			await controller.renameThread(threadId, title);
 		});
 	}
 
@@ -321,6 +306,14 @@
 	function handleThreadSelect(projectId: string, threadId: string) {
 		selectedProjectId = projectId;
 		selectedThreadId = threadId;
+	}
+
+	function handleOpenDiff(projectId: string, threadId?: string) {
+		selectedProjectId = projectId;
+		if (threadId) {
+			selectedThreadId = threadId;
+		}
+		inspectorMode = 'diff';
 	}
 
 	function toggleInspector(mode: InspectorMode) {
@@ -449,8 +442,17 @@
 		<ProjectRail
 			onCreateThread={handleCreateThreadForProject}
 			onMoveProject={handleMoveProject}
+			onOpenDiff={handleOpenDiff}
+			onRefreshStatus={handleRefreshStatus}
+			onRemoveProject={handleRemoveProject}
+			onRenameProject={handleRenameProject}
+			onRenameThread={handleRenameThread}
 			onSelectProject={handleProjectSelect}
 			onSelectThread={handleThreadSelect}
+			onStopThread={(threadId) =>
+				runAction(async () => {
+					await controller.abortThread(threadId);
+				})}
 			projects={snapshot.projects}
 			{selectedProjectId}
 			{selectedThreadId}

@@ -140,7 +140,7 @@
 	<TextArea
 		disabled={!canSend}
 		hideLabel
-		labelText="Prompt Pi"
+		labelText="Prompt"
 		maxlength={4000}
 		placeholder={hint}
 		rows={3}

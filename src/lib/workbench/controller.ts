@@ -148,6 +148,10 @@ function reorderProjects(snapshot: AppSnapshot, projectIds: string[]) {
 	snapshot.projects = [...orderedProjects, ...remainingProjects];
 }
 
+function removeProject(snapshot: AppSnapshot, projectId: string) {
+	snapshot.projects = snapshot.projects.filter((project) => project.id !== projectId);
+}
+
 function applyUpdateToSnapshot(snapshot: AppSnapshot, update: AppUpdate) {
 	for (const event of update.events) {
 		applyEventToSnapshot(snapshot, event);
@@ -183,6 +187,12 @@ function applyEventToSnapshot(snapshot: AppSnapshot, event: AppEvent) {
 
 	if (event.type === 'project-order-changed') {
 		reorderProjects(snapshot, event.projectIds);
+		applySelection(snapshot, event.selectedProjectId, event.selectedThreadId);
+		return;
+	}
+
+	if (event.type === 'project-removed') {
+		removeProject(snapshot, event.projectId);
 		applySelection(snapshot, event.selectedProjectId, event.selectedThreadId);
 		return;
 	}
@@ -351,6 +361,14 @@ function createProjectActions(
 			await runAndApplyUpdate(
 				runCommand<AppUpdate>('move_project', { input: { projectId, targetIndex } })
 			);
+		},
+		async removeProject(projectId: string) {
+			await runAndApplyUpdate(runCommand<AppUpdate>('remove_project', { input: { projectId } }));
+		},
+		async renameProject(projectId: string, name: string) {
+			await runAndApplyUpdate(
+				runCommand<AppUpdate>('rename_project', { input: { name, projectId } })
+			);
 		}
 	};
 }
@@ -365,6 +383,11 @@ function createThreadActions(
 		async removeAttachment(threadId: string, attachmentId: string) {
 			await runAndApplyUpdate(
 				runCommand<AppUpdate>('remove_attachment', { input: { attachmentId, threadId } })
+			);
+		},
+		async renameThread(threadId: string, title: string) {
+			await runAndApplyUpdate(
+				runCommand<AppUpdate>('rename_thread', { input: { threadId, title } })
 			);
 		},
 		async selectModel(threadId: string, modelKey: string) {

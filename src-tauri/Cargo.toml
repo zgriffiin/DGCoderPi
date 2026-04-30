@@ -1,7 +1,7 @@
 [package]
 name = "dgcoder-pi"
 version = "0.1.0"
-description = "Desktop coding workbench for Pi-driven repository tasks"
+description = "Desktop coding workbench for coding-agent repository tasks"
 authors = ["DGCoder"]
 license = ""
 repository = ""

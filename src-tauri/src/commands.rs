@@ -5,8 +5,9 @@ use crate::{
     diff_model::{DiffAnalysis, DiffAnalysisInput, LoadProjectDiffInput, ProjectDiffSnapshot},
     model::{
         AddProjectInput, AppHealth, AppSnapshot, AppUpdate, CreateThreadInput, MoveProjectInput,
-        ProviderKeyInput, RemoveAttachmentInput, SelectModelInput, SelectReasoningInput,
-        SendPromptInput, SetDiffAnalysisModelInput, StageAttachmentInput, ToggleFeatureInput,
+        ProviderKeyInput, RemoveAttachmentInput, RemoveProjectInput, RenameProjectInput,
+        RenameThreadInput, SelectModelInput, SelectReasoningInput, SendPromptInput,
+        SetDiffAnalysisModelInput, StageAttachmentInput, ToggleFeatureInput,
     },
 };
 
@@ -45,6 +46,30 @@ pub fn move_project(
     runtime: State<'_, AppRuntime>,
 ) -> UpdateCommandResult {
     runtime.move_project(input)
+}
+
+#[tauri::command]
+pub fn rename_project(
+    input: RenameProjectInput,
+    runtime: State<'_, AppRuntime>,
+) -> UpdateCommandResult {
+    runtime.rename_project(input)
+}
+
+#[tauri::command]
+pub fn remove_project(
+    input: RemoveProjectInput,
+    runtime: State<'_, AppRuntime>,
+) -> UpdateCommandResult {
+    runtime.remove_project(input)
+}
+
+#[tauri::command]
+pub fn rename_thread(
+    input: RenameThreadInput,
+    runtime: State<'_, AppRuntime>,
+) -> UpdateCommandResult {
+    runtime.rename_thread(input)
 }
 
 #[tauri::command]
