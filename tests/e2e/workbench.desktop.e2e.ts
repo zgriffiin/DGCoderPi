@@ -476,7 +476,10 @@ async function verifyPromptFlow(page: import('@playwright/test').Page) {
 		return;
 	}
 
-	await expect(failureAlert).toBeVisible();
+	const failureText = (await failureAlert.textContent().catch(() => null)) ?? 'Run failed';
+	throw new Error(
+		`Expected an assistant response containing "ready", but the run failed: ${failureText}`
+	);
 }
 
 test('runs the real desktop workflow through Tauri', async () => {
@@ -501,6 +504,8 @@ test('runs the real desktop workflow through Tauri', async () => {
 		await verifySettingsAndDiff(page, sampleRepo, 'Sample workspace');
 		await attachReadmeToSelectedThread(page);
 		await verifyPastedImageWarning(page);
+		await page.getByRole('button', { name: 'Create thread in Sample workspace' }).click();
+		await expect(page.getByText('Send a message to start the conversation.')).toBeVisible();
 		await verifyPromptFlow(page);
 		await removeSelectedProjectFromRail(page);
 	} finally {

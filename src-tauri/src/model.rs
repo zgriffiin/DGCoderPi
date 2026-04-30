@@ -353,6 +353,12 @@ pub struct RemoveProjectInput {
 
 #[derive(Clone, Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct RemoveThreadInput {
+    pub thread_id: String,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ProviderKeyInput {
     pub key: String,
     pub provider: String,

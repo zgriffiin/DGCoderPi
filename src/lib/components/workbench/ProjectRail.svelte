@@ -23,6 +23,7 @@
 		onOpenDiff: (projectId: string, threadId?: string) => void;
 		onRefreshStatus: () => void;
 		onRemoveProject: (projectId: string) => void;
+		onRemoveThread: (threadId: string) => void;
 		onRenameProject: (projectId: string, name: string) => void;
 		onRenameThread: (threadId: string, title: string) => void;
 		onSelectProject: (projectId: string) => void;
@@ -35,6 +36,7 @@
 
 	let activeMenu = $state<MenuState | null>(null);
 	let confirmingRemoveProjectId = $state<string | null>(null);
+	let confirmingRemoveThreadId = $state<string | null>(null);
 	let draggedProjectId = $state<string | null>(null);
 	let renameState = $state<RenameState | null>(null);
 	let renameInput = $state<HTMLInputElement | null>(null);
@@ -45,6 +47,7 @@
 		onOpenDiff,
 		onRefreshStatus,
 		onRemoveProject,
+		onRemoveThread,
 		onRenameProject,
 		onRenameThread,
 		onSelectProject,
@@ -82,6 +85,7 @@
 		event.preventDefault();
 		event.stopPropagation();
 		confirmingRemoveProjectId = null;
+		confirmingRemoveThreadId = null;
 		activeMenu = menuFromEvent(event, { id: projectId, kind: 'project' });
 	}
 
@@ -89,6 +93,7 @@
 		event.preventDefault();
 		event.stopPropagation();
 		confirmingRemoveProjectId = null;
+		confirmingRemoveThreadId = null;
 		activeMenu = menuFromEvent(event, { id: threadId, kind: 'thread', projectId });
 	}
 
@@ -171,6 +176,12 @@
 		activeMenu = null;
 		confirmingRemoveProjectId = null;
 		onRemoveProject(project.id);
+	}
+
+	function removeThread(threadId: string) {
+		activeMenu = null;
+		confirmingRemoveThreadId = null;
+		onRemoveThread(threadId);
 	}
 
 	function findMenuProject() {
@@ -370,11 +381,13 @@
 			onclick={() => {
 				activeMenu = null;
 				confirmingRemoveProjectId = null;
+				confirmingRemoveThreadId = null;
 			}}
 			oncontextmenu={(event) => {
 				event.preventDefault();
 				activeMenu = null;
 				confirmingRemoveProjectId = null;
+				confirmingRemoveThreadId = null;
 			}}
 		></button>
 		<div
@@ -422,22 +435,43 @@
 				{/if}
 			{:else if activeMenu.kind === 'thread' && findMenuThread()}
 				{@const record = findMenuThread()}
-				<button
-					role="menuitem"
-					type="button"
-					onclick={() =>
-						record &&
-						startRename({ id: record.thread.id, kind: 'thread', value: record.thread.title })}
-				>
-					<Edit size={16} /> Rename
-				</button>
-				<button role="menuitem" type="button" onclick={openDiffFromMenu}>
-					<Code size={16} /> Open diff
-				</button>
-				{#if record?.thread.status === 'running'}
-					<button role="menuitem" type="button" onclick={stopThreadFromMenu}>
-						<Stop size={16} /> Stop run
+				{#if record && confirmingRemoveThreadId === record.thread.id}
+					<div class="rail-menu__confirm" role="group" aria-label={`Delete ${record.thread.title}`}>
+						<p>Delete thread?</p>
+						<span>This removes the thread from the project list.</span>
+					</div>
+					<button role="menuitem" type="button" onclick={() => removeThread(record.thread.id)}>
+						<TrashCan size={16} /> Confirm delete
 					</button>
+					<button role="menuitem" type="button" onclick={() => (confirmingRemoveThreadId = null)}>
+						Cancel
+					</button>
+				{:else}
+					<button
+						role="menuitem"
+						type="button"
+						onclick={() =>
+							record &&
+							startRename({ id: record.thread.id, kind: 'thread', value: record.thread.title })}
+					>
+						<Edit size={16} /> Rename
+					</button>
+					<button role="menuitem" type="button" onclick={openDiffFromMenu}>
+						<Code size={16} /> Open diff
+					</button>
+					{#if record?.thread.status === 'running'}
+						<button role="menuitem" type="button" onclick={stopThreadFromMenu}>
+							<Stop size={16} /> Stop run
+						</button>
+					{:else if record}
+						<button
+							role="menuitem"
+							type="button"
+							onclick={() => (confirmingRemoveThreadId = record.thread.id)}
+						>
+							<TrashCan size={16} /> Delete thread
+						</button>
+					{/if}
 				{/if}
 			{/if}
 		</div>
