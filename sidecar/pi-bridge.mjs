@@ -346,13 +346,14 @@ class BridgeRuntime {
 			if (!sessionEntry) return;
 			try {
 				touchSession(sessionEntry);
+				const assistantCursor = assistantMessageCount(sessionEntry.session);
 				await command();
 				if (this.sessions.get(threadId) !== sessionEntry) {
 					return;
 				}
 
 				touchSession(sessionEntry);
-				const assistantError = findLatestAssistantError(sessionEntry.session);
+				const assistantError = findLatestAssistantError(sessionEntry.session, assistantCursor);
 				if (assistantError) {
 					logSessionCommandFailure(assistantError, sessionEntry);
 					this.emitThreadUpdate(threadId, sessionEntry.session, {
@@ -453,9 +454,19 @@ function logSessionCommandFailure(error, sessionEntry) {
 	console.error('[session-command-failed]', JSON.stringify(details));
 }
 
-function findLatestAssistantError(session) {
+function assistantMessageCount(session) {
 	const messages = Array.isArray(session?.messages) ? session.messages : [];
-	const latestAssistant = [...messages].reverse().find((message) => message?.role === 'assistant');
+	return messages.filter((message) => message?.role === 'assistant').length;
+}
+
+function findLatestAssistantError(session, previousAssistantCount) {
+	const messages = Array.isArray(session?.messages) ? session.messages : [];
+	const newAssistantMessages = messages
+		.filter((message) => message?.role === 'assistant')
+		.slice(previousAssistantCount);
+	const latestAssistant = [...newAssistantMessages]
+		.reverse()
+		.find((message) => message?.role === 'assistant');
 	if (latestAssistant?.stopReason !== 'error' || !latestAssistant.errorMessage) {
 		return null;
 	}

@@ -348,8 +348,8 @@ impl AppRuntime {
                     .get(thread_index)
                     .or_else(|| project.threads.last())
                     .map(|thread| thread.id.clone());
+                state.selected_project_id = Some(project.id.clone());
             }
-            state.selected_project_id = Some(project.id.clone());
             Ok(project.id.clone())
         })?;
         self.persist_and_return(self.project_update(&project_id)?)
