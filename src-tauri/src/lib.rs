@@ -29,6 +29,10 @@ fn data_dir(app: &tauri::AppHandle) -> tauri::Result<PathBuf> {
     app.path().app_data_dir()
 }
 
+fn resource_dir(app: &tauri::AppHandle) -> tauri::Result<PathBuf> {
+    app.path().resource_dir()
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -43,8 +47,13 @@ pub fn run() {
             }
 
             let data_dir = data_dir(app.handle())?;
-            let runtime = AppRuntime::new(app.handle().clone(), &repo_root(), data_dir)
-                .map_err(std::io::Error::other)?;
+            let runtime = AppRuntime::new(
+                app.handle().clone(),
+                &repo_root(),
+                data_dir,
+                resource_dir(app.handle())?,
+            )
+            .map_err(std::io::Error::other)?;
             app.manage(runtime);
             Ok(())
         })

@@ -396,13 +396,15 @@ async function pasteImageAttachment(page: import('@playwright/test').Page) {
 }
 
 async function verifyPastedImageWarning(page: import('@playwright/test').Page) {
-	const warningText = 'The document parser feature is disabled.';
+	const warningText =
+		'Image preview unavailable. Enable the document parser for inline image parsing.';
 	await disableDocparser(page);
 	await pasteImageAttachment(page);
 
 	const attachmentChip = page.locator('.attachment-chip', { hasText: 'clipboard-image.png' });
-	await expect(attachmentChip).toContainText('failed');
+	await expect(attachmentChip).toContainText('limited');
 	await expect(attachmentChip).toContainText(warningText);
+	await expect(attachmentChip).not.toContainText('failed');
 
 	const specButton = page.getByRole('button', { exact: true, name: 'Spec' });
 	if ((await specButton.getAttribute('aria-pressed')) !== 'true') {
@@ -411,6 +413,7 @@ async function verifyPastedImageWarning(page: import('@playwright/test').Page) {
 	const inspector = page.locator('.inspector-rail');
 	await expect(inspector).toBeVisible();
 	await expect(inspector).toContainText('clipboard-image.png');
+	await expect(inspector).toContainText('limited');
 	await expect(inspector).toContainText(warningText);
 }
 

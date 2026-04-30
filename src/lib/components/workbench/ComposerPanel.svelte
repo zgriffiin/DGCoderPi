@@ -125,11 +125,27 @@
 			return 'red';
 		}
 
+		if (attachment.warnings.length > 0) {
+			return 'warm-gray';
+		}
+
 		if (attachment.parseStatus === 'ready') {
 			return 'green';
 		}
 
 		return 'cool-gray';
+	}
+
+	function attachmentStatusLabel(attachment: AttachmentRecord) {
+		if (attachment.parseStatus === 'failed') {
+			return 'failed';
+		}
+
+		if (attachment.warnings.length > 0) {
+			return 'limited';
+		}
+
+		return attachment.parseStatus;
 	}
 
 	function attachmentDetail(attachment: AttachmentRecord) {
@@ -230,7 +246,9 @@
 					<div>
 						<p>{attachment.name}</p>
 						<div class="attachment-chip__meta">
-							<Tag size="sm" type={attachmentStatusType(attachment)}>{attachment.parseStatus}</Tag>
+							<Tag size="sm" type={attachmentStatusType(attachment)}>
+								{attachmentStatusLabel(attachment)}
+							</Tag>
 							<span>{attachmentDetail(attachment)}</span>
 						</div>
 					</div>

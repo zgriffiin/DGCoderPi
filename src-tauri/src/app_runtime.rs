@@ -58,6 +58,7 @@ struct AppRuntimeInner {
     bridge: Mutex<Option<Arc<PiBridge>>>,
     data_dir: PathBuf,
     models: Mutex<Vec<ModelOption>>,
+    resource_dir: PathBuf,
     state: Mutex<PersistedState>,
 }
 
@@ -71,7 +72,12 @@ struct PreparedPrompt {
 }
 
 impl AppRuntime {
-    pub fn new(app: AppHandle, repo_root: &Path, data_dir: PathBuf) -> Result<Self, String> {
+    pub fn new(
+        app: AppHandle,
+        repo_root: &Path,
+        data_dir: PathBuf,
+        resource_dir: PathBuf,
+    ) -> Result<Self, String> {
         let mut state = load_state(&data_dir)?;
         if normalize_state(&mut state) {
             replace_state(&data_dir, &state)?;
@@ -83,6 +89,7 @@ impl AppRuntime {
                 bridge: Mutex::new(None),
                 data_dir,
                 models: Mutex::new(Vec::new()),
+                resource_dir,
                 state: Mutex::new(state),
             }),
         };
@@ -99,6 +106,7 @@ impl AppRuntime {
         let bridge = PiBridge::start(
             repo_root,
             &runtime.inner.data_dir,
+            &runtime.inner.resource_dir,
             &features,
             Arc::new(move |event| callback_runtime.handle_bridge_event(event)),
         )?;

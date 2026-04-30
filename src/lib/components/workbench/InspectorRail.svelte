@@ -37,6 +37,27 @@
 		return 'cool-gray';
 	}
 
+	function attachmentDisplayState(attachment: ThreadRecord['attachments'][number]) {
+		if (attachment.parseStatus === 'failed') {
+			return {
+				label: 'failed',
+				type: 'red'
+			} as const;
+		}
+
+		if (attachment.warnings.length > 0) {
+			return {
+				label: 'limited',
+				type: 'warm-gray'
+			} as const;
+		}
+
+		return {
+			label: attachment.parseStatus,
+			type: attachmentStatusType(attachment.parseStatus)
+		} as const;
+	}
+
 	let { controller, mode, onClose, project, thread }: Props = $props();
 </script>
 
@@ -116,14 +137,13 @@
 			{#if thread?.attachments?.length}
 				<ul class="inspector-list">
 					{#each thread.attachments as attachment (attachment.id)}
+						{@const displayState = attachmentDisplayState(attachment)}
 						<li>
 							<div class="inspector-block">
 								<div class="inspector-item">
 									<div class="inspector-item__header">
 										<p>{attachment.name}</p>
-										<Tag type={attachmentStatusType(attachment.parseStatus)}>
-											{attachment.parseStatus}
-										</Tag>
+										<Tag type={displayState.type}>{displayState.label}</Tag>
 									</div>
 									{#if attachment.warnings.length > 0}
 										<p>{attachment.warnings[0]}</p>
