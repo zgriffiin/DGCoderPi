@@ -2,12 +2,10 @@
 	import { onDestroy } from 'svelte';
 	import { tick } from 'svelte';
 	import { InlineNotification } from 'carbon-components-svelte';
-	import type { ProjectRecord, ThreadIntent, ThreadRecord } from '$lib/types/workbench';
-	import { THREAD_INTENTS, threadIntentLabel } from '$lib/workbench/thread-intents';
+	import type { ProjectRecord, ThreadRecord } from '$lib/types/workbench';
 	import ThreadMessage from './ThreadMessage.svelte';
 
 	type Props = {
-		onIntentChange: (intent: ThreadIntent) => void;
 		project: ProjectRecord | null;
 		runtimeError: string | null;
 		thread: ThreadRecord | null;
@@ -82,7 +80,7 @@
 	let stickToBottom = $state(true);
 	let visibleMessageCount = $state(MESSAGE_PAGE_SIZE);
 
-	let { onIntentChange, project, runtimeError, thread }: Props = $props();
+	let { project, runtimeError, thread }: Props = $props();
 
 	const messages = $derived(visibleMessages(thread));
 	const intentActivities = $derived(visibleIntentActivities(thread));
@@ -191,9 +189,6 @@
 	<header class="pane-header pane-header--compact">
 		<div class="pane-header__identity">
 			<h2>{threadLabel(project, thread)}</h2>
-			{#if thread}
-				<span class="intent-label">{threadIntentLabel(thread.intent)}</span>
-			{/if}
 		</div>
 		{#if runStatus?.runningFor}
 			<div class="thread-status-inline">
@@ -205,22 +200,6 @@
 				</div>
 				<p aria-hidden="true">Working for {runStatus.runningFor}</p>
 			</div>
-		{/if}
-		{#if thread}
-			<fieldset class="intent-switcher" aria-label="Thread intent">
-				{#each THREAD_INTENTS as intent (intent.value)}
-					<label data-selected={thread.intent === intent.value ? 'true' : undefined}>
-						<input
-							checked={thread.intent === intent.value}
-							name={`thread-intent-${thread.id}`}
-							onchange={() => onIntentChange(intent.value)}
-							type="radio"
-							value={intent.value}
-						/>
-						<span>{intent.label}</span>
-					</label>
-				{/each}
-			</fieldset>
 		{/if}
 	</header>
 

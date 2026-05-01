@@ -4,11 +4,14 @@
 	import DiffInspectorPanel from '$lib/components/workbench/diff/DiffInspectorPanel.svelte';
 	import type { InspectorMode, ProjectRecord, ThreadRecord } from '$lib/types/workbench';
 	import type { WorkbenchController } from '$lib/workbench/controller';
+	import type { SpecWorkflowStep } from '$lib/workbench/spec-workflow';
+	import SpecWorkflowPanel from './SpecWorkflowPanel.svelte';
 
 	type Props = {
 		controller: WorkbenchController;
 		mode: InspectorMode;
 		onClose: () => void;
+		onSpecPromptSelect: (step: SpecWorkflowStep) => void;
 		project: ProjectRecord | null;
 		thread: ThreadRecord | null;
 	};
@@ -58,7 +61,7 @@
 		} as const;
 	}
 
-	let { controller, mode, onClose, project, thread }: Props = $props();
+	let { controller, mode, onClose, onSpecPromptSelect, project, thread }: Props = $props();
 </script>
 
 <aside class="inspector-rail">
@@ -122,17 +125,7 @@
 		<DiffInspectorPanel {controller} {onClose} {project} {thread} />
 	{:else}
 		<div class="inspector-stack">
-			{#if project}
-				<div class="inspector-block">
-					<div class="inspector-item">
-						<div class="inspector-item__header">
-							<p>Workspace</p>
-							<Tag type="cool-gray">{project.branch}</Tag>
-						</div>
-						<p>{project.path}</p>
-					</div>
-				</div>
-			{/if}
+			<SpecWorkflowPanel onUsePrompt={onSpecPromptSelect} {project} {thread} />
 
 			{#if thread?.attachments?.length}
 				<ul class="inspector-list">

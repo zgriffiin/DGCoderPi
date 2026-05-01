@@ -42,7 +42,7 @@ Implement the guided diff viewer described in [Diff Viewer Spec](./diff-viewer-s
 
 ## Phase 3: Analysis Cache And Command Contract
 
-1. Add Rust-owned analysis cache keyed by diff fingerprint.
+1. Add Rust-owned analysis cache keyed by diff fingerprint and model key.
 2. Add focused commands:
    - `load_diff_analysis`
    - `refresh_diff_analysis`
@@ -74,7 +74,7 @@ Implement the guided diff viewer described in [Diff Viewer Spec](./diff-viewer-s
 1. Trigger diff reload when the inspector opens.
 2. Trigger analysis refresh after a completed agent turn if the diff fingerprint changed.
 3. Debounce filesystem or state updates so analysis does not run on transient events.
-4. Reuse cached analysis when the fingerprint is unchanged.
+4. Reuse cached analysis when the fingerprint and model key are unchanged.
 5. Add Playwright coverage for cached reuse and diff-change refresh with a real local repository.
 
 ## Phase 7: Quality Gate

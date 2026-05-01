@@ -72,8 +72,10 @@ async function addProjectAndThread(page: import('@playwright/test').Page) {
 	await expect(page.getByRole('button', { name: 'Start' })).toBeVisible();
 	await expect(page.getByRole('button', { exact: true, name: 'Attach' })).toBeVisible();
 	await expect(page.getByRole('button', { exact: true, name: 'Ship' })).toBeVisible();
-	await expect(page.getByRole('radio', { name: 'Understand' })).toBeChecked();
-	await expect(page.locator('.thread-row[data-selected="true"]')).toContainText('Understand');
+	await expect(page.getByRole('radio', { name: 'Understand' })).toHaveCount(0);
+	await expect(page.locator('.thread-row[data-selected="true"] .thread-row__intent')).toHaveCount(
+		0
+	);
 }
 
 function escapeRegExp(value: string) {
@@ -275,23 +277,6 @@ async function verifyLeftPanelActions(page: import('@playwright/test').Page, rep
 	).toBeVisible();
 }
 
-async function verifyThreadIntentSwitching(page: import('@playwright/test').Page) {
-	await page.getByRole('radio', { name: 'Plan' }).check();
-	await expect(page.getByRole('radio', { name: 'Plan' })).toBeChecked();
-	await expect(page.locator('.thread-row[data-selected="true"]')).toContainText('Plan');
-	await expect(page.locator('.activity-entry[data-kind="intent-switch"]')).toContainText(
-		'Intent set to Plan'
-	);
-	await page.getByRole('radio', { name: 'Plan' }).check();
-	await expect(page.locator('.activity-entry[data-kind="intent-switch"]')).toHaveCount(1);
-	await page.getByRole('radio', { name: 'Review' }).check();
-	await expect(page.getByRole('radio', { name: 'Review' })).toBeChecked();
-	await expect(page.locator('.thread-row[data-selected="true"]')).toContainText('Review');
-	await expect(page.locator('.activity-entry[data-kind="intent-switch"]').last()).toContainText(
-		'Intent set to Review'
-	);
-}
-
 async function removeSelectedProjectFromRail(page: import('@playwright/test').Page) {
 	const selectedProject = page.locator('.project-section[data-selected="true"]');
 	await selectedProject.getByLabel('Project actions').click();
@@ -331,6 +316,19 @@ async function attachReadmeToSelectedThread(page: import('@playwright/test').Pag
 	await settingsDialog.getByRole('button', { name: 'Refresh status' }).click();
 	await settingsDialog.getByLabel('Close the modal').click();
 	await page.getByRole('button', { exact: true, name: 'Spec' }).click();
+	await expect(inspector.getByRole('heading', { level: 3, name: 'Understand' })).toBeVisible();
+	await expect(inspector.getByRole('heading', { level: 3, name: 'Requirements' })).toBeVisible();
+	await expect(inspector.getByRole('heading', { level: 3, name: 'Design' })).toBeVisible();
+	await expect(inspector.getByRole('heading', { level: 3, name: 'Tasks' })).toBeVisible();
+	await expect(inspector.getByRole('heading', { level: 3, name: 'Implement' })).toBeVisible();
+	await expect(inspector.getByRole('heading', { level: 3, name: 'Review' })).toBeVisible();
+	await expect(inspector.getByRole('heading', { level: 3, name: 'Ship' })).toBeVisible();
+	await inspector
+		.locator('.spec-step')
+		.filter({ hasText: 'Requirements' })
+		.getByRole('button', { name: 'Use' })
+		.click();
+	await expect(page.getByLabel('Prompt')).toHaveValue(/Draft requirements/);
 	await expect
 		.poll(
 			async () => {
@@ -381,7 +379,14 @@ async function verifyPastedImageWarning(page: import('@playwright/test').Page) {
 	await pasteImageAttachment(page);
 
 	const attachmentChip = page.locator('.attachment-chip', { hasText: 'clipboard-image.png' });
-	await expect(attachmentChip).toContainText('limited');
+	await expect
+		.poll(
+			async () => {
+				return (await attachmentChip.textContent().catch(() => '')) ?? '';
+			},
+			{ timeout: 20_000 }
+		)
+		.toContain('limited');
 	await expect(attachmentChip).toContainText(warningText);
 	await expect(attachmentChip).not.toContainText('failed');
 
@@ -474,7 +479,6 @@ test('runs the real desktop workflow through Tauri', async () => {
 		await addProjectByPath(page, sampleRepo);
 		await createThreadForProject(page, sampleRepo);
 		await verifyLeftPanelActions(page, sampleRepo);
-		await verifyThreadIntentSwitching(page);
 		await verifySettingsAndDiff(page, sampleRepo, 'Sample workspace');
 		await verifyShipWithDiffShowsReviewGate(page);
 		await attachReadmeToSelectedThread(page);

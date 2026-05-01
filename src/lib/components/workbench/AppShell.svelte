@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import type { InspectorMode, ThreadIntent, ThinkingLevel } from '$lib/types/workbench';
+	import type { InspectorMode, ThinkingLevel } from '$lib/types/workbench';
 	import { buildShipSlicePrompt } from '$lib/workbench/preset-prompts';
 	import { createWorkbenchController } from '$lib/workbench/controller';
 	import {
@@ -9,6 +9,7 @@
 		runShipReviewGate,
 		shipReviewScopeMatches
 	} from '$lib/workbench/ship-review';
+	import type { SpecWorkflowStep } from '$lib/workbench/spec-workflow';
 	import WorkbenchShellView from './WorkbenchShellView.svelte';
 	import { stageBrowserFiles } from './composer-attachments';
 	import {
@@ -203,14 +204,6 @@
 		});
 	}
 
-	async function handleIntentChange(intent: ThreadIntent) {
-		if (!activeThread) return;
-
-		await runAction(async () => {
-			await controller.selectIntent(activeThread.id, intent);
-		});
-	}
-
 	async function handleAttachFiles() {
 		if (!activeThread || !workbenchState.runtimeAvailable) {
 			return;
@@ -320,6 +313,23 @@
 		shipReview = createIdleShipReview();
 	}
 
+	async function handleSpecPromptSelect(step: SpecWorkflowStep) {
+		if (!activeThread) {
+			return;
+		}
+
+		const threadId = activeThread.id;
+		const threadIntent = activeThread.intent;
+		draft = step.prompt;
+		if (threadIntent === step.intent) {
+			return;
+		}
+
+		await runAction(async () => {
+			await controller.selectIntent(threadId, step.intent);
+		});
+	}
+
 	async function handleStop() {
 		if (!activeThread) {
 			return;
@@ -426,7 +436,6 @@
 			handleDiffAnalysisModelChange,
 			handleDraftChange,
 			handleImportCodexOpenAiKey,
-			handleIntentChange,
 			handleModelChange,
 			handleMoveProject,
 			handleOpenDiff,
@@ -447,6 +456,7 @@
 			handleShipReviewContinue,
 			handleShipReviewDismiss,
 			handleShipSlice,
+			handleSpecPromptSelect,
 			handleStageComposerFiles,
 			handleStartCodexLogin,
 			handleStop,

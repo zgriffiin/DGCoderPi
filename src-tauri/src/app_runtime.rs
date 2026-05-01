@@ -13,7 +13,10 @@ use tauri::{AppHandle, Emitter};
 use uuid::Uuid;
 
 use crate::{
-    analysis_store::{load_diff_analysis as load_cached_diff_analysis, save_diff_analysis},
+    analysis_store::{
+        fail_in_progress_diff_analyses, load_diff_analysis as load_cached_diff_analysis,
+        save_diff_analysis,
+    },
     diff_analysis::{analyze_diff, build_thread_context, failed_analysis, pending_analysis},
     diff_analysis_model_selection::{
         diff_analysis_model_rank, should_use_thread_model_for_diff_analysis,
@@ -46,6 +49,8 @@ use crate::{
 
 const UPDATE_EVENT: &str = "app://update";
 const MAX_ACTIVITY_ENTRIES: usize = 48;
+const MAX_ATTACHMENT_BYTES: u64 = 25 * 1024 * 1024;
+const MAX_PARSE_ATTACHMENT_BYTES: u64 = 10 * 1024 * 1024;
 
 #[derive(Clone)]
 pub struct AppRuntime {
@@ -58,6 +63,7 @@ struct AppRuntimeInner {
     bridge: Mutex<Option<Arc<PiBridge>>>,
     data_dir: PathBuf,
     models: Mutex<Vec<ModelOption>>,
+    pending_state_rollback: Mutex<Option<PersistedState>>,
     resource_dir: PathBuf,
     state: Mutex<PersistedState>,
 }
@@ -83,6 +89,7 @@ impl AppRuntime {
         if normalize_state(&mut state) {
             replace_state(&data_dir, &state)?;
         }
+        fail_in_progress_diff_analyses(&data_dir)?;
         let runtime = Self {
             inner: Arc::new(AppRuntimeInner {
                 active_diff_jobs: Mutex::new(HashSet::new()),
@@ -90,6 +97,7 @@ impl AppRuntime {
                 bridge: Mutex::new(None),
                 data_dir,
                 models: Mutex::new(Vec::new()),
+                pending_state_rollback: Mutex::new(None),
                 resource_dir,
                 state: Mutex::new(state),
             }),
@@ -177,12 +185,13 @@ impl AppRuntime {
             input.thread_id.as_deref(),
             &model_key,
         )?;
+        let job_key = diff_analysis_job_key(&snapshot.fingerprint, &model_key);
         let mut queued = self
             .inner
             .active_diff_jobs
             .lock()
             .map_err(|_| "Diff analysis job lock was poisoned.".to_string())?;
-        if !queued.insert(snapshot.fingerprint.clone()) {
+        if !queued.insert(job_key.clone()) {
             let mut in_progress = current;
             in_progress.status = DiffAnalysisStatus::InProgress;
             in_progress.updated_at_ms = now_ms();
@@ -201,7 +210,7 @@ impl AppRuntime {
         let fingerprint = snapshot.fingerprint.clone();
         tauri::async_runtime::spawn(async move {
             let _guard = ActiveDiffJobGuard {
-                fingerprint: fingerprint.clone(),
+                key: job_key,
                 runtime: runtime.clone(),
             };
             let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
@@ -465,6 +474,7 @@ impl AppRuntime {
         if !source_metadata.is_file() {
             return Err("Attachments must be regular files.".to_string());
         }
+        validate_attachment_size(source_metadata.len())?;
 
         let (attachment_id, file_path) =
             self.create_attachment_target(&input.thread_id, &source_name)?;
@@ -480,7 +490,12 @@ impl AppRuntime {
         )?;
         self.persist_update(&update)?;
 
-        self.spawn_attachment_parse(&input.thread_id, &attachment_id, file_path);
+        self.spawn_attachment_parse(
+            &input.thread_id,
+            &attachment_id,
+            file_path,
+            source_metadata.len(),
+        );
         Ok(update)
     }
 
@@ -489,6 +504,7 @@ impl AppRuntime {
         input: StageAttachmentDataInput,
     ) -> Result<AppUpdate, String> {
         self.ensure_thread_exists(&input.thread_id)?;
+        validate_attachment_size(input.bytes.len() as u64)?;
         let attachment_name = normalized_attachment_name(&input.name, input.mime_type.as_deref());
         let (attachment_id, file_path) =
             self.create_attachment_target(&input.thread_id, &attachment_name)?;
@@ -504,7 +520,12 @@ impl AppRuntime {
         )?;
         self.persist_update(&update)?;
 
-        self.spawn_attachment_parse(&input.thread_id, &attachment_id, file_path);
+        self.spawn_attachment_parse(
+            &input.thread_id,
+            &attachment_id,
+            file_path,
+            input.bytes.len() as u64,
+        );
         Ok(update)
     }
 
@@ -732,7 +753,15 @@ impl AppRuntime {
                 .state
                 .lock()
                 .map_err(|_| "State lock was poisoned.".to_string())?;
-            mutator(&mut state)?
+            let original_state = state.clone();
+            let mut rollback = self
+                .inner
+                .pending_state_rollback
+                .lock()
+                .map_err(|_| "State rollback lock was poisoned.".to_string())?;
+            let output = mutator(&mut state)?;
+            *rollback = Some(original_state);
+            output
         };
         Ok(output)
     }
@@ -766,12 +795,41 @@ impl AppRuntime {
             .lock()
             .map_err(|_| "State lock was poisoned.".to_string())?
             .clone();
-        append_update(&self.inner.data_dir, update, &state)
+        match append_update(&self.inner.data_dir, update, &state) {
+            Ok(()) => {
+                self.clear_pending_state_rollback();
+                Ok(())
+            }
+            Err(error) => {
+                self.restore_pending_state_rollback();
+                Err(error)
+            }
+        }
     }
 
     fn persist_and_return(&self, update: AppUpdate) -> Result<AppUpdate, String> {
         self.persist_update(&update)?;
         Ok(update)
+    }
+
+    fn clear_pending_state_rollback(&self) {
+        if let Ok(mut rollback) = self.inner.pending_state_rollback.lock() {
+            *rollback = None;
+        }
+    }
+
+    fn restore_pending_state_rollback(&self) {
+        let previous_state = self
+            .inner
+            .pending_state_rollback
+            .lock()
+            .ok()
+            .and_then(|mut rollback| rollback.take());
+        if let Some(previous_state) = previous_state {
+            if let Ok(mut state) = self.inner.state.lock() {
+                *state = previous_state;
+            }
+        }
     }
 
     fn rollback_failed_prompt(
@@ -1151,9 +1209,9 @@ impl AppRuntime {
         }
     }
 
-    fn clear_active_diff_job(&self, fingerprint: &str) {
+    fn clear_active_diff_job(&self, key: &str) {
         if let Ok(mut jobs) = self.inner.active_diff_jobs.lock() {
-            jobs.remove(fingerprint);
+            jobs.remove(key);
         }
     }
 
@@ -1270,7 +1328,25 @@ impl AppRuntime {
         })
     }
 
-    fn spawn_attachment_parse(&self, thread_id: &str, attachment_id: &str, path: PathBuf) {
+    fn spawn_attachment_parse(
+        &self,
+        thread_id: &str,
+        attachment_id: &str,
+        path: PathBuf,
+        size_bytes: u64,
+    ) {
+        if size_bytes > MAX_PARSE_ATTACHMENT_BYTES {
+            let _ = self.apply_attachment_parse_result(
+                thread_id,
+                attachment_id,
+                Err(format!(
+                    "Attachment is larger than the {} MB parse limit.",
+                    MAX_PARSE_ATTACHMENT_BYTES / 1024 / 1024
+                )),
+            );
+            return;
+        }
+
         let runtime = self.clone();
         let thread_id = thread_id.to_string();
         let attachment_id = attachment_id.to_string();
@@ -1476,6 +1552,17 @@ fn attachment_mime_type(name: &str, preferred_mime_type: Option<&str>) -> String
         })
 }
 
+fn validate_attachment_size(size_bytes: u64) -> Result<(), String> {
+    if size_bytes <= MAX_ATTACHMENT_BYTES {
+        return Ok(());
+    }
+
+    Err(format!(
+        "Attachment is larger than the {} MB limit.",
+        MAX_ATTACHMENT_BYTES / 1024 / 1024
+    ))
+}
+
 fn normalized_attachment_name(name: &str, mime_type: Option<&str>) -> String {
     let trimmed = name.trim();
     let candidate = Path::new(trimmed)
@@ -1653,14 +1740,18 @@ fn latest_user_message_timestamp<'a>(
 }
 
 struct ActiveDiffJobGuard {
-    fingerprint: String,
+    key: String,
     runtime: AppRuntime,
 }
 
 impl Drop for ActiveDiffJobGuard {
     fn drop(&mut self) {
-        self.runtime.clear_active_diff_job(&self.fingerprint);
+        self.runtime.clear_active_diff_job(&self.key);
     }
+}
+
+fn diff_analysis_job_key(fingerprint: &str, model_key: &str) -> String {
+    format!("{fingerprint}\n{model_key}")
 }
 
 fn update_thread_title(thread: &mut ThreadRecord, text: &str) {

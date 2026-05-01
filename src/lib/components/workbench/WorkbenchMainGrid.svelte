@@ -6,12 +6,12 @@
 		ModelOption,
 		ProjectRecord,
 		PromptMode,
-		ThreadIntent,
 		ThinkingLevel,
 		ThreadRecord
 	} from '$lib/types/workbench';
 	import type { WorkbenchController } from '$lib/workbench/controller';
 	import type { ShipReviewStatus } from '$lib/workbench/ship-review';
+	import type { SpecWorkflowStep } from '$lib/workbench/spec-workflow';
 	import ComposerPanel from './ComposerPanel.svelte';
 	import ConversationPane from './ConversationPane.svelte';
 	import InspectorRail from './InspectorRail.svelte';
@@ -36,7 +36,6 @@
 		onBeginResize: (pane: 'left' | 'right', event: PointerEvent) => void;
 		onCreateThread: (projectId: string) => void;
 		onDraftChange: (value: string) => void;
-		onIntentChange: (intent: ThreadIntent) => void;
 		onMoveProject: (projectId: string, targetIndex: number) => void;
 		onModelChange: (modelKey: string) => void;
 		onNudgePaneWidth: (pane: 'left' | 'right', delta: number) => void;
@@ -54,6 +53,7 @@
 		onShipReviewContinue: () => void;
 		onShipReviewDismiss: () => void;
 		onShipSlice: () => void;
+		onSpecPromptSelect: (step: SpecWorkflowStep) => void;
 		onStageFiles: (files: File[]) => void;
 		onStop: () => void;
 		onStopThread: (threadId: string) => void;
@@ -91,7 +91,6 @@
 		onBeginResize,
 		onCreateThread,
 		onDraftChange,
-		onIntentChange,
 		onMoveProject,
 		onModelChange,
 		onNudgePaneWidth,
@@ -109,6 +108,7 @@
 		onShipReviewContinue,
 		onShipReviewDismiss,
 		onShipSlice,
+		onSpecPromptSelect,
 		onStageFiles,
 		onStop,
 		onStopThread,
@@ -166,12 +166,7 @@
 	{/if}
 
 	<div class="center-column">
-		<ConversationPane
-			{onIntentChange}
-			project={activeProject}
-			{runtimeError}
-			thread={activeThread}
-		/>
+		<ConversationPane project={activeProject} {runtimeError} thread={activeThread} />
 		<ComposerPanel
 			{attachments}
 			canSend={Boolean(activeThread) && snapshot.models.length > 0}
@@ -217,6 +212,7 @@
 			{controller}
 			mode={inspectorMode}
 			onClose={() => onToggleInspector(null)}
+			{onSpecPromptSelect}
 			project={activeProject}
 			thread={activeThread}
 		/>

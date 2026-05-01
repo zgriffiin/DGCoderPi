@@ -18,7 +18,7 @@ The primary audience is a technical user who may not be a daily coder. The inter
 
 ## Validation Notes
 
-The original direction is sound: dual modes, structured AI output, Rust-owned git state, cached analysis by fingerprint, and Playwright validation all fit the Pi stack.
+The original direction is sound: dual modes, structured AI output, Rust-owned git state, cached analysis by fingerprint and model key, and Playwright validation all fit the Pi stack.
 
 The spec needed these corrections:
 
@@ -295,7 +295,7 @@ Use a diff fingerprint based on:
 - rename or copy metadata
 - normalized patch content hash
 
-If the fingerprint is unchanged, reuse the cached analysis.
+If the fingerprint and model key are unchanged, reuse the cached analysis.
 
 ### 6. Model Strategy
 
@@ -507,7 +507,7 @@ Use a throwaway git repository or committed example project state. Do not interc
 - `AI Review` produces a grounded structured summary from the actual patch.
 - The review identifies impact and risk, not just filenames.
 - `Patch View` is strong enough for traditional file-and-hunk inspection.
-- The app caches analysis per diff fingerprint and refreshes when the diff changes.
+- The app caches analysis per diff fingerprint and model key, then refreshes when the diff or selected analysis model changes.
 - The feature ships with Playwright coverage and a review rubric for summary accuracy, impact accuracy, risk usefulness, and evidence grounding.
 
 ## Sources

@@ -1,4 +1,11 @@
-use std::{collections::HashMap, fs, path::Path, process::Command};
+use std::{
+    collections::HashMap,
+    fs,
+    path::Path,
+    process::{Command, Output, Stdio},
+    thread,
+    time::{Duration, Instant},
+};
 
 use sha2::{Digest, Sha256};
 
@@ -13,6 +20,7 @@ use crate::{
 const MAX_RENDER_LINES: usize = 1_600;
 const MAX_RENDER_TEXT_BYTES: usize = 160_000;
 const MAX_UNTRACKED_TEXT_BYTES: usize = 96_000;
+const GIT_COMMAND_TIMEOUT: Duration = Duration::from_secs(15);
 
 fn to_u32(value: usize) -> u32 {
     u32::try_from(value).unwrap_or(u32::MAX)
@@ -148,17 +156,16 @@ fn blank_diff_file(path: &str, status: &str, status_code: &str) -> ProjectDiffFi
 }
 
 fn git_status_entries(path: &str) -> Result<Vec<StatusEntry>, String> {
-    let output = Command::new("git")
-        .args([
-            "-C",
-            path,
-            "status",
-            "--porcelain=v1",
-            "-z",
-            "--untracked-files=all",
-        ])
-        .output()
-        .map_err(|error| error.to_string())?;
+    let mut command = Command::new("git");
+    command.args([
+        "-C",
+        path,
+        "status",
+        "--porcelain=v1",
+        "-z",
+        "--untracked-files=all",
+    ]);
+    let output = command_output_with_timeout(&mut command, GIT_COMMAND_TIMEOUT)?;
     if !output.status.success() {
         return Err(String::from_utf8_lossy(&output.stderr).trim().to_string());
     }
@@ -240,7 +247,7 @@ fn git_patch_files(
         command.args(["--cached", "--root"]);
     }
 
-    let output = command.output().map_err(|error| error.to_string())?;
+    let output = command_output_with_timeout(&mut command, GIT_COMMAND_TIMEOUT)?;
     if !output.status.success() {
         return Err(String::from_utf8_lossy(&output.stderr).trim().to_string());
     }
@@ -251,11 +258,35 @@ fn git_patch_files(
 }
 
 fn has_head(path: &str) -> bool {
-    Command::new("git")
-        .args(["-C", path, "rev-parse", "--verify", "HEAD"])
-        .output()
+    let mut command = Command::new("git");
+    command.args(["-C", path, "rev-parse", "--verify", "HEAD"]);
+    command_output_with_timeout(&mut command, GIT_COMMAND_TIMEOUT)
         .map(|result| result.status.success())
         .unwrap_or(false)
+}
+
+fn command_output_with_timeout(command: &mut Command, timeout: Duration) -> Result<Output, String> {
+    let mut child = command
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|error| error.to_string())?;
+    let started_at = Instant::now();
+
+    loop {
+        match child.try_wait().map_err(|error| error.to_string())? {
+            Some(_) => return child.wait_with_output().map_err(|error| error.to_string()),
+            None if started_at.elapsed() >= timeout => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(format!(
+                    "Git command timed out after {} seconds.",
+                    timeout.as_secs()
+                ));
+            }
+            None => thread::sleep(Duration::from_millis(25)),
+        }
+    }
 }
 
 fn parse_git_diff_output(output: &str) -> Vec<ProjectDiffFile> {
