@@ -413,7 +413,28 @@ fn load_current_state(connection: &Connection) -> Result<Option<PersistedState>,
 }
 
 fn state_requires_intent_migration(payload: &str) -> bool {
-    payload.contains("\"threads\"") && !payload.contains("\"intent\"")
+    let Ok(value) = serde_json::from_str::<serde_json::Value>(payload) else {
+        return false;
+    };
+    value
+        .get("projects")
+        .and_then(serde_json::Value::as_array)
+        .is_some_and(|projects| {
+            projects
+                .iter()
+                .flat_map(|project| {
+                    project
+                        .get("threads")
+                        .and_then(serde_json::Value::as_array)
+                        .into_iter()
+                        .flatten()
+                })
+                .any(|thread| {
+                    thread
+                        .as_object()
+                        .is_some_and(|object| !object.contains_key("intent"))
+                })
+        })
 }
 
 fn write_current_state(connection: &Connection, state: &PersistedState) -> Result<(), String> {
@@ -454,5 +475,29 @@ fn event_type(event: &AppEvent) -> &'static str {
         AppEvent::ModelsUpdated { .. } => "models-updated",
         AppEvent::HealthUpdated { .. } => "health-updated",
         AppEvent::IntegrationsUpdated { .. } => "integrations-updated",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::state_requires_intent_migration;
+
+    #[test]
+    fn detects_threads_missing_intent() {
+        let payload = r#"{"projects":[{"threads":[{"id":"thread-1","title":"Explore"}]}]}"#;
+
+        assert!(state_requires_intent_migration(payload));
+    }
+
+    #[test]
+    fn skips_threads_that_already_have_intent() {
+        let payload = r#"{"projects":[{"threads":[{"id":"thread-1","intent":"understand"}]}]}"#;
+
+        assert!(!state_requires_intent_migration(payload));
+    }
+
+    #[test]
+    fn ignores_invalid_json_for_migration_detection() {
+        assert!(!state_requires_intent_migration("{"));
     }
 }
