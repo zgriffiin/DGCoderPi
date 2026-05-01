@@ -216,6 +216,7 @@ impl PiBridge {
             json!({
                 "attachments": input.attachments,
                 "cwd": input.cwd,
+                "intentGuidance": input.intent_guidance,
                 "messages": input.messages,
                 "modelKey": input.model_key,
                 "thinkingLevel": input.thinking_level,
@@ -351,6 +352,7 @@ pub struct BridgePromptRequest<'a> {
     pub attachments: &'a [BridgePromptAttachment],
     pub command_name: &'a str,
     pub cwd: &'a str,
+    pub intent_guidance: &'a str,
     pub messages: &'a [crate::model::MessageRecord],
     pub model_key: &'a str,
     pub text: &'a str,

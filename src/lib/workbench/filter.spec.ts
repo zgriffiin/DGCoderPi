@@ -14,6 +14,7 @@ function buildProject(): ProjectRecord {
 				attachments: [],
 				branch: 'feature/queue-aware-ui',
 				id: 'thread-1',
+				intent: 'understand',
 				lastError: null,
 				lastUserMessageAtMs: 0,
 				messages: [
@@ -37,6 +38,7 @@ function buildProject(): ProjectRecord {
 				attachments: [],
 				branch: 'feature/attachments',
 				id: 'thread-2',
+				intent: 'understand',
 				lastError: null,
 				lastUserMessageAtMs: 2,
 				messages: [

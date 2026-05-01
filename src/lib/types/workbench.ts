@@ -28,6 +28,8 @@ type QueueStatus = 'failed' | 'pending';
 
 type ThreadStatus = 'completed' | 'failed' | 'idle' | 'running';
 
+export type ThreadIntent = 'implement' | 'plan' | 'review' | 'ship' | 'understand';
+
 export interface AppSnapshot {
 	health: AppHealth;
 	integrations: AppIntegrations;
@@ -98,6 +100,7 @@ export interface ThreadRecord {
 	attachments: AttachmentRecord[];
 	branch: string;
 	id: string;
+	intent: ThreadIntent;
 	lastError: string | null;
 	lastUserMessageAtMs: number;
 	messages: MessageRecord[];
@@ -110,9 +113,15 @@ export interface ThreadRecord {
 }
 
 interface ActivityRecord {
+	actor: string | null;
 	detail: string;
 	id: string;
+	kind: 'general' | 'intent-switch';
+	newIntent: ThreadIntent | null;
+	previousIntent: ThreadIntent | null;
+	reason: string | null;
 	timestampMs: number;
+	threadId: string | null;
 	title: string;
 	tone: ActivityTone;
 }

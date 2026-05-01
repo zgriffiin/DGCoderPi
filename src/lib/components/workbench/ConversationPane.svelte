@@ -2,10 +2,12 @@
 	import { onDestroy } from 'svelte';
 	import { tick } from 'svelte';
 	import { InlineNotification } from 'carbon-components-svelte';
-	import type { ProjectRecord, ThreadRecord } from '$lib/types/workbench';
+	import type { ProjectRecord, ThreadIntent, ThreadRecord } from '$lib/types/workbench';
+	import { THREAD_INTENTS, threadIntentLabel } from '$lib/workbench/thread-intents';
 	import ThreadMessage from './ThreadMessage.svelte';
 
 	type Props = {
+		onIntentChange: (intent: ThreadIntent) => void;
 		project: ProjectRecord | null;
 		runtimeError: string | null;
 		thread: ThreadRecord | null;
@@ -21,6 +23,10 @@
 		return thread.messages.filter(
 			(message) => message.role === 'assistant' || message.role === 'user'
 		);
+	}
+
+	function visibleIntentActivities(thread: ThreadRecord | null) {
+		return (thread?.activities ?? []).filter((activity) => activity.kind === 'intent-switch');
 	}
 
 	function threadLabel(project: ProjectRecord | null, thread: ThreadRecord | null) {
@@ -76,22 +82,36 @@
 	let stickToBottom = $state(true);
 	let visibleMessageCount = $state(MESSAGE_PAGE_SIZE);
 
-	let { project, runtimeError, thread }: Props = $props();
+	let { onIntentChange, project, runtimeError, thread }: Props = $props();
 
 	const messages = $derived(visibleMessages(thread));
-	const hiddenMessageCount = $derived(Math.max(0, messages.length - visibleMessageCount));
+	const intentActivities = $derived(visibleIntentActivities(thread));
+	const timeline = $derived(
+		[
+			...messages.map((message) => ({
+				id: message.id,
+				item: message,
+				timestampMs: message.timestampMs,
+				type: 'message' as const
+			})),
+			...intentActivities.map((activity) => ({
+				id: activity.id,
+				item: activity,
+				timestampMs: activity.timestampMs,
+				type: 'activity' as const
+			}))
+		].sort((left, right) => left.timestampMs - right.timestampMs)
+	);
+	const hiddenMessageCount = $derived(Math.max(0, timeline.length - visibleMessageCount));
 	const pagedMessages = $derived(
-		hiddenMessageCount > 0 ? messages.slice(-visibleMessageCount) : messages
+		hiddenMessageCount > 0 ? timeline.slice(-visibleMessageCount) : timeline
 	);
 	const runStatus = $derived(buildRunStatus(thread, nowMs));
 	const scrollKey = $derived.by(() => {
-		const lastMessage = pagedMessages.at(-1);
-		return [
-			thread?.id ?? '',
-			lastMessage?.id ?? '',
-			lastMessage?.status ?? '',
-			lastMessage?.text.length ?? 0
-		].join('|');
+		const lastEntry = pagedMessages.at(-1);
+		const textLength = lastEntry?.type === 'message' ? lastEntry.item.text.length : 0;
+		const status = lastEntry?.type === 'message' ? lastEntry.item.status : '';
+		return [thread?.id ?? '', lastEntry?.id ?? '', status, textLength].join('|');
 	});
 
 	function handleActivityScroll() {
@@ -169,7 +189,12 @@
 
 <section class="conversation-pane">
 	<header class="pane-header pane-header--compact">
-		<h2>{threadLabel(project, thread)}</h2>
+		<div class="pane-header__identity">
+			<h2>{threadLabel(project, thread)}</h2>
+			{#if thread}
+				<span class="intent-label">{threadIntentLabel(thread.intent)}</span>
+			{/if}
+		</div>
 		{#if runStatus?.runningFor}
 			<div class="thread-status-inline">
 				<span class="visually-hidden" aria-live="polite">Thread running</span>
@@ -180,6 +205,22 @@
 				</div>
 				<p aria-hidden="true">Working for {runStatus.runningFor}</p>
 			</div>
+		{/if}
+		{#if thread}
+			<fieldset class="intent-switcher" aria-label="Thread intent">
+				{#each THREAD_INTENTS as intent (intent.value)}
+					<label data-selected={thread.intent === intent.value ? 'true' : undefined}>
+						<input
+							checked={thread.intent === intent.value}
+							name={`thread-intent-${thread.id}`}
+							onchange={() => onIntentChange(intent.value)}
+							type="radio"
+							value={intent.value}
+						/>
+						<span>{intent.label}</span>
+					</label>
+				{/each}
+			</fieldset>
 		{/if}
 	</header>
 
@@ -202,7 +243,7 @@
 	{/if}
 
 	<div bind:this={activityListElement} class="activity-list" onscroll={handleActivityScroll}>
-		{#if messages.length}
+		{#if timeline.length}
 			{#if hiddenMessageCount > 0}
 				<div class="conversation-load-more">
 					<button type="button" onclick={showOlderMessages}>
@@ -211,8 +252,15 @@
 					<span>{hiddenMessageCount} hidden</span>
 				</div>
 			{/if}
-			{#each pagedMessages as message (message.id)}
-				<ThreadMessage {message} />
+			{#each pagedMessages as entry (entry.id)}
+				{#if entry.type === 'message'}
+					<ThreadMessage message={entry.item} />
+				{:else}
+					<div class="activity-entry" data-kind="intent-switch">
+						<span>{entry.item.title}</span>
+						<p>{entry.item.detail}</p>
+					</div>
+				{/if}
 			{/each}
 		{:else}
 			<div class="conversation-empty">

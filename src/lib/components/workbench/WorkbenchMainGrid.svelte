@@ -6,6 +6,7 @@
 		ModelOption,
 		ProjectRecord,
 		PromptMode,
+		ThreadIntent,
 		ThinkingLevel,
 		ThreadRecord
 	} from '$lib/types/workbench';
@@ -35,6 +36,7 @@
 		onBeginResize: (pane: 'left' | 'right', event: PointerEvent) => void;
 		onCreateThread: (projectId: string) => void;
 		onDraftChange: (value: string) => void;
+		onIntentChange: (intent: ThreadIntent) => void;
 		onMoveProject: (projectId: string, targetIndex: number) => void;
 		onModelChange: (modelKey: string) => void;
 		onNudgePaneWidth: (pane: 'left' | 'right', delta: number) => void;
@@ -89,6 +91,7 @@
 		onBeginResize,
 		onCreateThread,
 		onDraftChange,
+		onIntentChange,
 		onMoveProject,
 		onModelChange,
 		onNudgePaneWidth,
@@ -163,7 +166,12 @@
 	{/if}
 
 	<div class="center-column">
-		<ConversationPane project={activeProject} {runtimeError} thread={activeThread} />
+		<ConversationPane
+			{onIntentChange}
+			project={activeProject}
+			{runtimeError}
+			thread={activeThread}
+		/>
 		<ComposerPanel
 			{attachments}
 			canSend={Boolean(activeThread) && snapshot.models.length > 0}

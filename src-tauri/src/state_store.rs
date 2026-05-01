@@ -27,12 +27,16 @@ pub fn load_state(data_dir: &Path) -> Result<PersistedState, String> {
     let file_path = legacy_state_file_path(data_dir);
     if file_path.exists() {
         let content = fs::read_to_string(&file_path).map_err(|error| error.to_string())?;
+        let needs_intent_migration = state_requires_intent_migration(&content);
         let mut state =
             serde_json::from_str::<PersistedState>(&content).map_err(|error| error.to_string())?;
-        if state.settings.providers.is_empty() {
+        let missing_providers = state.settings.providers.is_empty();
+        if missing_providers {
             state.settings.providers = default_providers();
         }
-        replace_state(data_dir, &state)?;
+        if missing_providers || needs_intent_migration {
+            replace_state(data_dir, &state)?;
+        }
         return Ok(state);
     }
 
@@ -393,12 +397,44 @@ fn load_current_state(connection: &Connection) -> Result<Option<PersistedState>,
     };
 
     let payload: String = row.get(0).map_err(|error| error.to_string())?;
+    drop(rows);
+    drop(statement);
+    let needs_intent_migration = state_requires_intent_migration(&payload);
     let mut state =
         serde_json::from_str::<PersistedState>(&payload).map_err(|error| error.to_string())?;
-    if state.settings.providers.is_empty() {
+    let missing_providers = state.settings.providers.is_empty();
+    if missing_providers {
         state.settings.providers = default_providers();
     }
+    if missing_providers || needs_intent_migration {
+        write_current_state(connection, &state)?;
+    }
     Ok(Some(state))
+}
+
+fn state_requires_intent_migration(payload: &str) -> bool {
+    let Ok(value) = serde_json::from_str::<serde_json::Value>(payload) else {
+        return false;
+    };
+    value
+        .get("projects")
+        .and_then(serde_json::Value::as_array)
+        .is_some_and(|projects| {
+            projects
+                .iter()
+                .flat_map(|project| {
+                    project
+                        .get("threads")
+                        .and_then(serde_json::Value::as_array)
+                        .into_iter()
+                        .flatten()
+                })
+                .any(|thread| {
+                    thread
+                        .as_object()
+                        .is_some_and(|object| !object.contains_key("intent"))
+                })
+        })
 }
 
 fn write_current_state(connection: &Connection, state: &PersistedState) -> Result<(), String> {
@@ -439,5 +475,29 @@ fn event_type(event: &AppEvent) -> &'static str {
         AppEvent::ModelsUpdated { .. } => "models-updated",
         AppEvent::HealthUpdated { .. } => "health-updated",
         AppEvent::IntegrationsUpdated { .. } => "integrations-updated",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::state_requires_intent_migration;
+
+    #[test]
+    fn detects_threads_missing_intent() {
+        let payload = r#"{"projects":[{"threads":[{"id":"thread-1","title":"Explore"}]}]}"#;
+
+        assert!(state_requires_intent_migration(payload));
+    }
+
+    #[test]
+    fn skips_threads_that_already_have_intent() {
+        let payload = r#"{"projects":[{"threads":[{"id":"thread-1","intent":"understand"}]}]}"#;
+
+        assert!(!state_requires_intent_migration(payload));
+    }
+
+    #[test]
+    fn ignores_invalid_json_for_migration_detection() {
+        assert!(!state_requires_intent_migration("{"));
     }
 }

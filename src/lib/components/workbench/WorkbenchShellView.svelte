@@ -7,6 +7,7 @@
 		ModelOption,
 		ProjectRecord,
 		PromptMode,
+		ThreadIntent,
 		ThinkingLevel,
 		ThreadRecord
 	} from '$lib/types/workbench';
@@ -65,6 +66,7 @@
 		handleAddProjectDraftChange: (value: string) => void;
 		handleDraftChange: (value: string) => void;
 		handleImportCodexOpenAiKey: () => void;
+		handleIntentChange: (intent: ThreadIntent) => void;
 		handleModelChange: (modelKey: string) => void;
 		handleMoveProject: (projectId: string, targetIndex: number) => void;
 		handleOpenDiff: (projectId: string, threadId?: string) => void;
@@ -251,6 +253,7 @@
 	onCreateThread={actions.handleCreateThreadForProject}
 	onDraftChange={actions.handleDraftChange}
 	onModelChange={actions.handleModelChange}
+	onIntentChange={actions.handleIntentChange}
 	onMoveProject={actions.handleMoveProject}
 	onNudgePaneWidth={nudgePaneWidth}
 	onOpenDiff={actions.handleOpenDiff}

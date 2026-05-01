@@ -6,9 +6,9 @@ use crate::{
     model::{
         AddProjectInput, AppHealth, AppSnapshot, AppUpdate, CreateThreadInput, MoveProjectInput,
         ProviderKeyInput, RemoveAttachmentInput, RemoveProjectInput, RemoveThreadInput,
-        RenameProjectInput, RenameThreadInput, SelectModelInput, SelectReasoningInput,
-        SendPromptInput, SetDiffAnalysisModelInput, StageAttachmentDataInput, StageAttachmentInput,
-        ToggleFeatureInput,
+        RenameProjectInput, RenameThreadInput, SelectIntentInput, SelectModelInput,
+        SelectReasoningInput, SendPromptInput, SetDiffAnalysisModelInput, StageAttachmentDataInput,
+        StageAttachmentInput, ToggleFeatureInput,
     },
 };
 
@@ -95,6 +95,14 @@ pub fn select_reasoning(
     runtime: State<'_, AppRuntime>,
 ) -> UpdateCommandResult {
     runtime.select_reasoning(input)
+}
+
+#[tauri::command]
+pub fn select_intent(
+    input: SelectIntentInput,
+    runtime: State<'_, AppRuntime>,
+) -> UpdateCommandResult {
+    runtime.select_intent(input)
 }
 
 #[tauri::command]

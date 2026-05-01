@@ -152,6 +152,8 @@ pub struct ThreadRecord {
     pub attachments: Vec<AttachmentRecord>,
     pub branch: String,
     pub id: String,
+    #[serde(default)]
+    pub intent: ThreadIntent,
     pub last_error: Option<String>,
     #[serde(default)]
     pub last_user_message_at_ms: u64,
@@ -190,6 +192,49 @@ impl ThinkingLevel {
     }
 }
 
+#[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum ThreadIntent {
+    #[default]
+    Understand,
+    Review,
+    Plan,
+    Implement,
+    Ship,
+}
+
+impl ThreadIntent {
+    pub fn as_label(&self) -> &'static str {
+        match self {
+            Self::Understand => "Understand",
+            Self::Review => "Review",
+            Self::Plan => "Plan",
+            Self::Implement => "Implement",
+            Self::Ship => "Ship",
+        }
+    }
+
+    pub fn guidance(&self) -> &'static str {
+        match self {
+            Self::Understand => {
+                "Intent: Understand. Explain the subsystem, flow, files, assumptions, and gaps."
+            }
+            Self::Review => {
+                "Intent: Review. Lead with findings, then risks, regressions, and missing tests."
+            }
+            Self::Plan => {
+                "Intent: Plan. Provide steps, dependencies, validation, and risks. Do not change code unless explicitly asked."
+            }
+            Self::Implement => {
+                "Intent: Implement. Make scoped code changes and report validation."
+            }
+            Self::Ship => {
+                "Intent: Ship. Validate, fix, commit, push, open or update the PR, and resolve review feedback."
+            }
+        }
+    }
+}
+
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MessageRecord {
@@ -224,9 +269,29 @@ pub enum MessageStatus {
 pub struct ActivityRecord {
     pub detail: String,
     pub id: String,
+    #[serde(default)]
+    pub kind: ActivityKind,
+    #[serde(default)]
+    pub new_intent: Option<ThreadIntent>,
+    #[serde(default)]
+    pub previous_intent: Option<ThreadIntent>,
+    #[serde(default)]
+    pub reason: Option<String>,
     pub timestamp_ms: u64,
     pub title: String,
     pub tone: ActivityTone,
+    #[serde(default)]
+    pub actor: Option<String>,
+    #[serde(default)]
+    pub thread_id: Option<String>,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum ActivityKind {
+    #[default]
+    General,
+    IntentSwitch,
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
@@ -433,7 +498,34 @@ pub struct SelectReasoningInput {
 
 #[derive(Clone, Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct SelectIntentInput {
+    pub intent: ThreadIntent,
+    pub reason: Option<String>,
+    pub thread_id: String,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct RenameThreadInput {
     pub thread_id: String,
     pub title: String,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ThreadIntent;
+
+    #[test]
+    fn thread_intent_guidance_keeps_plan_non_executing_by_default() {
+        let guidance = ThreadIntent::Plan.guidance();
+
+        assert!(guidance.contains("Do not change code unless explicitly asked"));
+    }
+
+    #[test]
+    fn thread_intent_guidance_shapes_review_findings_first() {
+        let guidance = ThreadIntent::Review.guidance();
+
+        assert!(guidance.contains("Lead with findings"));
+    }
 }

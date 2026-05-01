@@ -73,6 +73,7 @@ pub fn run() {
             commands::rename_project,
             commands::rename_thread,
             commands::select_model,
+            commands::select_intent,
             commands::select_reasoning,
             commands::send_prompt,
             commands::set_diff_analysis_model,

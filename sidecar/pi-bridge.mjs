@@ -12,6 +12,7 @@ import {
 import { readCodexOauthCredential } from './codex-auth.mjs';
 import { analyzeDiff } from './diff-analysis.mjs';
 import { parseAttachment } from './docparser.mjs';
+import { formatPromptText } from './prompt-format.mjs';
 import {
 	evictDormantSessions,
 	recordSessionPreferences,
@@ -151,7 +152,10 @@ class BridgeRuntime {
 		const sessionEntry = await this.ensureSession(payload);
 		touchSession(sessionEntry);
 		const images = await this.collectImages(payload.attachments, sessionEntry.model);
-		const prompt = this.formatPrompt(payload.text, payload.attachments);
+		const prompt = this.formatPrompt(payload.text, payload.attachments, payload.intentGuidance);
+		console.error(
+			`[prompt-timing] thread=${payload.threadId} command-ready-at=${new Date().toISOString()}`
+		);
 		this.runSessionCommand(payload.threadId, () =>
 			executeTurn(sessionEntry.session, prompt, images)
 		);
@@ -387,17 +391,8 @@ class BridgeRuntime {
 		})();
 	}
 
-	formatPrompt(text, attachments) {
-		if (!attachments || attachments.length === 0) {
-			return text;
-		}
-
-		const lines = attachments.map((attachment) => {
-			const preview = attachment.previewText ? `\n  Preview: ${attachment.previewText}` : '';
-			return `- ${attachment.name} (${attachment.mimeType}) at ${attachment.path}${preview}`;
-		});
-
-		return `${text}\n\nAttached files:\n${lines.join('\n')}\nUse the local file paths above when you need to inspect these attachments.`;
+	formatPrompt(text, attachments, intentGuidance) {
+		return formatPromptText(text, attachments, intentGuidance);
 	}
 
 	async collectImages(attachments, model) {
