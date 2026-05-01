@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import type { InspectorMode, ThinkingLevel } from '$lib/types/workbench';
+	import type { InspectorMode, ThreadIntent, ThinkingLevel } from '$lib/types/workbench';
 	import { buildShipSlicePrompt } from '$lib/workbench/preset-prompts';
 	import { createWorkbenchController } from '$lib/workbench/controller';
 	import {
@@ -200,6 +200,14 @@
 
 		await runAction(async () => {
 			await controller.selectModel(activeThread.id, modelKey);
+		});
+	}
+
+	async function handleIntentChange(intent: ThreadIntent) {
+		if (!activeThread) return;
+
+		await runAction(async () => {
+			await controller.selectIntent(activeThread.id, intent);
 		});
 	}
 
@@ -418,6 +426,7 @@
 			handleDiffAnalysisModelChange,
 			handleDraftChange,
 			handleImportCodexOpenAiKey,
+			handleIntentChange,
 			handleModelChange,
 			handleMoveProject,
 			handleOpenDiff,

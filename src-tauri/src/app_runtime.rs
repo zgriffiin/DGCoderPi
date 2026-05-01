@@ -29,9 +29,9 @@ use crate::{
         AppUpdate, AttachmentParseStatus, AttachmentStage, CreateThreadInput, MessageRecord,
         MessageRole, MessageStatus, ModelOption, MoveProjectInput, PersistedState, PromptMode,
         ProviderKeyInput, RemoveAttachmentInput, RemoveProjectInput, RemoveThreadInput,
-        RenameProjectInput, RenameThreadInput, SelectModelInput, SelectReasoningInput,
-        SendPromptInput, SetDiffAnalysisModelInput, StageAttachmentDataInput, StageAttachmentInput,
-        ThreadRecord, ThreadStatus, ToggleFeatureInput,
+        RenameProjectInput, RenameThreadInput, SelectIntentInput, SelectModelInput,
+        SelectReasoningInput, SendPromptInput, SetDiffAnalysisModelInput, StageAttachmentDataInput,
+        StageAttachmentInput, ThreadIntent, ThreadRecord, ThreadStatus, ToggleFeatureInput,
     },
     pi_bridge::{
         attachment_status_from_bridge, BridgeActivity, BridgeEnvironment, BridgeEvent,
@@ -65,6 +65,7 @@ struct AppRuntimeInner {
 struct PreparedPrompt {
     attachments: Vec<BridgePromptAttachment>,
     cwd: String,
+    intent_guidance: String,
     messages: Vec<MessageRecord>,
     model_key: String,
     thinking_level: String,
@@ -380,6 +381,26 @@ impl AppRuntime {
         self.persist_and_return(update)
     }
 
+    pub fn select_intent(&self, input: SelectIntentInput) -> Result<AppUpdate, String> {
+        let update = self.mutate_thread(&input.thread_id, |thread| {
+            if thread.intent == input.intent {
+                return Ok(());
+            }
+            let previous_intent = thread.intent.clone();
+            thread.intent = input.intent.clone();
+            append_intent_switch_activity(
+                thread,
+                &input.thread_id,
+                previous_intent,
+                input.intent.clone(),
+                "user",
+                input.reason.clone(),
+            );
+            Ok(())
+        })?;
+        self.persist_and_return(update)
+    }
+
     pub fn set_provider_key(&self, input: ProviderKeyInput) -> Result<AppUpdate, String> {
         let environment = self
             .bridge()?
@@ -584,6 +605,7 @@ impl AppRuntime {
             attachments: &prepared.attachments,
             command_name,
             cwd: &prepared.cwd,
+            intent_guidance: &prepared.intent_guidance,
             messages: &prepared.messages,
             model_key: &prepared.model_key,
             text: &input.text,
@@ -1146,6 +1168,7 @@ impl AppRuntime {
         let project = &state.projects[project_index];
         let thread = &project.threads[thread_index];
         let project_path = project.path.clone();
+        let intent = thread.intent.clone();
         let messages = thread.messages.clone();
         let model_key = thread
             .model_key
@@ -1188,6 +1211,7 @@ impl AppRuntime {
         Ok(PreparedPrompt {
             attachments,
             cwd: project_path,
+            intent_guidance: intent.guidance().to_string(),
             messages,
             model_key,
             thinking_level,
@@ -1481,9 +1505,60 @@ fn append_activity(
     thread.activities.push(ActivityRecord {
         detail,
         id: Uuid::new_v4().to_string(),
+        kind: crate::model::ActivityKind::General,
+        new_intent: None,
+        previous_intent: None,
+        reason: None,
         timestamp_ms: now_ms(),
         title: title.to_string(),
         tone,
+        actor: None,
+        thread_id: None,
+    });
+
+    if thread.activities.len() > MAX_ACTIVITY_ENTRIES {
+        let overflow = thread.activities.len() - MAX_ACTIVITY_ENTRIES;
+        thread.activities.drain(0..overflow);
+    }
+}
+
+fn append_intent_switch_activity(
+    thread: &mut ThreadRecord,
+    thread_id: &str,
+    previous_intent: ThreadIntent,
+    new_intent: ThreadIntent,
+    actor: &str,
+    reason: Option<String>,
+) {
+    let detail = match reason
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        Some(reason) => format!(
+            "{} -> {}. {reason}",
+            previous_intent.as_label(),
+            new_intent.as_label()
+        ),
+        None => format!(
+            "{} -> {}",
+            previous_intent.as_label(),
+            new_intent.as_label()
+        ),
+    };
+
+    thread.activities.push(ActivityRecord {
+        detail,
+        id: Uuid::new_v4().to_string(),
+        kind: crate::model::ActivityKind::IntentSwitch,
+        new_intent: Some(new_intent.clone()),
+        previous_intent: Some(previous_intent),
+        reason,
+        timestamp_ms: now_ms(),
+        title: format!("Intent set to {}", new_intent.as_label()),
+        tone: crate::model::ActivityTone::System,
+        actor: Some(actor.to_string()),
+        thread_id: Some(thread_id.to_string()),
     });
 
     if thread.activities.len() > MAX_ACTIVITY_ENTRIES {
@@ -1653,12 +1728,12 @@ fn launch_codex_login() -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::{
-        latest_user_message_timestamp, normalize_state, project_insert_index,
-        sync_thread_model_selection,
+        append_intent_switch_activity, latest_user_message_timestamp, normalize_state,
+        project_insert_index, sync_thread_model_selection,
     };
     use crate::model::{
         MessageRecord, MessageRole, MessageStatus, PersistedState, ProjectRecord, QueueEntry,
-        QueueMode, QueueStatus, ThreadRecord, ThreadStatus,
+        QueueMode, QueueStatus, ThreadIntent, ThreadRecord, ThreadStatus,
     };
     use std::collections::HashSet;
 
@@ -1771,6 +1846,31 @@ mod tests {
         let timestamp = latest_user_message_timestamp(messages.iter(), 10);
 
         assert_eq!(timestamp, 55);
+    }
+
+    #[test]
+    fn intent_switch_activity_records_structured_change() {
+        let mut thread = ThreadRecord {
+            intent: ThreadIntent::Understand,
+            ..ThreadRecord::default()
+        };
+
+        append_intent_switch_activity(
+            &mut thread,
+            "thread-1",
+            ThreadIntent::Understand,
+            ThreadIntent::Review,
+            "user",
+            None,
+        );
+
+        let activity = thread
+            .activities
+            .last()
+            .expect("activity should be recorded");
+        assert_eq!(activity.thread_id.as_deref(), Some("thread-1"));
+        assert_eq!(activity.previous_intent, Some(ThreadIntent::Understand));
+        assert_eq!(activity.new_intent, Some(ThreadIntent::Review));
     }
 }
 

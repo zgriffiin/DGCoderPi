@@ -10,6 +10,7 @@ import type {
 	DiffAnalysis,
 	ProjectDiffSnapshot,
 	PromptMode,
+	ThreadIntent,
 	ThinkingLevel
 } from '$lib/types/workbench';
 import { EMPTY_SNAPSHOT } from '$lib/workbench/workbench-defaults';
@@ -355,6 +356,11 @@ function createThreadActions(
 		async selectModel(threadId: string, modelKey: string) {
 			await runAndApplyUpdate(
 				runCommand<AppUpdate>('select_model', { input: { modelKey, threadId } })
+			);
+		},
+		async selectIntent(threadId: string, intent: ThreadIntent) {
+			await runAndApplyUpdate(
+				runCommand<AppUpdate>('select_intent', { input: { intent, reason: null, threadId } })
 			);
 		},
 		async selectReasoning(threadId: string, reasoningLevel: ThinkingLevel) {

@@ -27,12 +27,16 @@ pub fn load_state(data_dir: &Path) -> Result<PersistedState, String> {
     let file_path = legacy_state_file_path(data_dir);
     if file_path.exists() {
         let content = fs::read_to_string(&file_path).map_err(|error| error.to_string())?;
+        let needs_intent_migration = state_requires_intent_migration(&content);
         let mut state =
             serde_json::from_str::<PersistedState>(&content).map_err(|error| error.to_string())?;
-        if state.settings.providers.is_empty() {
+        let missing_providers = state.settings.providers.is_empty();
+        if missing_providers {
             state.settings.providers = default_providers();
         }
-        replace_state(data_dir, &state)?;
+        if missing_providers || needs_intent_migration {
+            replace_state(data_dir, &state)?;
+        }
         return Ok(state);
     }
 
@@ -393,12 +397,23 @@ fn load_current_state(connection: &Connection) -> Result<Option<PersistedState>,
     };
 
     let payload: String = row.get(0).map_err(|error| error.to_string())?;
+    drop(rows);
+    drop(statement);
+    let needs_intent_migration = state_requires_intent_migration(&payload);
     let mut state =
         serde_json::from_str::<PersistedState>(&payload).map_err(|error| error.to_string())?;
-    if state.settings.providers.is_empty() {
+    let missing_providers = state.settings.providers.is_empty();
+    if missing_providers {
         state.settings.providers = default_providers();
     }
+    if missing_providers || needs_intent_migration {
+        write_current_state(connection, &state)?;
+    }
     Ok(Some(state))
+}
+
+fn state_requires_intent_migration(payload: &str) -> bool {
+    payload.contains("\"threads\"") && !payload.contains("\"intent\"")
 }
 
 fn write_current_state(connection: &Connection, state: &PersistedState) -> Result<(), String> {

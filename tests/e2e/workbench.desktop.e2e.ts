@@ -72,6 +72,8 @@ async function addProjectAndThread(page: import('@playwright/test').Page) {
 	await expect(page.getByRole('button', { name: 'Start' })).toBeVisible();
 	await expect(page.getByRole('button', { exact: true, name: 'Attach' })).toBeVisible();
 	await expect(page.getByRole('button', { exact: true, name: 'Ship' })).toBeVisible();
+	await expect(page.getByRole('radio', { name: 'Understand' })).toBeChecked();
+	await expect(page.locator('.thread-row[data-selected="true"]')).toContainText('Understand');
 }
 
 function escapeRegExp(value: string) {
@@ -273,6 +275,23 @@ async function verifyLeftPanelActions(page: import('@playwright/test').Page, rep
 	).toBeVisible();
 }
 
+async function verifyThreadIntentSwitching(page: import('@playwright/test').Page) {
+	await page.getByRole('radio', { name: 'Plan' }).check();
+	await expect(page.getByRole('radio', { name: 'Plan' })).toBeChecked();
+	await expect(page.locator('.thread-row[data-selected="true"]')).toContainText('Plan');
+	await expect(page.locator('.activity-entry[data-kind="intent-switch"]')).toContainText(
+		'Intent set to Plan'
+	);
+	await page.getByRole('radio', { name: 'Plan' }).check();
+	await expect(page.locator('.activity-entry[data-kind="intent-switch"]')).toHaveCount(1);
+	await page.getByRole('radio', { name: 'Review' }).check();
+	await expect(page.getByRole('radio', { name: 'Review' })).toBeChecked();
+	await expect(page.locator('.thread-row[data-selected="true"]')).toContainText('Review');
+	await expect(page.locator('.activity-entry[data-kind="intent-switch"]').last()).toContainText(
+		'Intent set to Review'
+	);
+}
+
 async function removeSelectedProjectFromRail(page: import('@playwright/test').Page) {
 	const selectedProject = page.locator('.project-section[data-selected="true"]');
 	await selectedProject.getByLabel('Project actions').click();
@@ -455,6 +474,7 @@ test('runs the real desktop workflow through Tauri', async () => {
 		await addProjectByPath(page, sampleRepo);
 		await createThreadForProject(page, sampleRepo);
 		await verifyLeftPanelActions(page, sampleRepo);
+		await verifyThreadIntentSwitching(page);
 		await verifySettingsAndDiff(page, sampleRepo, 'Sample workspace');
 		await verifyShipWithDiffShowsReviewGate(page);
 		await attachReadmeToSelectedThread(page);
