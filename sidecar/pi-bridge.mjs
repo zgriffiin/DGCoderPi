@@ -1,6 +1,6 @@
+import { createHash } from 'node:crypto';
 import { readFile, mkdir, stat } from 'node:fs/promises';
 import path from 'node:path';
-import readline from 'node:readline';
 
 import {
 	AuthStorage,
@@ -9,6 +9,20 @@ import {
 	ModelRegistry,
 	SettingsManager
 } from '@mariozechner/pi-coding-agent';
+import {
+	describeSessionCommandError,
+	logSessionCommandFailure,
+	safeFindLatestAssistantError
+} from './bridge-errors.mjs';
+import { logAgentEvent, logDiagnostic, readFeatures } from './bridge-diagnostics.mjs';
+import {
+	clearRun,
+	heartbeatPayload,
+	noteRunEvent,
+	shouldSendHeartbeat,
+	shouldWarnStalled,
+	startRun
+} from './bridge-run-state.mjs';
 import { readCodexOauthCredential } from './codex-auth.mjs';
 import { analyzeDiff } from './diff-analysis.mjs';
 import { parseAttachment } from './docparser.mjs';
@@ -19,6 +33,7 @@ import {
 	sessionManagerForPayload,
 	touchSession
 } from './session-history.mjs';
+import { runBridge, writeMessage } from './bridge-dispatch.mjs';
 import { buildActivity, buildThreadSnapshot } from './thread-snapshot.mjs';
 const PROVIDERS = [
 	['anthropic', 'Anthropic'],
@@ -42,6 +57,13 @@ const PREFERRED_MODEL_KEYS = [
 	'openai::gpt-5.4-mini'
 ];
 const MAX_IMAGE_ATTACHMENT_BYTES = 5 * 1024 * 1024;
+
+function hashDiagnosticText(value) {
+	if (typeof value !== 'string' || value.length === 0) {
+		return null;
+	}
+	return createHash('sha256').update(value).digest('hex').slice(0, 16);
+}
 
 function formatBytes(bytes) {
 	if (bytes >= 1024 * 1024) {
@@ -67,15 +89,19 @@ function isSupportedWorkbenchModel(model, usingChatGptSubscription) {
 	);
 }
 
+function providerLabelForModel(model, codexCredential) {
+	switch (model.provider) {
+		case 'openai-codex':
+			return codexCredential?.type === 'oauth' ? 'Pro Account' : 'API';
+		case 'openai':
+			return 'API';
+		default:
+			return PROVIDERS.find(([provider]) => provider === model.provider)?.[1] ?? null;
+	}
+}
+
 function modelLabel(model, codexCredential) {
-	const providerLabel =
-		model.provider === 'openai-codex'
-			? codexCredential?.type === 'oauth'
-				? 'Pro Account'
-				: 'API'
-			: model.provider === 'openai'
-				? 'API'
-				: PROVIDERS.find(([provider]) => provider === model.provider)?.[1];
+	const providerLabel = providerLabelForModel(model, codexCredential);
 	return providerLabel ? `${model.name} (${providerLabel})` : model.name;
 }
 
@@ -83,14 +109,16 @@ class BridgeRuntime {
 	constructor() {
 		this.agentDir = '';
 		this.authStorage = undefined;
-		this.features = { docparserEnabled: true };
+		this.features = { diagnosticLoggingEnabled: true, docparserEnabled: true };
+		this.lastThreadUpdateSignatures = new Map();
 		this.modelRegistry = undefined;
+		this.runStates = new Map();
 		this.sessions = new Map();
 	}
 
 	async bootstrap(payload) {
 		this.agentDir = path.join(payload.appDataDir, 'pi-agent');
-		this.features = { docparserEnabled: Boolean(payload.docparserEnabled) };
+		this.features = readFeatures(payload);
 		await mkdir(this.agentDir, { recursive: true });
 		this.authStorage = AuthStorage.create(path.join(this.agentDir, 'auth.json'));
 		this.modelRegistry = ModelRegistry.create(
@@ -120,7 +148,7 @@ class BridgeRuntime {
 	}
 
 	async setFeatures(payload) {
-		this.features = { docparserEnabled: Boolean(payload.docparserEnabled) };
+		this.features = readFeatures(payload);
 		this.disposeSessions();
 		return this.buildEnvironment();
 	}
@@ -153,9 +181,22 @@ class BridgeRuntime {
 		touchSession(sessionEntry);
 		const images = await this.collectImages(payload.attachments, sessionEntry.model);
 		const prompt = this.formatPrompt(payload.text, payload.attachments, payload.intentGuidance);
-		console.error(
-			`[prompt-timing] thread=${payload.threadId} command-ready-at=${new Date().toISOString()}`
-		);
+		logDiagnostic(this.features, 'prompt-timing', {
+			commandReadyAt: new Date().toISOString(),
+			threadId: payload.threadId
+		});
+		logDiagnostic(this.features, 'prompt-payload', {
+			attachmentCount: Array.isArray(payload.attachments) ? payload.attachments.length : 0,
+			cwd: payload.cwd ?? null,
+			intentGuidanceEnabled: Boolean(payload.intentGuidance),
+			modelKey: payload.modelKey ?? null,
+			promptHash: hashDiagnosticText(prompt),
+			promptLength: prompt.length,
+			textHash: hashDiagnosticText(payload.text ?? ''),
+			textLength: typeof payload.text === 'string' ? payload.text.length : 0,
+			thinkingLevel: payload.thinkingLevel ?? null,
+			threadId: payload.threadId
+		});
 		this.runSessionCommand(payload.threadId, () =>
 			executeTurn(sessionEntry.session, prompt, images)
 		);
@@ -283,6 +324,8 @@ class BridgeRuntime {
 			existing.unsubscribe();
 			existing.session.dispose();
 			this.sessions.delete(payload.threadId);
+			this.lastThreadUpdateSignatures.delete(payload.threadId);
+			this.runStates.delete(payload.threadId);
 		}
 
 		const settingsManager = SettingsManager.inMemory({
@@ -305,6 +348,8 @@ class BridgeRuntime {
 		});
 
 		const unsubscribe = session.subscribe((event) => {
+			noteRunEvent(this.runStates, payload.threadId, event);
+			logAgentEvent(this.features, payload.threadId, event);
 			this.emitThreadUpdate(payload.threadId, session, buildActivity(event));
 		});
 
@@ -349,12 +394,31 @@ class BridgeRuntime {
 			entry.session.dispose();
 		}
 		this.sessions.clear();
+		this.lastThreadUpdateSignatures.clear();
+		this.runStates.clear();
 	}
 
 	runSessionCommand(threadId, command) {
 		void (async () => {
 			const sessionEntry = this.sessions.get(threadId);
 			if (!sessionEntry) return;
+			const startedAt = Date.now();
+			const runState = startRun(this.runStates, threadId);
+			const heartbeatTimer = setInterval(() => {
+				const now = Date.now();
+				if (shouldSendHeartbeat(this.runStates, threadId, now)) {
+					logDiagnostic(this.features, 'run-heartbeat', {
+						threadId,
+						...heartbeatPayload(this.runStates, threadId, now)
+					});
+				}
+				if (shouldWarnStalled(this.runStates, threadId, now)) {
+					logDiagnostic(this.features, 'run-stalled-warning', {
+						threadId,
+						...heartbeatPayload(this.runStates, threadId, now)
+					});
+				}
+			}, 5_000);
 			try {
 				touchSession(sessionEntry);
 				const assistantCursor = assistantMessageCount(sessionEntry.session);
@@ -364,7 +428,7 @@ class BridgeRuntime {
 				}
 
 				touchSession(sessionEntry);
-				const assistantError = findLatestAssistantError(sessionEntry.session, assistantCursor);
+				const assistantError = safeFindLatestAssistantError(sessionEntry.session, assistantCursor);
 				if (assistantError) {
 					logSessionCommandFailure(assistantError, sessionEntry);
 					this.emitThreadUpdate(threadId, sessionEntry.session, {
@@ -374,6 +438,10 @@ class BridgeRuntime {
 					});
 					return;
 				}
+				logDiagnostic(this.features, 'run-complete', {
+					durationMs: Date.now() - startedAt,
+					threadId
+				});
 				this.emitThreadUpdate(threadId, sessionEntry.session, null);
 			} catch (error) {
 				if (this.sessions.get(threadId) !== sessionEntry) {
@@ -382,11 +450,21 @@ class BridgeRuntime {
 
 				touchSession(sessionEntry);
 				logSessionCommandFailure(error, sessionEntry);
+				logDiagnostic(this.features, 'run-failed', {
+					durationMs: Date.now() - startedAt,
+					error: error instanceof Error ? error.message : String(error),
+					threadId
+				});
 				this.emitThreadUpdate(threadId, sessionEntry.session, {
 					detail: describeSessionCommandError(error, sessionEntry),
 					title: 'Session command failed',
 					tone: 'system'
 				});
+			} finally {
+				clearInterval(heartbeatTimer);
+				if (this.runStates.get(threadId) === runState) {
+					clearRun(this.runStates, threadId);
+				}
 			}
 		})();
 	}
@@ -424,36 +502,20 @@ class BridgeRuntime {
 	}
 
 	emitThreadUpdate(threadId, session, activity) {
+		const sessionEntry = this.sessions.get(threadId);
+		const snapshot = buildThreadSnapshot(session, sessionEntry?.sessionManager);
+		const signature = JSON.stringify(snapshot);
+		if (!activity && this.lastThreadUpdateSignatures.get(threadId) === signature) {
+			return;
+		}
+		this.lastThreadUpdateSignatures.set(threadId, signature);
 		writeMessage({
 			activity,
-			snapshot: buildThreadSnapshot(session),
+			snapshot,
 			threadId,
 			type: 'thread-update'
 		});
 	}
-}
-
-function writeMessage(message) {
-	process.stdout.write(`${JSON.stringify(message)}\n`);
-}
-
-function describeSessionCommandError(error, sessionEntry) {
-	const message = error instanceof Error ? error.message : String(error);
-	const modelKey = sessionEntry?.modelKey ?? 'unknown model';
-	const thinkingLevel = sessionEntry?.thinkingLevel ?? 'unknown reasoning';
-	return `${modelKey} (${thinkingLevel}) failed: ${message}`;
-}
-
-function logSessionCommandFailure(error, sessionEntry) {
-	const details = {
-		cause: serializeErrorCause(error),
-		error: error instanceof Error ? error.message : String(error),
-		modelKey: sessionEntry?.modelKey ?? null,
-		provider: sessionEntry?.model?.provider ?? null,
-		stack: error instanceof Error ? error.stack : null,
-		thinkingLevel: sessionEntry?.thinkingLevel ?? null
-	};
-	console.error('[session-command-failed]', JSON.stringify(details));
 }
 
 function assistantMessageCount(session) {
@@ -461,89 +523,8 @@ function assistantMessageCount(session) {
 	return messages.filter((message) => message?.role === 'assistant').length;
 }
 
-function findLatestAssistantError(session, previousAssistantCount) {
-	const messages = Array.isArray(session?.messages) ? session.messages : [];
-	const newAssistantMessages = messages
-		.filter((message) => message?.role === 'assistant')
-		.slice(previousAssistantCount);
-	const latestAssistant = [...newAssistantMessages]
-		.reverse()
-		.find((message) => message?.role === 'assistant');
-	if (latestAssistant?.stopReason !== 'error' || !latestAssistant.errorMessage) {
-		return null;
-	}
-	return new Error(latestAssistant.errorMessage);
-}
-
-function serializeErrorCause(error) {
-	if (!(error instanceof Error) || !error.cause) {
-		return null;
-	}
-
-	const cause = error.cause;
-	if (cause instanceof Error) {
-		return {
-			code: cause.code ?? null,
-			message: cause.message,
-			name: cause.name
-		};
-	}
-
-	return String(cause);
-}
-
-async function dispatch(runtime, line) {
-	const command = JSON.parse(line);
-	if (!command || typeof command.type !== 'string') {
-		throw new Error('Invalid bridge command payload.');
-	}
-
-	const handlerName = commandName(command.type);
-	if (typeof runtime[handlerName] !== 'function') {
-		throw new Error(`Unsupported bridge command: ${command.type}`);
-	}
-
-	const payload = await runtime[handlerName](command.payload ?? {});
-	writeMessage({ id: command.id, ok: true, payload });
-}
-
-function commandName(value) {
-	return value
-		.split('-')
-		.map((segment, index) =>
-			index === 0 ? segment : `${segment.slice(0, 1).toUpperCase()}${segment.slice(1)}`
-		)
-		.join('');
-}
-
 async function main() {
-	const runtime = new BridgeRuntime();
-	const rl = readline.createInterface({ input: process.stdin, crlfDelay: Infinity });
-
-	for await (const line of rl) {
-		if (!line.trim()) {
-			continue;
-		}
-
-		try {
-			await dispatch(runtime, line);
-		} catch (error) {
-			const command = safeParse(line);
-			writeMessage({
-				error: error instanceof Error ? error.message : String(error),
-				id: command?.id ?? '',
-				ok: false
-			});
-		}
-	}
-}
-
-function safeParse(text) {
-	try {
-		return JSON.parse(text);
-	} catch {
-		return null;
-	}
+	await runBridge(new BridgeRuntime());
 }
 
 main().catch((error) => {

@@ -12,103 +12,22 @@ import {
 	hasStructuredReviewShape,
 	safeText
 } from './review-shape.mjs';
+import { REVIEW_RESPONSE_SCHEMA, REVIEW_TOOL_SCHEMA } from './diff-analysis-schema.mjs';
 
 const REVIEW_TOOL_NAME = 'diff_review_result';
 const DIAGNOSTIC_TEXT_PREVIEW_ENABLED = process.env.DGCODER_PI_DIFF_ANALYSIS_DEBUG === 'true';
-const EVIDENCE_ITEM_SCHEMA = {
-	type: 'object',
-	additionalProperties: false,
-	properties: {
-		file: { type: 'string' },
-		hunkId: { type: 'string' },
-		startLine: { type: 'integer', minimum: 1 },
-		endLine: { type: 'integer', minimum: 1 }
-	},
-	required: ['file', 'hunkId']
-};
-const REVIEW_TOOL_SCHEMA = {
-	type: 'object',
-	additionalProperties: false,
-	properties: {
-		changeBrief: {
-			type: 'array',
-			items: {
-				type: 'object',
-				additionalProperties: false,
-				properties: {
-					title: { type: 'string' },
-					detail: { type: 'string' },
-					evidence: {
-						type: 'array',
-						items: EVIDENCE_ITEM_SCHEMA
-					}
-				},
-				required: ['title', 'detail', 'evidence']
-			}
-		},
-		impact: {
-			type: 'array',
-			items: {
-				type: 'object',
-				additionalProperties: false,
-				properties: {
-					area: { type: 'string' },
-					detail: { type: 'string' },
-					evidence: { type: 'array', items: { type: 'string' } }
-				},
-				required: ['area', 'detail', 'evidence']
-			}
-		},
-		risks: {
-			type: 'array',
-			items: {
-				type: 'object',
-				additionalProperties: false,
-				properties: {
-					level: { enum: ['low', 'medium', 'high'] },
-					confidence: { enum: ['low', 'medium', 'high'] },
-					title: { type: 'string' },
-					detail: { type: 'string' },
-					whyItMatters: { type: 'string' },
-					evidence: {
-						type: 'array',
-						items: EVIDENCE_ITEM_SCHEMA
-					}
-				},
-				required: ['level', 'confidence', 'title', 'detail', 'whyItMatters', 'evidence']
-			}
-		},
-		focusQueue: {
-			type: 'array',
-			items: {
-				type: 'object',
-				additionalProperties: false,
-				properties: {
-					file: { type: 'string' },
-					hunkId: { type: 'string' },
-					reason: { type: 'string' },
-					priority: { enum: ['low', 'medium', 'high'] }
-				},
-				required: ['file', 'hunkId', 'reason', 'priority']
-			}
-		},
-		suggestedFollowUps: {
-			type: 'array',
-			items: {
-				type: 'object',
-				additionalProperties: false,
-				properties: {
-					prompt: { type: 'string' },
-					reason: { type: 'string' }
-				},
-				required: ['prompt', 'reason']
-			}
-		}
-	},
-	required: ['changeBrief', 'impact', 'risks', 'focusQueue', 'suggestedFollowUps']
-};
+const OPENAI_RESPONSES_TIMEOUT_MS = 20_000;
+
+function openAiResponsesUrl(baseUrl) {
+	return /\/v1$/i.test(baseUrl) ? `${baseUrl}/responses` : `${baseUrl}/v1/responses`;
+}
 
 export async function analyzeDiff(runtime, payload) {
+	const model = runtime.resolveModel(payload.modelKey);
+	if (model.provider === 'openai' && model.api === 'openai-responses') {
+		return analyzeDiffWithOpenAIResponses(runtime, payload, model);
+	}
+
 	let capturedResult = null;
 	const reviewTool = defineTool({
 		name: REVIEW_TOOL_NAME,
@@ -130,7 +49,6 @@ export async function analyzeDiff(runtime, payload) {
 		}
 	});
 
-	const model = runtime.resolveModel(payload.modelKey);
 	const settingsManager = SettingsManager.inMemory({
 		compaction: { enabled: false },
 		retry: { enabled: true, maxRetries: 1 }
@@ -180,6 +98,82 @@ export async function analyzeDiff(runtime, payload) {
 	}
 }
 
+async function analyzeDiffWithOpenAIResponses(runtime, payload, model) {
+	const apiKey = await runtime.authStorage.getApiKey(model.provider);
+	if (!apiKey) {
+		throw new Error('OpenAI API key is not configured for diff analysis.');
+	}
+	const baseUrl =
+		typeof model.baseUrl === 'string' && model.baseUrl ? model.baseUrl.replace(/\/$/, '') : null;
+	if (!baseUrl) {
+		throw new TypeError('OpenAI diff analysis requires a configured base URL.');
+	}
+
+	const controller = new AbortController();
+	const timeoutId = setTimeout(() => controller.abort(), OPENAI_RESPONSES_TIMEOUT_MS);
+	let response;
+	try {
+		response = await fetch(openAiResponsesUrl(baseUrl), {
+			method: 'POST',
+			headers: {
+				Authorization: `Bearer ${apiKey}`,
+				'Content-Type': 'application/json'
+			},
+			body: JSON.stringify({
+				input: [
+					{ role: 'system', content: buildStructuredOutputSystemPrompt() },
+					{ role: 'user', content: buildPrompt(payload, { useTool: false }) }
+				],
+				model: model.id,
+				text: {
+					format: {
+						description: 'A structured diff review result.',
+						name: 'diff_review_result',
+						schema: REVIEW_RESPONSE_SCHEMA,
+						strict: true,
+						type: 'json_schema'
+					}
+				}
+			}),
+			signal: controller.signal
+		});
+	} catch (error) {
+		if (error instanceof Error && error.name === 'AbortError') {
+			throw new Error(
+				`OpenAI diff analysis timed out after ${OPENAI_RESPONSES_TIMEOUT_MS / 1000} seconds.`,
+				{ cause: error }
+			);
+		}
+		throw error;
+	} finally {
+		clearTimeout(timeoutId);
+	}
+
+	const body = await response.json().catch(() => null);
+	if (!response.ok) {
+		throw new Error(body?.error?.message ?? `OpenAI diff analysis failed: ${response.status}`);
+	}
+
+	const text = extractResponseOutputText(body);
+	const structuredResult = extractStructuredReviewResult(text);
+	if (!structuredResult) {
+		console.error(
+			'[diff-analysis]',
+			JSON.stringify({
+				api: model.api,
+				baseUrl: model.baseUrl,
+				model: model.id,
+				modelKey: payload.modelKey,
+				outputTypes: Array.isArray(body?.output) ? body.output.map((item) => item.type) : [],
+				provider: model.provider
+			})
+		);
+		throw new Error('Diff analysis did not return a structured result.');
+	}
+
+	return normalizeReviewResult(payload, structuredResult);
+}
+
 function buildSystemPrompt() {
 	return [
 		'You are DGCoder Diff Review.',
@@ -192,7 +186,18 @@ function buildSystemPrompt() {
 	].join('\n');
 }
 
-function buildPrompt(payload) {
+function buildStructuredOutputSystemPrompt() {
+	return [
+		'You are DGCoder Diff Review.',
+		'Explain a code diff for a technical user who may not be a daily programmer.',
+		'Ground every claim in the provided files and hunk ids.',
+		'Prefer product behavior and user-facing consequences over internal jargon.',
+		'Return only the structured JSON object requested by the response schema.',
+		'Keep each list concise and avoid filler.'
+	].join('\n');
+}
+
+function buildPrompt(payload, options = { useTool: true }) {
 	const threadContext = payload.threadContext
 		? [
 				`Thread title: ${payload.threadContext.threadTitle ?? 'n/a'}`,
@@ -219,8 +224,12 @@ function buildPrompt(payload) {
 		'- Suggested Follow-Up: only grounded next questions or prompts.',
 		'- Every item must point to real files and hunk ids when possible.',
 		'- If the diff is mechanical, say so plainly instead of inventing risk.',
-		'- Return the result by calling the diff_review_result tool.',
-		'- If no tool call is made, your entire assistant message must be one JSON object with this exact top-level shape:',
+		options.useTool
+			? '- Return the result by calling the diff_review_result tool.'
+			: '- Return one JSON object matching the response schema.',
+		options.useTool
+			? '- If no tool call is made, your entire assistant message must be one JSON object with this exact top-level shape:'
+			: '- The JSON object must have this exact top-level shape:',
 		JSON.stringify(reviewResultJsonExample(payload.diff.files), null, 2),
 		'',
 		'Thread context:',
@@ -340,6 +349,18 @@ function extractStructuredReviewResult(text) {
 	}
 
 	return null;
+}
+
+function extractResponseOutputText(response) {
+	if (typeof response?.output_text === 'string') {
+		return response.output_text;
+	}
+
+	return (Array.isArray(response?.output) ? response.output : [])
+		.flatMap((item) => (Array.isArray(item?.content) ? item.content : []))
+		.map((content) => content?.text ?? '')
+		.filter(Boolean)
+		.join('\n');
 }
 
 function reviewResultCandidates(text) {

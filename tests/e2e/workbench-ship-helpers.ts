@@ -94,22 +94,49 @@ export async function verifyShipWithoutDiffContinues(page: Page, repoPath: strin
 
 export async function verifyShipWithDiffShowsReviewGate(page: Page) {
 	await page.getByRole('button', { exact: true, name: 'Ship' }).click();
-	await expect
-		.poll(
-			async () => {
-				const text =
-					(await page
-						.locator('.composer-panel')
-						.textContent()
-						.catch(() => '')) ?? '';
-				if (text.includes('Reviewing changes before commit')) return 'reviewing';
-				if (text.includes('Commit blocked')) return 'blocked';
-				if (text.includes('Review needs a decision')) return 'decision';
-				return 'pending';
-			},
-			{ timeout: 30_000 }
-		)
-		.not.toBe('pending');
+	await expect.poll(() => readShipReviewState(page), { timeout: 30_000 }).not.toBe('pending');
+}
+
+export async function verifyShipReviewPersistsAcrossThreadSwitch(
+	page: Page,
+	primaryProjectName: string,
+	reviewProjectName: string,
+	reviewThreadTitle: string
+) {
+	await expect.poll(() => readShipReviewState(page), { timeout: 30_000 }).not.toBe('pending');
+	await selectFirstThread(page, primaryProjectName);
+	await selectThread(page, reviewProjectName, reviewThreadTitle);
+	await expect.poll(() => readShipReviewState(page), { timeout: 30_000 }).not.toBe('pending');
+}
+
+async function readShipReviewState(page: Page) {
+	const text =
+		(await page
+			.locator('.composer-panel')
+			.textContent()
+			.catch(() => '')) ?? '';
+	if (text.includes('Reviewing changes before commit')) return 'reviewing';
+	if (text.includes('Commit blocked')) return 'blocked';
+	if (text.includes('Review needs a decision')) return 'decision';
+	return 'pending';
+}
+
+async function selectThread(page: Page, projectName: string, threadTitle: string) {
+	const projectSection = page
+		.locator('.project-section')
+		.filter({ has: page.getByRole('heading', { level: 2, name: projectName }) });
+	await projectSection
+		.locator('.thread-row')
+		.filter({ has: page.getByRole('heading', { level: 3, name: threadTitle }) })
+		.locator('.thread-row__select')
+		.click();
+}
+
+async function selectFirstThread(page: Page, projectName: string) {
+	const projectSection = page
+		.locator('.project-section')
+		.filter({ has: page.getByRole('heading', { level: 2, name: projectName }) });
+	await projectSection.locator('.thread-row .thread-row__select').first().click();
 }
 
 function runGit(repoRoot: string, args: string[]) {

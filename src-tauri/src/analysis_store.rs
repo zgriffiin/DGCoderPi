@@ -2,7 +2,13 @@ use std::path::Path;
 
 use rusqlite::{params, Connection};
 
-use crate::{diff_model::DiffAnalysis, state_store::state_db_path};
+use crate::{
+    diff_model::DiffAnalysis,
+    state_store::{now_ms, state_db_path},
+};
+
+const MAX_DIFF_ANALYSIS_CACHE_ROWS: i64 = 256;
+const STALE_ANALYSIS_ERROR: &str = "Diff analysis was interrupted before completion.";
 
 pub fn load_diff_analysis(
     data_dir: &Path,
@@ -47,6 +53,64 @@ pub fn save_diff_analysis(data_dir: &Path, analysis: &DiffAnalysis) -> Result<()
             ],
         )
         .map_err(|error| error.to_string())?;
+    prune_diff_analysis_cache(&connection)?;
+    Ok(())
+}
+
+pub fn fail_in_progress_diff_analyses(data_dir: &Path) -> Result<(), String> {
+    let connection = open_analysis_db(data_dir)?;
+    let mut statement = connection
+        .prepare("SELECT fingerprint, model_key, payload_json FROM diff_analysis_cache")
+        .map_err(|error| error.to_string())?;
+    let rows = statement
+        .query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+            ))
+        })
+        .map_err(|error| error.to_string())?;
+
+    let mut stale_analyses = Vec::new();
+    let mut malformed_rows = Vec::new();
+    for row in rows {
+        let (fingerprint, model_key, payload_json) = row.map_err(|error| error.to_string())?;
+        let mut analysis: DiffAnalysis = match serde_json::from_str(&payload_json) {
+            Ok(analysis) => analysis,
+            Err(error) => {
+                eprintln!(
+                    "Skipping malformed diff analysis cache row for `{fingerprint}` / `{model_key}`: {error}"
+                );
+                malformed_rows.push((fingerprint, model_key));
+                continue;
+            }
+        };
+        if !matches!(
+            analysis.status,
+            crate::diff_model::DiffAnalysisStatus::InProgress
+        ) {
+            continue;
+        }
+        analysis.status = crate::diff_model::DiffAnalysisStatus::Failed;
+        analysis.error = Some(STALE_ANALYSIS_ERROR.to_string());
+        analysis.updated_at_ms = now_ms();
+        stale_analyses.push(analysis);
+    }
+    drop(statement);
+
+    for (fingerprint, model_key) in malformed_rows {
+        connection
+            .execute(
+                "DELETE FROM diff_analysis_cache WHERE fingerprint = ?1 AND model_key = ?2",
+                params![fingerprint, model_key],
+            )
+            .map_err(|error| error.to_string())?;
+    }
+
+    for analysis in stale_analyses {
+        save_diff_analysis(data_dir, &analysis)?;
+    }
     Ok(())
 }
 
@@ -85,6 +149,8 @@ fn migrate_analysis_cache(connection: &Connection) -> Result<(), String> {
                     updated_at_ms INTEGER NOT NULL,
                     PRIMARY KEY (fingerprint, model_key)
                 );
+                CREATE INDEX idx_diff_analysis_cache_updated_at
+                    ON diff_analysis_cache(updated_at_ms);
                 ",
             )
             .map_err(|error| error.to_string());
@@ -127,6 +193,32 @@ fn migrate_analysis_cache(connection: &Connection) -> Result<(), String> {
             .map_err(|error| error.to_string())?;
     }
 
+    connection
+        .execute(
+            "CREATE INDEX IF NOT EXISTS idx_diff_analysis_cache_updated_at
+                ON diff_analysis_cache(updated_at_ms)",
+            [],
+        )
+        .map_err(|error| error.to_string())?;
+
+    Ok(())
+}
+
+fn prune_diff_analysis_cache(connection: &Connection) -> Result<(), String> {
+    connection
+        .execute(
+            "
+            DELETE FROM diff_analysis_cache
+            WHERE rowid IN (
+                SELECT rowid
+                FROM diff_analysis_cache
+                ORDER BY updated_at_ms DESC
+                LIMIT -1 OFFSET ?1
+            )
+            ",
+            params![MAX_DIFF_ANALYSIS_CACHE_ROWS],
+        )
+        .map_err(|error| error.to_string())?;
     Ok(())
 }
 
@@ -259,6 +351,53 @@ mod tests {
                 .status,
             DiffAnalysisStatus::Failed
         );
+    }
+
+    #[test]
+    fn cache_prunes_oldest_rows_after_limit() {
+        let data_dir = temp_data_dir("analysis-store-prune");
+        for index in 0..260 {
+            let analysis = DiffAnalysis {
+                fingerprint: format!("sha256:{index}"),
+                model_key: "openai::gpt-5.4".to_string(),
+                status: DiffAnalysisStatus::Complete,
+                updated_at_ms: index,
+                ..DiffAnalysis::default()
+            };
+            save_diff_analysis(data_dir.as_path(), &analysis).unwrap();
+        }
+
+        assert!(
+            load_diff_analysis(data_dir.as_path(), "sha256:0", "openai::gpt-5.4")
+                .unwrap()
+                .is_none()
+        );
+        assert!(
+            load_diff_analysis(data_dir.as_path(), "sha256:259", "openai::gpt-5.4")
+                .unwrap()
+                .is_some()
+        );
+    }
+
+    #[test]
+    fn startup_recovery_fails_in_progress_analysis() {
+        let data_dir = temp_data_dir("analysis-store-recover-in-progress");
+        let analysis = DiffAnalysis {
+            fingerprint: "sha256:stale".to_string(),
+            model_key: "openai::gpt-5.4".to_string(),
+            status: DiffAnalysisStatus::InProgress,
+            updated_at_ms: now_ms(),
+            ..DiffAnalysis::default()
+        };
+        save_diff_analysis(data_dir.as_path(), &analysis).unwrap();
+
+        super::fail_in_progress_diff_analyses(data_dir.as_path()).unwrap();
+
+        let loaded = load_diff_analysis(data_dir.as_path(), "sha256:stale", "openai::gpt-5.4")
+            .unwrap()
+            .unwrap();
+        assert_eq!(loaded.status, DiffAnalysisStatus::Failed);
+        assert_eq!(loaded.error.as_deref(), Some(super::STALE_ANALYSIS_ERROR));
     }
 
     fn temp_data_dir(prefix: &str) -> std::path::PathBuf {

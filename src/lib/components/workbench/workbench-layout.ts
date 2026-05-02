@@ -19,7 +19,7 @@ export const DEFAULT_PANEL_WIDTHS: PanelWidths = {
 };
 
 const HANDLE_WIDTH = 8;
-const MIN_CENTER_WIDTH = 480;
+const MIN_CENTER_WIDTH = 300;
 export const MIN_INSPECTOR_WIDTH = 304;
 export const MIN_PROJECT_RAIL_WIDTH = 224;
 export const RESIZE_BREAKPOINT = 1100;

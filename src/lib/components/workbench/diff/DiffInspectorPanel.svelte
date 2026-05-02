@@ -36,6 +36,14 @@
 		thread: ThreadRecord | null;
 	};
 
+	type AnalysisRequest = {
+		hideWhitespace: boolean;
+		projectId: string;
+		requestVersion: number;
+		snapshot: ProjectDiffSnapshot;
+		threadId: string | null;
+	};
+
 	let { controller, onClose, project, thread }: Props = $props();
 
 	let diff = $state<ProjectDiffSnapshot | null>(null);
@@ -65,6 +73,24 @@
 
 		reviewModeByScope[nextScopeKey] = 'ai-review';
 		reviewMode = 'ai-review';
+	}
+
+	function inProgressAnalysis(snapshot: ProjectDiffSnapshot): DiffAnalysis {
+		return {
+			changeBrief: [],
+			continuationToken: null,
+			error: null,
+			fingerprint: snapshot.fingerprint,
+			focusQueue: [],
+			impact: [],
+			modelKey: '',
+			partial: false,
+			progress: 0,
+			risks: [],
+			status: 'in-progress',
+			suggestedFollowUps: [],
+			updatedAtMs: Date.now()
+		};
 	}
 
 	async function loadDiffSnapshot(
@@ -98,37 +124,6 @@
 		}
 	}
 
-	async function loadAnalysis(
-		projectId: string,
-		threadId: string | null,
-		nextHideWhitespace: boolean,
-		nextRequestVersion: number
-	) {
-		try {
-			const loaded = await controller.loadDiffAnalysis(projectId, threadId, nextHideWhitespace);
-			if (nextRequestVersion !== requestVersion) {
-				return;
-			}
-			diffAnalysis = loaded;
-			if (loaded.status === 'pending' || loaded.status === 'failed') {
-				const refreshed = await controller.refreshDiffAnalysis(
-					projectId,
-					threadId,
-					nextHideWhitespace
-				);
-				if (nextRequestVersion !== requestVersion) {
-					return;
-				}
-				diffAnalysis = refreshed;
-			}
-		} catch (error) {
-			if (nextRequestVersion !== requestVersion) {
-				return;
-			}
-			diffAnalysisError = error instanceof Error ? error.message : String(error);
-		}
-	}
-
 	async function reloadDiffPanel(
 		projectId: string,
 		threadId: string | null,
@@ -146,8 +141,13 @@
 			diffAnalysis = null;
 			return;
 		}
-
-		await loadAnalysis(projectId, threadId, nextHideWhitespace, nextRequestVersion);
+		void refreshDiffAnalysisNow({
+			hideWhitespace: nextHideWhitespace,
+			projectId,
+			requestVersion: nextRequestVersion,
+			snapshot: nextDiff,
+			threadId
+		});
 	}
 
 	$effect(() => {
@@ -170,37 +170,8 @@
 		const nextHideWhitespace = hideWhitespace;
 		const nextScopeKey = scopeKey;
 
+		diffAnalysis = null;
 		void reloadDiffPanel(projectId, threadId, nextHideWhitespace, nextRequestVersion, nextScopeKey);
-	});
-
-	$effect(() => {
-		if (!project || !thread || thread.status === 'running') {
-			return;
-		}
-
-		const currentProjectId = project.id;
-		const currentThreadId = thread.id;
-		const currentHideWhitespace = hideWhitespace;
-
-		const timeout = window.setTimeout(() => {
-			void controller
-				.refreshDiffAnalysis(currentProjectId, currentThreadId, currentHideWhitespace)
-				.then((nextAnalysis) => {
-					if (
-						project?.id !== currentProjectId ||
-						thread?.id !== currentThreadId ||
-						hideWhitespace !== currentHideWhitespace
-					) {
-						return;
-					}
-					diffAnalysis = nextAnalysis;
-				})
-				.catch(() => {
-					return;
-				});
-		}, 1200);
-
-		return () => window.clearTimeout(timeout);
 	});
 
 	$effect(() => {
@@ -264,18 +235,43 @@
 		hideWhitespaceByScope[scopeKey] = hideWhitespace;
 	}
 
-	async function refreshDiffAnalysisNow() {
-		if (!project || !diff) {
+	function currentAnalysisRequest(): AnalysisRequest | null {
+		if (!project?.id || !diff) {
+			return null;
+		}
+		return {
+			hideWhitespace,
+			projectId: project.id,
+			requestVersion,
+			snapshot: diff,
+			threadId: thread?.id ?? null
+		};
+	}
+
+	function isCurrentRequest(request: AnalysisRequest) {
+		return request.requestVersion === requestVersion;
+	}
+
+	async function refreshDiffAnalysisNow(request = currentAnalysisRequest()) {
+		if (!request) {
 			return;
 		}
 		diffAnalysisError = null;
+		diffAnalysis = inProgressAnalysis(request.snapshot);
 		try {
-			diffAnalysis = await controller.refreshDiffAnalysis(
-				project.id,
-				thread?.id ?? null,
-				hideWhitespace
+			const nextAnalysis = await controller.refreshDiffAnalysis(
+				request.projectId,
+				request.threadId,
+				request.hideWhitespace
 			);
+			if (!isCurrentRequest(request)) {
+				return;
+			}
+			diffAnalysis = nextAnalysis;
 		} catch (error) {
+			if (!isCurrentRequest(request)) {
+				return;
+			}
 			diffAnalysisError = error instanceof Error ? error.message : String(error);
 		}
 	}

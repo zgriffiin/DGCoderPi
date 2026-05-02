@@ -7,13 +7,13 @@
 		ModelOption,
 		ProjectRecord,
 		PromptMode,
-		ThreadIntent,
 		ThinkingLevel,
 		ThreadRecord
 	} from '$lib/types/workbench';
 	import type { WorkbenchController } from '$lib/workbench/controller';
 	import type { ShipReviewState } from '$lib/workbench/ship-review';
 	import { shipReviewDetail, shipReviewMaxRiskLevel } from '$lib/workbench/ship-review';
+	import type { SpecWorkflowStep } from '$lib/workbench/spec-workflow';
 	import WorkbenchDialogs from './WorkbenchDialogs.svelte';
 	import WorkbenchMainGrid from './WorkbenchMainGrid.svelte';
 	import WorkbenchTopbar from './WorkbenchTopbar.svelte';
@@ -66,7 +66,6 @@
 		handleAddProjectDraftChange: (value: string) => void;
 		handleDraftChange: (value: string) => void;
 		handleImportCodexOpenAiKey: () => void;
-		handleIntentChange: (intent: ThreadIntent) => void;
 		handleModelChange: (modelKey: string) => void;
 		handleMoveProject: (projectId: string, targetIndex: number) => void;
 		handleOpenDiff: (projectId: string, threadId?: string) => void;
@@ -84,11 +83,13 @@
 		handleShipReviewContinue: () => void;
 		handleShipReviewDismiss: () => void;
 		handleShipSlice: () => void;
+		handleSpecPromptSelect: (step: SpecWorkflowStep) => void;
 		handleStageComposerFiles: (files: File[]) => void;
 		handleStartCodexLogin: () => void;
 		handleStop: () => void;
 		handleStopThread: (threadId: string) => void;
 		handleThreadSelect: (projectId: string, threadId: string) => void;
+		handleToggleDiagnosticLogging: (enabled: boolean) => void;
 		handleToggleDocparser: (enabled: boolean) => void;
 		setAddProjectOpen: (open: boolean) => void;
 		setInspectorMode: (mode: InspectorMode | null) => void;
@@ -253,7 +254,6 @@
 	onCreateThread={actions.handleCreateThreadForProject}
 	onDraftChange={actions.handleDraftChange}
 	onModelChange={actions.handleModelChange}
-	onIntentChange={actions.handleIntentChange}
 	onMoveProject={actions.handleMoveProject}
 	onNudgePaneWidth={nudgePaneWidth}
 	onOpenDiff={actions.handleOpenDiff}
@@ -270,6 +270,7 @@
 	onShipReviewContinue={actions.handleShipReviewContinue}
 	onShipReviewDismiss={actions.handleShipReviewDismiss}
 	onShipSlice={actions.handleShipSlice}
+	onSpecPromptSelect={actions.handleSpecPromptSelect}
 	onStageFiles={actions.handleStageComposerFiles}
 	onStop={actions.handleStop}
 	onStopThread={actions.handleStopThread}
@@ -294,6 +295,8 @@
 	addProjectOpen={shellState.addProjectOpen}
 	codex={shellState.workbenchState.snapshot.integrations.codex}
 	diffAnalysisModelKey={shellState.workbenchState.snapshot.settings.diffAnalysisModelKey}
+	diagnosticLoggingEnabled={shellState.workbenchState.snapshot.settings.features
+		.diagnosticLoggingEnabled}
 	docparserEnabled={shellState.workbenchState.snapshot.settings.features.docparserEnabled}
 	manualProjectPathOpen={shellState.manualProjectPathOpen}
 	models={shellState.workbenchState.snapshot.models}
@@ -308,6 +311,7 @@
 	onRefreshStatus={actions.handleRefreshStatus}
 	onSaveProvider={actions.handleSaveProvider}
 	onStartCodexLogin={actions.handleStartCodexLogin}
+	onToggleDiagnosticLogging={actions.handleToggleDiagnosticLogging}
 	onToggleDocparser={actions.handleToggleDocparser}
 	onToggleManualPath={() => actions.setManualProjectPathOpen(!shellState.manualProjectPathOpen)}
 	providerDrafts={shellState.providerDrafts}

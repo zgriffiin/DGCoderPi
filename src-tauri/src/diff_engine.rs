@@ -1,4 +1,13 @@
-use std::{collections::HashMap, fs, path::Path, process::Command};
+use std::{
+    collections::HashMap,
+    fs,
+    io::Read,
+    path::Path,
+    process::{Command, Output, Stdio},
+    sync::mpsc,
+    thread,
+    time::{Duration, Instant},
+};
 
 use sha2::{Digest, Sha256};
 
@@ -12,7 +21,11 @@ use crate::{
 
 const MAX_RENDER_LINES: usize = 1_600;
 const MAX_RENDER_TEXT_BYTES: usize = 160_000;
+const MAX_SNAPSHOT_RENDER_FILES: usize = 80;
+const MAX_SNAPSHOT_RENDER_LINES: usize = 5_000;
+const MAX_SNAPSHOT_RENDER_TEXT_BYTES: usize = 480_000;
 const MAX_UNTRACKED_TEXT_BYTES: usize = 96_000;
+const GIT_COMMAND_TIMEOUT: Duration = Duration::from_secs(15);
 
 fn to_u32(value: usize) -> u32 {
     u32::try_from(value).unwrap_or(u32::MAX)
@@ -47,6 +60,7 @@ pub fn project_diff(path: &str, branch: &str, options: ProjectDiffOptions) -> Pr
     let patch_files = git_patch_files(path, options).unwrap_or_default();
     let mut files = merge_diff_files(path, status_entries, patch_files);
     files.sort_by(|left, right| left.path.cmp(&right.path));
+    apply_snapshot_render_limits(&mut files);
 
     let stats = ProjectDiffStats {
         additions: files.iter().map(|file| file.additions).sum(),
@@ -148,17 +162,16 @@ fn blank_diff_file(path: &str, status: &str, status_code: &str) -> ProjectDiffFi
 }
 
 fn git_status_entries(path: &str) -> Result<Vec<StatusEntry>, String> {
-    let output = Command::new("git")
-        .args([
-            "-C",
-            path,
-            "status",
-            "--porcelain=v1",
-            "-z",
-            "--untracked-files=all",
-        ])
-        .output()
-        .map_err(|error| error.to_string())?;
+    let mut command = Command::new("git");
+    command.args([
+        "-C",
+        path,
+        "status",
+        "--porcelain=v1",
+        "-z",
+        "--untracked-files=all",
+    ]);
+    let output = command_output_with_timeout(&mut command, GIT_COMMAND_TIMEOUT)?;
     if !output.status.success() {
         return Err(String::from_utf8_lossy(&output.stderr).trim().to_string());
     }
@@ -240,7 +253,7 @@ fn git_patch_files(
         command.args(["--cached", "--root"]);
     }
 
-    let output = command.output().map_err(|error| error.to_string())?;
+    let output = command_output_with_timeout(&mut command, GIT_COMMAND_TIMEOUT)?;
     if !output.status.success() {
         return Err(String::from_utf8_lossy(&output.stderr).trim().to_string());
     }
@@ -251,11 +264,87 @@ fn git_patch_files(
 }
 
 fn has_head(path: &str) -> bool {
-    Command::new("git")
-        .args(["-C", path, "rev-parse", "--verify", "HEAD"])
-        .output()
+    let mut command = Command::new("git");
+    command.args(["-C", path, "rev-parse", "--verify", "HEAD"]);
+    command_output_with_timeout(&mut command, GIT_COMMAND_TIMEOUT)
         .map(|result| result.status.success())
         .unwrap_or(false)
+}
+
+fn command_output_with_timeout(command: &mut Command, timeout: Duration) -> Result<Output, String> {
+    let mut child = command
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|error| error.to_string())?;
+    let stdout = child
+        .stdout
+        .take()
+        .ok_or_else(|| "Git command stdout pipe was unavailable.".to_string())?;
+    let stderr = child
+        .stderr
+        .take()
+        .ok_or_else(|| "Git command stderr pipe was unavailable.".to_string())?;
+    let (stdout_done_tx, stdout_done_rx) = mpsc::channel();
+    let (stderr_done_tx, stderr_done_rx) = mpsc::channel();
+    let stdout_handle = thread::spawn(move || -> Result<Vec<u8>, String> {
+        let mut reader = stdout;
+        let mut buffer = Vec::new();
+        let read_result = reader
+            .read_to_end(&mut buffer)
+            .map_err(|error| error.to_string());
+        let _ = stdout_done_tx.send(());
+        read_result?;
+        Ok(buffer)
+    });
+    let stderr_handle = thread::spawn(move || -> Result<Vec<u8>, String> {
+        let mut reader = stderr;
+        let mut buffer = Vec::new();
+        let read_result = reader
+            .read_to_end(&mut buffer)
+            .map_err(|error| error.to_string());
+        let _ = stderr_done_tx.send(());
+        read_result?;
+        Ok(buffer)
+    });
+    let started_at = Instant::now();
+
+    loop {
+        match child.try_wait().map_err(|error| error.to_string())? {
+            Some(_) => {
+                let status = child.wait().map_err(|error| error.to_string())?;
+                let stdout = stdout_handle
+                    .join()
+                    .map_err(|_| "Git command stdout reader thread panicked.".to_string())??;
+                let stderr = stderr_handle
+                    .join()
+                    .map_err(|_| "Git command stderr reader thread panicked.".to_string())??;
+                return Ok(Output {
+                    status,
+                    stdout,
+                    stderr,
+                });
+            }
+            None if started_at.elapsed() >= timeout => {
+                let _ = child.kill();
+                let _ = child.wait();
+                wait_for_reader_shutdown(&stdout_done_rx, started_at, timeout);
+                wait_for_reader_shutdown(&stderr_done_rx, started_at, timeout);
+                return Err(format!(
+                    "Git command timed out after {} seconds.",
+                    timeout.as_secs()
+                ));
+            }
+            None => thread::sleep(Duration::from_millis(25)),
+        }
+    }
+}
+
+fn wait_for_reader_shutdown(receiver: &mpsc::Receiver<()>, started_at: Instant, timeout: Duration) {
+    let Some(remaining) = timeout.checked_sub(started_at.elapsed()) else {
+        return;
+    };
+    let _ = receiver.recv_timeout(remaining);
 }
 
 fn parse_git_diff_output(output: &str) -> Vec<ProjectDiffFile> {
@@ -495,6 +584,38 @@ fn parse_range(value: &str) -> (u32, u32) {
 }
 
 fn apply_render_limits(file: &mut ProjectDiffFile) {
+    let (line_count, text_bytes) = render_size(file);
+    if line_count > MAX_RENDER_LINES || text_bytes > MAX_RENDER_TEXT_BYTES {
+        mark_too_large(file);
+    }
+}
+
+fn apply_snapshot_render_limits(files: &mut [ProjectDiffFile]) {
+    let mut rendered_files = 0;
+    let mut rendered_lines = 0;
+    let mut rendered_text_bytes = 0;
+
+    for file in files {
+        if file.hunks.is_empty() || file.is_too_large || file.is_binary {
+            continue;
+        }
+
+        let (line_count, text_bytes) = render_size(file);
+        let exceeds_budget = rendered_files >= MAX_SNAPSHOT_RENDER_FILES
+            || rendered_lines + line_count > MAX_SNAPSHOT_RENDER_LINES
+            || rendered_text_bytes + text_bytes > MAX_SNAPSHOT_RENDER_TEXT_BYTES;
+        if exceeds_budget {
+            mark_too_large(file);
+            continue;
+        }
+
+        rendered_files += 1;
+        rendered_lines += line_count;
+        rendered_text_bytes += text_bytes;
+    }
+}
+
+fn render_size(file: &ProjectDiffFile) -> (usize, usize) {
     let line_count = file
         .hunks
         .iter()
@@ -506,10 +627,12 @@ fn apply_render_limits(file: &mut ProjectDiffFile) {
         .flat_map(|hunk| hunk.lines.iter())
         .map(|line| line.text.len())
         .sum::<usize>();
-    if line_count > MAX_RENDER_LINES || text_bytes > MAX_RENDER_TEXT_BYTES {
-        file.hunks.clear();
-        file.is_too_large = true;
-    }
+    (line_count, text_bytes)
+}
+
+fn mark_too_large(file: &mut ProjectDiffFile) {
+    file.hunks.clear();
+    file.is_too_large = true;
 }
 
 fn infer_generated_file(path: &str) -> bool {
@@ -790,6 +913,40 @@ mod tests {
 
         assert_ne!(visible.fingerprint, hidden.fingerprint);
         assert_eq!(hidden.stats.additions + hidden.stats.deletions, 0);
+    }
+
+    #[test]
+    fn project_diff_caps_total_rendered_patch_volume() {
+        let repo = create_temp_git_repo("diff-render-budget");
+        write_file(repo.as_path(), "README.md", "initial\n");
+        git(repo.as_path(), ["add", "."]);
+        git(repo.as_path(), ["commit", "-m", "initial"]);
+
+        let content = (0..80)
+            .map(|index| format!("line {index}"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        for index in 0..90 {
+            write_file(
+                repo.as_path(),
+                &format!("docs/generated-{index:02}.txt"),
+                &content,
+            );
+        }
+
+        let snapshot = project_diff(
+            repo.to_string_lossy().as_ref(),
+            "main",
+            ProjectDiffOptions::default(),
+        );
+        let rendered_files = snapshot
+            .files
+            .iter()
+            .filter(|file| !file.hunks.is_empty())
+            .count();
+
+        assert!(rendered_files <= 80);
+        assert!(snapshot.files.iter().any(|file| file.is_too_large));
     }
 
     #[test]

@@ -2,16 +2,29 @@
 	import { onDestroy } from 'svelte';
 	import { tick } from 'svelte';
 	import { InlineNotification } from 'carbon-components-svelte';
-	import type { ProjectRecord, ThreadIntent, ThreadRecord } from '$lib/types/workbench';
-	import { THREAD_INTENTS, threadIntentLabel } from '$lib/workbench/thread-intents';
+	import type { ProjectRecord, ThreadRecord } from '$lib/types/workbench';
 	import ThreadMessage from './ThreadMessage.svelte';
 
 	type Props = {
-		onIntentChange: (intent: ThreadIntent) => void;
 		project: ProjectRecord | null;
 		runtimeError: string | null;
 		thread: ThreadRecord | null;
 	};
+	type TimelineMessage = ThreadRecord['messages'][number];
+	type TimelineActivity = ThreadRecord['activities'][number];
+	type TimelineEntry =
+		| {
+				id: string;
+				item: TimelineMessage;
+				timestampMs: number;
+				type: 'message';
+		  }
+		| {
+				id: string;
+				item: TimelineActivity;
+				timestampMs: number;
+				type: 'activity';
+		  };
 
 	const MESSAGE_PAGE_SIZE = 40;
 
@@ -25,7 +38,7 @@
 		);
 	}
 
-	function visibleIntentActivities(thread: ThreadRecord | null) {
+	function visibleTimelineActivities(thread: ThreadRecord | null) {
 		return (thread?.activities ?? []).filter((activity) => activity.kind === 'intent-switch');
 	}
 
@@ -66,14 +79,83 @@
 			return null;
 		}
 
+		const latestActivity = currentRunActivity(thread, nowMs);
 		const startedAtMs = latestUserTimestamp(thread);
 		const runningFor = startedAtMs
 			? formatElapsed(Math.max(0, Math.floor((nowMs - startedAtMs) / 1000)))
 			: null;
 
 		return {
+			detail: latestActivity?.detail ?? null,
+			title: latestActivity?.title ?? null,
 			runningFor
 		};
+	}
+
+	function currentRunActivity(thread: ThreadRecord, nowMs: number) {
+		const latestUserAt = latestUserTimestamp(thread) ?? 0;
+		const activeTools: { startedAtMs: number; toolName: string }[] = [];
+		const recentActivities = thread.activities.filter((entry) => entry.timestampMs >= latestUserAt);
+		const latestProgressAt = latestRunProgressTimestamp(thread, latestUserAt);
+
+		for (const activity of recentActivities) {
+			if (activity.title === 'Tool running') {
+				activeTools.push({
+					startedAtMs: activity.timestampMs,
+					toolName: toolNameFromActivity(activity.detail)
+				});
+			} else if (activity.title === 'Tool finished') {
+				const finishedToolName = toolNameFromActivity(activity.detail);
+				const activeTool = activeTools.at(-1);
+				if (activeTool?.toolName === finishedToolName) {
+					activeTools.pop();
+					continue;
+				}
+
+				const matchingToolIndex = activeTools.findIndex(
+					(entry) => entry.toolName === finishedToolName
+				);
+				if (matchingToolIndex !== -1) {
+					activeTools.splice(matchingToolIndex, 1);
+				}
+			}
+		}
+
+		const activeTool = activeTools.at(-1);
+		if (activeTool) {
+			return {
+				detail: `${activeTool.toolName} for ${formatElapsed(
+					Math.max(0, Math.floor((nowMs - activeTool.startedAtMs) / 1000))
+				)}`,
+				title: 'Tool running'
+			};
+		}
+
+		return {
+			detail: `Quiet for ${formatElapsed(
+				Math.max(0, Math.floor((nowMs - latestProgressAt) / 1000))
+			)}`,
+			title: 'Waiting on model'
+		};
+	}
+
+	function latestRunProgressTimestamp(thread: ThreadRecord, latestUserAt: number) {
+		const activityTimestamp = thread.activities
+			.filter((entry) => entry.timestampMs >= latestUserAt)
+			.at(-1)?.timestampMs;
+		const assistantTimestamp = [...thread.messages]
+			.reverse()
+			.find(
+				(entry) => entry.role === 'assistant' && entry.timestampMs >= latestUserAt
+			)?.timestampMs;
+		return Math.max(latestUserAt, activityTimestamp ?? 0, assistantTimestamp ?? 0);
+	}
+
+	function toolNameFromActivity(detail: string) {
+		const match = /^(.*?)(?: started\.| completed successfully\.| reported an error\.)$/.exec(
+			detail.trim()
+		);
+		return match?.[1] || detail.trim();
 	}
 
 	let nowMs = $state(Date.now());
@@ -82,25 +164,27 @@
 	let stickToBottom = $state(true);
 	let visibleMessageCount = $state(MESSAGE_PAGE_SIZE);
 
-	let { onIntentChange, project, runtimeError, thread }: Props = $props();
+	let { project, runtimeError, thread }: Props = $props();
 
 	const messages = $derived(visibleMessages(thread));
-	const intentActivities = $derived(visibleIntentActivities(thread));
+	const timelineActivities = $derived(visibleTimelineActivities(thread));
 	const timeline = $derived(
-		[
-			...messages.map((message) => ({
-				id: message.id,
-				item: message,
-				timestampMs: message.timestampMs,
-				type: 'message' as const
-			})),
-			...intentActivities.map((activity) => ({
-				id: activity.id,
-				item: activity,
-				timestampMs: activity.timestampMs,
-				type: 'activity' as const
-			}))
-		].sort((left, right) => left.timestampMs - right.timestampMs)
+		(
+			[
+				...messages.map((message) => ({
+					id: message.id,
+					item: message,
+					timestampMs: message.timestampMs,
+					type: 'message' as const
+				})),
+				...timelineActivities.map((activity) => ({
+					id: activity.id,
+					item: activity,
+					timestampMs: activity.timestampMs,
+					type: 'activity' as const
+				}))
+			] satisfies TimelineEntry[]
+		).sort((left, right) => left.timestampMs - right.timestampMs)
 	);
 	const hiddenMessageCount = $derived(Math.max(0, timeline.length - visibleMessageCount));
 	const pagedMessages = $derived(
@@ -191,9 +275,6 @@
 	<header class="pane-header pane-header--compact">
 		<div class="pane-header__identity">
 			<h2>{threadLabel(project, thread)}</h2>
-			{#if thread}
-				<span class="intent-label">{threadIntentLabel(thread.intent)}</span>
-			{/if}
 		</div>
 		{#if runStatus?.runningFor}
 			<div class="thread-status-inline">
@@ -203,24 +284,16 @@
 					<span></span>
 					<span></span>
 				</div>
-				<p aria-hidden="true">Working for {runStatus.runningFor}</p>
+				<p aria-hidden="true">
+					Working for {runStatus.runningFor}
+					{#if runStatus.title}
+						<span>{runStatus.title}</span>
+					{/if}
+					{#if runStatus.detail}
+						<span>{runStatus.detail}</span>
+					{/if}
+				</p>
 			</div>
-		{/if}
-		{#if thread}
-			<fieldset class="intent-switcher" aria-label="Thread intent">
-				{#each THREAD_INTENTS as intent (intent.value)}
-					<label data-selected={thread.intent === intent.value ? 'true' : undefined}>
-						<input
-							checked={thread.intent === intent.value}
-							name={`thread-intent-${thread.id}`}
-							onchange={() => onIntentChange(intent.value)}
-							type="radio"
-							value={intent.value}
-						/>
-						<span>{intent.label}</span>
-					</label>
-				{/each}
-			</fieldset>
 		{/if}
 	</header>
 
@@ -256,7 +329,7 @@
 				{#if entry.type === 'message'}
 					<ThreadMessage message={entry.item} />
 				{:else}
-					<div class="activity-entry" data-kind="intent-switch">
+					<div class="activity-entry" data-kind={entry.item.kind} data-tone={entry.item.tone}>
 						<span>{entry.item.title}</span>
 						<p>{entry.item.detail}</p>
 					</div>

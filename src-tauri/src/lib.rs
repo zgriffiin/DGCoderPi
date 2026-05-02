@@ -12,7 +12,7 @@ mod state_store;
 use std::path::PathBuf;
 
 use app_runtime::AppRuntime;
-use tauri::Manager;
+use tauri::{Manager, PhysicalPosition, PhysicalSize};
 
 fn repo_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -33,11 +33,35 @@ fn resource_dir(app: &tauri::AppHandle) -> tauri::Result<PathBuf> {
     app.path().resource_dir()
 }
 
+fn fit_main_window_to_primary_monitor(app: &tauri::App) -> tauri::Result<()> {
+    let Some(window) = app.get_webview_window("main") else {
+        return Ok(());
+    };
+    let Some(monitor) = window.primary_monitor()? else {
+        return Ok(());
+    };
+
+    let monitor_position = monitor.position();
+    let monitor_size = monitor.size();
+    let target_width = monitor_size.width.min(1600);
+    let target_height = monitor_size.height.min(1000);
+
+    window.set_size(PhysicalSize::new(target_width, target_height))?;
+    window.set_position(PhysicalPosition::new(
+        monitor_position.x + ((monitor_size.width - target_width) / 2) as i32,
+        monitor_position.y + ((monitor_size.height - target_height) / 2) as i32,
+    ))?;
+
+    Ok(())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
+            fit_main_window_to_primary_monitor(app)?;
+
             if cfg!(debug_assertions) {
                 app.handle().plugin(
                     tauri_plugin_log::Builder::default()

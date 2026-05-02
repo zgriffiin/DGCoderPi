@@ -7,7 +7,6 @@
 	import Stop from 'carbon-icons-svelte/lib/StopFilledAlt.svelte';
 	import TrashCan from 'carbon-icons-svelte/lib/TrashCan.svelte';
 	import type { ProjectRecord } from '$lib/types/workbench';
-	import { threadIntentLabel } from '$lib/workbench/thread-intents';
 	import StatusTag from './StatusTag.svelte';
 
 	type MenuState =
@@ -347,7 +346,6 @@
 												})}
 										>
 											<StatusTag status={thread.status} />
-											<span class="thread-row__intent">{threadIntentLabel(thread.intent)}</span>
 											<h3>{thread.title}</h3>
 										</button>
 									{/if}

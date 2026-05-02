@@ -13,7 +13,10 @@ use tauri::{AppHandle, Emitter};
 use uuid::Uuid;
 
 use crate::{
-    analysis_store::{load_diff_analysis as load_cached_diff_analysis, save_diff_analysis},
+    analysis_store::{
+        fail_in_progress_diff_analyses, load_diff_analysis as load_cached_diff_analysis,
+        save_diff_analysis,
+    },
     diff_analysis::{analyze_diff, build_thread_context, failed_analysis, pending_analysis},
     diff_analysis_model_selection::{
         diff_analysis_model_rank, should_use_thread_model_for_diff_analysis,
@@ -46,6 +49,8 @@ use crate::{
 
 const UPDATE_EVENT: &str = "app://update";
 const MAX_ACTIVITY_ENTRIES: usize = 48;
+const MAX_ATTACHMENT_BYTES: u64 = 25 * 1024 * 1024;
+const MAX_PARSE_ATTACHMENT_BYTES: u64 = 10 * 1024 * 1024;
 
 #[derive(Clone)]
 pub struct AppRuntime {
@@ -58,6 +63,8 @@ struct AppRuntimeInner {
     bridge: Mutex<Option<Arc<PiBridge>>>,
     data_dir: PathBuf,
     models: Mutex<Vec<ModelOption>>,
+    mutation_lock: Mutex<()>,
+    pending_state_rollback: Mutex<Option<PersistedState>>,
     resource_dir: PathBuf,
     state: Mutex<PersistedState>,
 }
@@ -83,6 +90,7 @@ impl AppRuntime {
         if normalize_state(&mut state) {
             replace_state(&data_dir, &state)?;
         }
+        fail_in_progress_diff_analyses(&data_dir)?;
         let runtime = Self {
             inner: Arc::new(AppRuntimeInner {
                 active_diff_jobs: Mutex::new(HashSet::new()),
@@ -90,6 +98,8 @@ impl AppRuntime {
                 bridge: Mutex::new(None),
                 data_dir,
                 models: Mutex::new(Vec::new()),
+                mutation_lock: Mutex::new(()),
+                pending_state_rollback: Mutex::new(None),
                 resource_dir,
                 state: Mutex::new(state),
             }),
@@ -177,12 +187,13 @@ impl AppRuntime {
             input.thread_id.as_deref(),
             &model_key,
         )?;
+        let job_key = diff_analysis_job_key(&snapshot.fingerprint, &model_key);
         let mut queued = self
             .inner
             .active_diff_jobs
             .lock()
             .map_err(|_| "Diff analysis job lock was poisoned.".to_string())?;
-        if !queued.insert(snapshot.fingerprint.clone()) {
+        if !queued.insert(job_key.clone()) {
             let mut in_progress = current;
             in_progress.status = DiffAnalysisStatus::InProgress;
             in_progress.updated_at_ms = now_ms();
@@ -201,7 +212,7 @@ impl AppRuntime {
         let fingerprint = snapshot.fingerprint.clone();
         tauri::async_runtime::spawn(async move {
             let _guard = ActiveDiffJobGuard {
-                fingerprint: fingerprint.clone(),
+                key: job_key,
                 runtime: runtime.clone(),
             };
             let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
@@ -237,373 +248,433 @@ impl AppRuntime {
     }
 
     pub fn add_project(&self, input: AddProjectInput) -> Result<AppUpdate, String> {
-        let default_model = self.default_model_key();
-        let project_id = self.mutate_state(|state| {
-            let mut project = new_project(&input.path);
-            let thread = new_thread("Explore repository", &project.branch, default_model.clone());
-            let project_id = project.id.clone();
-            let thread_id = thread.id.clone();
-            project.threads.push(thread);
-            state.projects.push(project);
-            state.selected_project_id = Some(project_id.clone());
-            state.selected_thread_id = Some(thread_id);
-            Ok(project_id)
-        })?;
-        self.persist_and_return(self.project_update(&project_id)?)
+        self.with_serialized_mutation(|| {
+            let default_model = self.default_model_key();
+            let project_id = self.mutate_state(|state| {
+                let mut project = new_project(&input.path);
+                let thread =
+                    new_thread("Explore repository", &project.branch, default_model.clone());
+                let project_id = project.id.clone();
+                let thread_id = thread.id.clone();
+                project.threads.push(thread);
+                state.projects.push(project);
+                state.selected_project_id = Some(project_id.clone());
+                state.selected_thread_id = Some(thread_id);
+                Ok(project_id)
+            })?;
+            self.persist_and_return(self.project_update(&project_id)?)
+        })
     }
 
     pub fn create_thread(&self, input: CreateThreadInput) -> Result<AppUpdate, String> {
-        let default_model = self.default_model_key();
-        let thread_id = self.mutate_state(|state| {
-            let project = state
-                .projects
-                .iter_mut()
-                .find(|project| project.id == input.project_id)
-                .ok_or_else(|| "Project not found.".to_string())?;
-            let thread = new_thread(&input.title, &project.branch, default_model.clone());
-            let thread_id = thread.id.clone();
-            state.selected_project_id = Some(project.id.clone());
-            state.selected_thread_id = Some(thread_id.clone());
-            project.threads.push(thread);
-            Ok(thread_id)
-        })?;
-        self.persist_and_return(self.thread_update(&thread_id)?)
+        self.with_serialized_mutation(|| {
+            let default_model = self.default_model_key();
+            let thread_id = self.mutate_state(|state| {
+                let project = state
+                    .projects
+                    .iter_mut()
+                    .find(|project| project.id == input.project_id)
+                    .ok_or_else(|| "Project not found.".to_string())?;
+                let thread = new_thread(&input.title, &project.branch, default_model.clone());
+                let thread_id = thread.id.clone();
+                state.selected_project_id = Some(project.id.clone());
+                state.selected_thread_id = Some(thread_id.clone());
+                project.threads.push(thread);
+                Ok(thread_id)
+            })?;
+            self.persist_and_return(self.thread_update(&thread_id)?)
+        })
     }
 
     pub fn move_project(&self, input: MoveProjectInput) -> Result<AppUpdate, String> {
-        self.mutate_state(|state| {
-            let current_index = state
-                .projects
-                .iter()
-                .position(|project| project.id == input.project_id)
-                .ok_or_else(|| "Project not found.".to_string())?;
-            if state.projects.len() < 2 {
-                return Ok(());
-            }
+        self.with_serialized_mutation(|| {
+            self.mutate_state(|state| {
+                let current_index = state
+                    .projects
+                    .iter()
+                    .position(|project| project.id == input.project_id)
+                    .ok_or_else(|| "Project not found.".to_string())?;
+                if state.projects.len() < 2 {
+                    return Ok(());
+                }
 
-            let project = state.projects.remove(current_index);
-            let target_index =
-                project_insert_index(current_index, input.target_index, state.projects.len());
-            state.projects.insert(target_index, project);
-            Ok(())
-        })?;
-        self.persist_and_return(self.project_order_update()?)
+                let project = state.projects.remove(current_index);
+                let target_index =
+                    project_insert_index(current_index, input.target_index, state.projects.len());
+                state.projects.insert(target_index, project);
+                Ok(())
+            })?;
+            self.persist_and_return(self.project_order_update()?)
+        })
     }
 
     pub fn rename_project(&self, input: RenameProjectInput) -> Result<AppUpdate, String> {
-        let name = validated_name(&input.name, "Project name")?;
-        self.mutate_state(|state| {
-            let project = state
-                .projects
-                .iter_mut()
-                .find(|project| project.id == input.project_id)
-                .ok_or_else(|| "Project not found.".to_string())?;
-            project.name = name;
-            Ok(())
-        })?;
-        self.persist_and_return(self.project_update(&input.project_id)?)
+        self.with_serialized_mutation(|| {
+            let name = validated_name(&input.name, "Project name")?;
+            self.mutate_state(|state| {
+                let project = state
+                    .projects
+                    .iter_mut()
+                    .find(|project| project.id == input.project_id)
+                    .ok_or_else(|| "Project not found.".to_string())?;
+                project.name = name;
+                Ok(())
+            })?;
+            self.persist_and_return(self.project_update(&input.project_id)?)
+        })
     }
 
     pub fn remove_project(&self, input: RemoveProjectInput) -> Result<AppUpdate, String> {
-        let update = self.mutate_state(|state| {
-            let removed_index = state
-                .projects
-                .iter()
-                .position(|project| project.id == input.project_id)
-                .ok_or_else(|| "Project not found.".to_string())?;
-            state.projects.remove(removed_index);
-            if state.selected_project_id.as_deref() == Some(&input.project_id) {
-                let next_project = state
+        self.with_serialized_mutation(|| {
+            let update = self.mutate_state(|state| {
+                let removed_index = state
                     .projects
-                    .get(removed_index)
-                    .or_else(|| state.projects.last());
-                state.selected_project_id = next_project.map(|project| project.id.clone());
-                state.selected_thread_id = next_project
-                    .and_then(|project| project.threads.first())
-                    .map(|thread| thread.id.clone());
-            }
-            Ok(AppUpdate {
-                events: vec![AppEvent::ProjectRemoved {
-                    project_id: input.project_id.clone(),
-                    selected_project_id: state.selected_project_id.clone(),
-                    selected_thread_id: state.selected_thread_id.clone(),
-                }],
-            })
-        })?;
-        self.persist_and_return(update)
+                    .iter()
+                    .position(|project| project.id == input.project_id)
+                    .ok_or_else(|| "Project not found.".to_string())?;
+                state.projects.remove(removed_index);
+                if state.selected_project_id.as_deref() == Some(&input.project_id) {
+                    let next_project = state
+                        .projects
+                        .get(removed_index)
+                        .or_else(|| state.projects.last());
+                    state.selected_project_id = next_project.map(|project| project.id.clone());
+                    state.selected_thread_id = next_project
+                        .and_then(|project| project.threads.first())
+                        .map(|thread| thread.id.clone());
+                }
+                Ok(AppUpdate {
+                    events: vec![AppEvent::ProjectRemoved {
+                        project_id: input.project_id.clone(),
+                        selected_project_id: state.selected_project_id.clone(),
+                        selected_thread_id: state.selected_thread_id.clone(),
+                    }],
+                })
+            })?;
+            self.persist_and_return(update)
+        })
     }
 
     pub fn remove_thread(&self, input: RemoveThreadInput) -> Result<AppUpdate, String> {
-        let project_id = self.mutate_state(|state| {
-            let (project_index, thread_index) = locate_thread(state, &input.thread_id)
-                .ok_or_else(|| "Thread not found.".to_string())?;
-            let project = &mut state.projects[project_index];
-            if matches!(project.threads[thread_index].status, ThreadStatus::Running) {
-                return Err("Stop the thread before deleting it.".to_string());
-            }
+        self.with_serialized_mutation(|| {
+            let project_id = self.mutate_state(|state| {
+                let (project_index, thread_index) = locate_thread(state, &input.thread_id)
+                    .ok_or_else(|| "Thread not found.".to_string())?;
+                let project = &mut state.projects[project_index];
+                if matches!(project.threads[thread_index].status, ThreadStatus::Running) {
+                    return Err("Stop the thread before deleting it.".to_string());
+                }
 
-            project.threads.remove(thread_index);
-            if state.selected_thread_id.as_deref() == Some(&input.thread_id) {
-                state.selected_thread_id = project
-                    .threads
-                    .get(thread_index)
-                    .or_else(|| project.threads.last())
-                    .map(|thread| thread.id.clone());
-                state.selected_project_id = Some(project.id.clone());
-            }
-            Ok(project.id.clone())
-        })?;
-        self.persist_and_return(self.project_update(&project_id)?)
+                project.threads.remove(thread_index);
+                if state.selected_thread_id.as_deref() == Some(&input.thread_id) {
+                    state.selected_thread_id = project
+                        .threads
+                        .get(thread_index)
+                        .or_else(|| project.threads.last())
+                        .map(|thread| thread.id.clone());
+                    state.selected_project_id = Some(project.id.clone());
+                }
+                Ok(project.id.clone())
+            })?;
+            self.persist_and_return(self.project_update(&project_id)?)
+        })
     }
 
     pub fn rename_thread(&self, input: RenameThreadInput) -> Result<AppUpdate, String> {
-        let title = validated_name(&input.title, "Thread title")?;
-        let update = self.mutate_thread(&input.thread_id, |thread| {
-            thread.title = title;
-            Ok(())
-        })?;
-        self.persist_and_return(update)
+        self.with_serialized_mutation(|| {
+            let title = validated_name(&input.title, "Thread title")?;
+            let update = self.mutate_thread(&input.thread_id, |thread| {
+                thread.title = title;
+                Ok(())
+            })?;
+            self.persist_and_return(update)
+        })
     }
 
     pub fn select_model(&self, input: SelectModelInput) -> Result<AppUpdate, String> {
-        let update = self.mutate_thread(&input.thread_id, |thread| {
-            thread.model_key = Some(input.model_key.clone());
-            Ok(())
-        })?;
-        self.persist_and_return(update)
+        self.with_serialized_mutation(|| {
+            let update = self.mutate_thread(&input.thread_id, |thread| {
+                thread.model_key = Some(input.model_key.clone());
+                Ok(())
+            })?;
+            self.persist_and_return(update)
+        })
     }
 
     pub fn select_reasoning(&self, input: SelectReasoningInput) -> Result<AppUpdate, String> {
-        let update = self.mutate_thread(&input.thread_id, |thread| {
-            thread.reasoning_level = input.reasoning_level.clone();
-            Ok(())
-        })?;
-        self.persist_and_return(update)
+        self.with_serialized_mutation(|| {
+            let update = self.mutate_thread(&input.thread_id, |thread| {
+                thread.reasoning_level = input.reasoning_level.clone();
+                Ok(())
+            })?;
+            self.persist_and_return(update)
+        })
     }
 
     pub fn select_intent(&self, input: SelectIntentInput) -> Result<AppUpdate, String> {
-        let update = self.mutate_thread(&input.thread_id, |thread| {
-            if thread.intent == input.intent {
-                return Ok(());
-            }
-            let previous_intent = thread.intent.clone();
-            thread.intent = input.intent.clone();
-            append_intent_switch_activity(
-                thread,
-                &input.thread_id,
-                previous_intent,
-                input.intent.clone(),
-                "user",
-                input.reason.clone(),
-            );
-            Ok(())
-        })?;
-        self.persist_and_return(update)
+        self.with_serialized_mutation(|| {
+            let update = self.mutate_thread(&input.thread_id, |thread| {
+                if thread.intent == input.intent {
+                    return Ok(());
+                }
+                let previous_intent = thread.intent.clone();
+                thread.intent = input.intent.clone();
+                append_intent_switch_activity(
+                    thread,
+                    &input.thread_id,
+                    previous_intent,
+                    input.intent.clone(),
+                    "user",
+                    input.reason.clone(),
+                );
+                Ok(())
+            })?;
+            self.persist_and_return(update)
+        })
     }
 
     pub fn set_provider_key(&self, input: ProviderKeyInput) -> Result<AppUpdate, String> {
-        let environment = self
-            .bridge()?
-            .set_provider_key(&input.provider, &input.key)?;
-        self.persist_and_return(self.sync_environment(environment)?)
+        self.with_serialized_mutation(|| {
+            let environment = self
+                .bridge()?
+                .set_provider_key(&input.provider, &input.key)?;
+            self.persist_and_return(self.sync_environment(environment)?)
+        })
     }
 
     pub fn import_codex_openai_key(&self) -> Result<AppUpdate, String> {
-        let key = read_codex_openai_key()?;
-        let environment = self.bridge()?.set_provider_key("openai", &key)?;
-        self.persist_and_return(self.sync_environment(environment)?)
+        self.with_serialized_mutation(|| {
+            let key = read_codex_openai_key()?;
+            let environment = self.bridge()?.set_provider_key("openai", &key)?;
+            self.persist_and_return(self.sync_environment(environment)?)
+        })
     }
 
     pub fn start_codex_login(&self) -> Result<AppUpdate, String> {
-        launch_codex_login()?;
-        self.persist_and_return(self.system_update()?)
+        self.with_serialized_mutation(|| {
+            launch_codex_login()?;
+            self.persist_and_return(self.system_update()?)
+        })
     }
 
     pub fn set_feature_toggle(&self, input: ToggleFeatureInput) -> Result<AppUpdate, String> {
-        self.mutate_state(|state| {
+        self.with_serialized_mutation(|| {
+            let original_state = self.clone_state()?;
+            let mut features = original_state.settings.features.clone();
             if input.feature == "docparser" {
-                state.settings.features.docparser_enabled = input.enabled;
-                return Ok(());
+                features.docparser_enabled = input.enabled;
+            } else if input.feature == "diagnostic-logging" {
+                features.diagnostic_logging_enabled = input.enabled;
+            } else {
+                return Err(format!("Unknown feature toggle: {}", input.feature));
             }
 
-            Err(format!("Unknown feature toggle: {}", input.feature))
-        })?;
+            let result = (|| {
+                let environment = self.bridge()?.set_feature_settings(&features)?;
+                self.mutate_state(|state| {
+                    state.settings.features = features.clone();
+                    Ok(())
+                })?;
+                self.persist_and_return(self.sync_environment(environment)?)
+            })();
 
-        let features = {
-            let state = self
-                .inner
-                .state
-                .lock()
-                .map_err(|_| "State lock was poisoned.".to_string())?;
-            state.settings.features.clone()
-        };
-
-        let environment = self.bridge()?.set_feature_settings(&features)?;
-        self.persist_and_return(self.sync_environment(environment)?)
+            if result.is_err() {
+                self.restore_state_snapshot(original_state)?;
+            }
+            result
+        })
     }
 
     pub fn set_diff_analysis_model(
         &self,
         input: SetDiffAnalysisModelInput,
     ) -> Result<AppUpdate, String> {
-        self.mutate_state(|state| {
-            state.settings.diff_analysis_model_key = input.model_key.clone();
-            Ok(())
-        })?;
-        self.persist_and_return(self.system_update()?)
+        self.with_serialized_mutation(|| {
+            self.mutate_state(|state| {
+                state.settings.diff_analysis_model_key = input.model_key.clone();
+                Ok(())
+            })?;
+            self.persist_and_return(self.system_update()?)
+        })
     }
 
     pub fn stage_attachment(&self, input: StageAttachmentInput) -> Result<AppUpdate, String> {
-        self.ensure_thread_exists(&input.thread_id)?;
-        let source_path = PathBuf::from(&input.source_path);
-        let source_name = source_path
-            .file_name()
-            .and_then(|value| value.to_str())
-            .map(str::to_string)
-            .ok_or_else(|| "Attachment path did not contain a valid file name.".to_string())?;
-        let source_metadata = fs::metadata(&source_path).map_err(|error| error.to_string())?;
-        if !source_metadata.is_file() {
-            return Err("Attachments must be regular files.".to_string());
-        }
+        self.with_serialized_mutation(|| {
+            self.ensure_thread_exists(&input.thread_id)?;
+            let source_path = PathBuf::from(&input.source_path);
+            let source_name = source_path
+                .file_name()
+                .and_then(|value| value.to_str())
+                .map(str::to_string)
+                .ok_or_else(|| "Attachment path did not contain a valid file name.".to_string())?;
+            let source_metadata = fs::metadata(&source_path).map_err(|error| error.to_string())?;
+            if !source_metadata.is_file() {
+                return Err("Attachments must be regular files.".to_string());
+            }
+            validate_attachment_size(source_metadata.len())?;
 
-        let (attachment_id, file_path) =
-            self.create_attachment_target(&input.thread_id, &source_name)?;
-        fs::copy(&source_path, &file_path).map_err(|error| error.to_string())?;
-        let mime_type = infer_mime_type(&source_path);
-        let update = self.record_staged_attachment(
-            &input.thread_id,
-            &attachment_id,
-            &source_name,
-            &mime_type,
-            &file_path,
-            source_metadata.len(),
-        )?;
-        self.persist_update(&update)?;
+            let (attachment_id, file_path) =
+                self.create_attachment_target(&input.thread_id, &source_name)?;
+            fs::copy(&source_path, &file_path).map_err(|error| error.to_string())?;
+            let mime_type = infer_mime_type(&source_path);
+            let update = self.record_staged_attachment(
+                &input.thread_id,
+                &attachment_id,
+                &source_name,
+                &mime_type,
+                &file_path,
+                source_metadata.len(),
+            )?;
+            self.persist_update(&update)?;
 
-        self.spawn_attachment_parse(&input.thread_id, &attachment_id, file_path);
-        Ok(update)
+            self.spawn_attachment_parse(
+                &input.thread_id,
+                &attachment_id,
+                file_path,
+                source_metadata.len(),
+            );
+            Ok(update)
+        })
     }
 
     pub fn stage_attachment_data(
         &self,
         input: StageAttachmentDataInput,
     ) -> Result<AppUpdate, String> {
-        self.ensure_thread_exists(&input.thread_id)?;
-        let attachment_name = normalized_attachment_name(&input.name, input.mime_type.as_deref());
-        let (attachment_id, file_path) =
-            self.create_attachment_target(&input.thread_id, &attachment_name)?;
-        fs::write(&file_path, &input.bytes).map_err(|error| error.to_string())?;
-        let mime_type = attachment_mime_type(&attachment_name, input.mime_type.as_deref());
-        let update = self.record_staged_attachment(
-            &input.thread_id,
-            &attachment_id,
-            &attachment_name,
-            &mime_type,
-            &file_path,
-            input.bytes.len() as u64,
-        )?;
-        self.persist_update(&update)?;
+        self.with_serialized_mutation(|| {
+            self.ensure_thread_exists(&input.thread_id)?;
+            validate_attachment_size(input.bytes.len() as u64)?;
+            let attachment_name =
+                normalized_attachment_name(&input.name, input.mime_type.as_deref());
+            let (attachment_id, file_path) =
+                self.create_attachment_target(&input.thread_id, &attachment_name)?;
+            fs::write(&file_path, &input.bytes).map_err(|error| error.to_string())?;
+            let mime_type = attachment_mime_type(&attachment_name, input.mime_type.as_deref());
+            let update = self.record_staged_attachment(
+                &input.thread_id,
+                &attachment_id,
+                &attachment_name,
+                &mime_type,
+                &file_path,
+                input.bytes.len() as u64,
+            )?;
+            self.persist_update(&update)?;
 
-        self.spawn_attachment_parse(&input.thread_id, &attachment_id, file_path);
-        Ok(update)
+            self.spawn_attachment_parse(
+                &input.thread_id,
+                &attachment_id,
+                file_path,
+                input.bytes.len() as u64,
+            );
+            Ok(update)
+        })
     }
 
     pub fn remove_attachment(&self, input: RemoveAttachmentInput) -> Result<AppUpdate, String> {
-        let attachment_path = self.attachment_path(&input.thread_id, &input.attachment_id)?;
-        match fs::remove_file(&attachment_path) {
-            Ok(()) => {}
-            Err(error) if error.kind() == ErrorKind::NotFound => {}
-            Err(error) => {
-                return Err(format!(
-                    "Failed to delete attachment file `{}`: {error}",
-                    attachment_path.display()
-                ));
+        self.with_serialized_mutation(|| {
+            let original_state = self.clone_state()?;
+            let attachment_path = self.attachment_path(&input.thread_id, &input.attachment_id)?;
+            let update = self.mutate_thread(&input.thread_id, |thread| {
+                thread
+                    .attachments
+                    .retain(|attachment| attachment.id != input.attachment_id);
+                Ok(())
+            })?;
+            let persisted_update = self.persist_and_return(update)?;
+            match fs::remove_file(&attachment_path) {
+                Ok(()) => Ok(persisted_update),
+                Err(error) if error.kind() == ErrorKind::NotFound => Ok(persisted_update),
+                Err(error) => {
+                    self.restore_state_snapshot(original_state)?;
+                    let rollback_update = self.thread_update(&input.thread_id)?;
+                    self.persist_update(&rollback_update)?;
+                    Err(format!(
+                        "Failed to delete attachment file `{}`: {error}",
+                        attachment_path.display()
+                    ))
+                }
             }
-        }
-
-        let update = self.mutate_thread(&input.thread_id, |thread| {
-            thread
-                .attachments
-                .retain(|attachment| attachment.id != input.attachment_id);
-            Ok(())
-        })?;
-        self.persist_and_return(update)
+        })
     }
 
     pub fn send_prompt(&self, input: SendPromptInput) -> Result<AppUpdate, String> {
-        let prepared = self.prepare_prompt(&input.thread_id)?;
-        let effective_mode = if matches!(input.mode, PromptMode::Prompt)
-            && matches!(prepared.thread_status, ThreadStatus::Running)
-        {
-            PromptMode::FollowUp
-        } else {
-            input.mode.clone()
-        };
-        let command_name = match effective_mode {
-            PromptMode::Prompt => "send-prompt",
-            PromptMode::FollowUp => "follow-up",
-            PromptMode::Steer => "steer",
-        };
-        let staged_attachment_paths = prepared
-            .attachments
-            .iter()
-            .map(|attachment| attachment.path.clone())
-            .collect::<Vec<_>>();
-        let pending_message = matches!(effective_mode, PromptMode::Prompt).then(|| MessageRecord {
-            id: Uuid::new_v4().to_string(),
-            role: MessageRole::User,
-            status: MessageStatus::Ready,
-            text: input.text.clone(),
-            timestamp_ms: now_ms(),
-        });
-        let pending_queue_entry =
-            (!matches!(effective_mode, PromptMode::Prompt)).then(|| crate::model::QueueEntry {
-                id: Uuid::new_v4().to_string(),
-                mode: if matches!(effective_mode, PromptMode::Steer) {
-                    crate::model::QueueMode::Steer
-                } else {
-                    crate::model::QueueMode::FollowUp
-                },
-                status: crate::model::QueueStatus::Pending,
-                text: input.text.clone(),
-            });
+        let (
+            command_name,
+            pending_message,
+            pending_queue_entry,
+            prepared,
+            staged_attachment_paths,
+            update,
+        ) = self.with_serialized_mutation(|| {
+            let prepared = self.prepare_prompt(&input.thread_id, input.include_intent_guidance)?;
+            let effective_mode = if matches!(input.mode, PromptMode::Prompt)
+                && matches!(prepared.thread_status, ThreadStatus::Running)
+            {
+                PromptMode::FollowUp
+            } else {
+                input.mode.clone()
+            };
+            let command_name = match effective_mode {
+                PromptMode::Prompt => "send-prompt",
+                PromptMode::FollowUp => "follow-up",
+                PromptMode::Steer => "steer",
+            }
+            .to_string();
+            let staged_attachment_paths = prepared
+                .attachments
+                .iter()
+                .map(|attachment| attachment.path.clone())
+                .collect::<Vec<_>>();
+            let pending_message =
+                matches!(effective_mode, PromptMode::Prompt).then(|| MessageRecord {
+                    id: Uuid::new_v4().to_string(),
+                    role: MessageRole::User,
+                    status: MessageStatus::Ready,
+                    text: input.text.clone(),
+                    timestamp_ms: now_ms(),
+                });
+            let pending_queue_entry =
+                (!matches!(effective_mode, PromptMode::Prompt)).then(|| crate::model::QueueEntry {
+                    id: Uuid::new_v4().to_string(),
+                    mode: if matches!(effective_mode, PromptMode::Steer) {
+                        crate::model::QueueMode::Steer
+                    } else {
+                        crate::model::QueueMode::FollowUp
+                    },
+                    status: crate::model::QueueStatus::Pending,
+                    text: input.text.clone(),
+                });
 
-        let update = self.mutate_thread(&input.thread_id, |thread| {
-            if matches!(effective_mode, PromptMode::Prompt) {
-                update_thread_title(thread, &input.text);
-                if let Some(message) = &pending_message {
-                    thread.last_user_message_at_ms = message.timestamp_ms;
-                    thread.messages.push(message.clone());
+            let update = self.mutate_thread(&input.thread_id, |thread| {
+                if matches!(effective_mode, PromptMode::Prompt) {
+                    update_thread_title(thread, &input.text);
+                    if let Some(message) = &pending_message {
+                        thread.last_user_message_at_ms = message.timestamp_ms;
+                        thread.messages.push(message.clone());
+                        mark_staged_attachments_sent(thread);
+                    }
+                } else if let Some(queue_entry) = &pending_queue_entry {
+                    thread.queue.push(queue_entry.clone());
                     mark_staged_attachments_sent(thread);
                 }
-            } else if let Some(queue_entry) = &pending_queue_entry {
-                thread.queue.push(queue_entry.clone());
-                mark_staged_attachments_sent(thread);
-            }
-            thread.status = ThreadStatus::Running;
-            thread.last_error = None;
-            Ok(())
+                thread.status = ThreadStatus::Running;
+                thread.last_error = None;
+                Ok(())
+            })?;
+            self.persist_update(&update)?;
+            Ok((
+                command_name,
+                pending_message,
+                pending_queue_entry,
+                prepared,
+                staged_attachment_paths,
+                update,
+            ))
         })?;
-        if let Err(error) = self.persist_update(&update) {
-            let persist_error = error.clone();
-            if let Err(rollback_error) = self.rollback_failed_prompt(
-                &input.thread_id,
-                error,
-                &pending_message,
-                &pending_queue_entry,
-                &staged_attachment_paths,
-                &prepared.thread_status,
-            ) {
-                eprintln!(
-                    "Failed to roll back prompt state after persistence error `{persist_error}`: {rollback_error}"
-                );
-            }
-            return Err(persist_error);
-        }
 
         let bridge_input = crate::pi_bridge::BridgePromptRequest {
             attachments: &prepared.attachments,
-            command_name,
+            command_name: &command_name,
             cwd: &prepared.cwd,
             intent_guidance: &prepared.intent_guidance,
             messages: &prepared.messages,
@@ -615,14 +686,16 @@ impl AppRuntime {
 
         if let Err(error) = self.bridge()?.send_prompt(bridge_input) {
             let bridge_error = error.clone();
-            if let Err(rollback_error) = self.rollback_failed_prompt(
-                &input.thread_id,
-                error,
-                &pending_message,
-                &pending_queue_entry,
-                &staged_attachment_paths,
-                &prepared.thread_status,
-            ) {
+            if let Err(rollback_error) = self.with_serialized_mutation(|| {
+                self.rollback_failed_prompt(
+                    &input.thread_id,
+                    error,
+                    &pending_message,
+                    &pending_queue_entry,
+                    &staged_attachment_paths,
+                    &prepared.thread_status,
+                )
+            }) {
                 eprintln!(
                     "Failed to roll back prompt state after bridge error `{bridge_error}`: {rollback_error}"
                 );
@@ -635,17 +708,19 @@ impl AppRuntime {
 
     pub fn abort_thread(&self, thread_id: &str) -> Result<AppUpdate, String> {
         self.bridge()?.abort(thread_id)?;
-        let update = self.mutate_thread(thread_id, |thread| {
-            thread.status = ThreadStatus::Idle;
-            append_activity(
-                thread,
-                "Run stopped",
-                "The current run was stopped.".to_string(),
-                crate::model::ActivityTone::System,
-            );
-            Ok(())
-        })?;
-        self.persist_and_return(update)
+        self.with_serialized_mutation(|| {
+            let update = self.mutate_thread(thread_id, |thread| {
+                thread.status = ThreadStatus::Idle;
+                append_activity(
+                    thread,
+                    "Run stopped",
+                    "The current run was stopped.".to_string(),
+                    crate::model::ActivityTone::System,
+                );
+                Ok(())
+            })?;
+            self.persist_and_return(update)
+        })
     }
 
     fn snapshot(&self) -> Result<AppSnapshot, String> {
@@ -667,10 +742,12 @@ impl AppRuntime {
     }
 
     fn refresh_environment(&self) -> Result<AppUpdate, String> {
-        let environment = self.bridge()?.refresh_environment()?;
-        let update = self.sync_environment(environment)?;
-        self.persist_update(&update)?;
-        Ok(update)
+        self.with_serialized_mutation(|| {
+            let environment = self.bridge()?.refresh_environment()?;
+            let update = self.sync_environment(environment)?;
+            self.persist_update(&update)?;
+            Ok(update)
+        })
     }
 
     fn sync_environment(&self, environment: BridgeEnvironment) -> Result<AppUpdate, String> {
@@ -722,6 +799,18 @@ impl AppRuntime {
         Ok(AppUpdate { events })
     }
 
+    fn with_serialized_mutation<F, T>(&self, work: F) -> Result<T, String>
+    where
+        F: FnOnce() -> Result<T, String>,
+    {
+        let _guard = self
+            .inner
+            .mutation_lock
+            .lock()
+            .map_err(|_| "State mutation lock was poisoned.".to_string())?;
+        work()
+    }
+
     fn mutate_state<F, T>(&self, mutator: F) -> Result<T, String>
     where
         F: FnOnce(&mut PersistedState) -> Result<T, String>,
@@ -732,7 +821,15 @@ impl AppRuntime {
                 .state
                 .lock()
                 .map_err(|_| "State lock was poisoned.".to_string())?;
-            mutator(&mut state)?
+            let original_state = state.clone();
+            let mut rollback = self
+                .inner
+                .pending_state_rollback
+                .lock()
+                .map_err(|_| "State rollback lock was poisoned.".to_string())?;
+            let output = mutator(&mut state)?;
+            *rollback = Some(original_state);
+            output
         };
         Ok(output)
     }
@@ -766,12 +863,62 @@ impl AppRuntime {
             .lock()
             .map_err(|_| "State lock was poisoned.".to_string())?
             .clone();
-        append_update(&self.inner.data_dir, update, &state)
+        match append_update(&self.inner.data_dir, update, &state) {
+            Ok(()) => {
+                self.clear_pending_state_rollback();
+                Ok(())
+            }
+            Err(error) => {
+                self.restore_pending_state_rollback();
+                Err(error)
+            }
+        }
     }
 
     fn persist_and_return(&self, update: AppUpdate) -> Result<AppUpdate, String> {
         self.persist_update(&update)?;
         Ok(update)
+    }
+
+    fn clear_pending_state_rollback(&self) {
+        if let Ok(mut rollback) = self.inner.pending_state_rollback.lock() {
+            *rollback = None;
+        }
+    }
+
+    fn clone_state(&self) -> Result<PersistedState, String> {
+        self.inner
+            .state
+            .lock()
+            .map_err(|_| "State lock was poisoned.".to_string())
+            .map(|state| state.clone())
+    }
+
+    fn restore_state_snapshot(&self, snapshot: PersistedState) -> Result<(), String> {
+        {
+            let mut state = self
+                .inner
+                .state
+                .lock()
+                .map_err(|_| "State lock was poisoned.".to_string())?;
+            *state = snapshot;
+        }
+        self.clear_pending_state_rollback();
+        Ok(())
+    }
+
+    fn restore_pending_state_rollback(&self) {
+        let previous_state = self
+            .inner
+            .pending_state_rollback
+            .lock()
+            .ok()
+            .and_then(|mut rollback| rollback.take());
+        if let Some(previous_state) = previous_state {
+            if let Ok(mut state) = self.inner.state.lock() {
+                *state = previous_state;
+            }
+        }
     }
 
     fn rollback_failed_prompt(
@@ -1151,13 +1298,17 @@ impl AppRuntime {
         }
     }
 
-    fn clear_active_diff_job(&self, fingerprint: &str) {
+    fn clear_active_diff_job(&self, key: &str) {
         if let Ok(mut jobs) = self.inner.active_diff_jobs.lock() {
-            jobs.remove(fingerprint);
+            jobs.remove(key);
         }
     }
 
-    fn prepare_prompt(&self, thread_id: &str) -> Result<PreparedPrompt, String> {
+    fn prepare_prompt(
+        &self,
+        thread_id: &str,
+        include_intent_guidance: bool,
+    ) -> Result<PreparedPrompt, String> {
         let state = self
             .inner
             .state
@@ -1211,7 +1362,11 @@ impl AppRuntime {
         Ok(PreparedPrompt {
             attachments,
             cwd: project_path,
-            intent_guidance: intent.guidance().to_string(),
+            intent_guidance: if include_intent_guidance {
+                intent.guidance().to_string()
+            } else {
+                String::new()
+            },
             messages,
             model_key,
             thinking_level,
@@ -1270,7 +1425,30 @@ impl AppRuntime {
         })
     }
 
-    fn spawn_attachment_parse(&self, thread_id: &str, attachment_id: &str, path: PathBuf) {
+    fn spawn_attachment_parse(
+        &self,
+        thread_id: &str,
+        attachment_id: &str,
+        path: PathBuf,
+        size_bytes: u64,
+    ) {
+        if size_bytes > MAX_PARSE_ATTACHMENT_BYTES {
+            let runtime = self.clone();
+            let thread_id = thread_id.to_string();
+            let attachment_id = attachment_id.to_string();
+            tauri::async_runtime::spawn(async move {
+                let _ = runtime.apply_attachment_parse_result(
+                    &thread_id,
+                    &attachment_id,
+                    Err(format!(
+                        "Attachment is larger than the {} MB parse limit.",
+                        MAX_PARSE_ATTACHMENT_BYTES / 1024 / 1024
+                    )),
+                );
+            });
+            return;
+        }
+
         let runtime = self.clone();
         let thread_id = thread_id.to_string();
         let attachment_id = attachment_id.to_string();
@@ -1289,30 +1467,32 @@ impl AppRuntime {
         attachment_id: &str,
         result: Result<crate::pi_bridge::BridgeAttachmentResult, String>,
     ) -> Result<(), String> {
-        let update = self.mutate_thread(thread_id, |thread| {
-            let attachment = thread
-                .attachments
-                .iter_mut()
-                .find(|attachment| attachment.id == attachment_id)
-                .ok_or_else(|| "Attachment not found.".to_string())?;
+        self.with_serialized_mutation(|| {
+            let update = self.mutate_thread(thread_id, |thread| {
+                let attachment = thread
+                    .attachments
+                    .iter_mut()
+                    .find(|attachment| attachment.id == attachment_id)
+                    .ok_or_else(|| "Attachment not found.".to_string())?;
 
-            match result {
-                Ok(parsed) => {
-                    attachment.parse_status = attachment_status_from_bridge(parsed.status);
-                    attachment.preview_text = parsed.preview_text;
-                    attachment.warnings = parsed.warnings;
+                match result {
+                    Ok(parsed) => {
+                        attachment.parse_status = attachment_status_from_bridge(parsed.status);
+                        attachment.preview_text = parsed.preview_text;
+                        attachment.warnings = parsed.warnings;
+                    }
+                    Err(error) => {
+                        attachment.parse_status = AttachmentParseStatus::Failed;
+                        attachment.warnings = vec![error];
+                    }
                 }
-                Err(error) => {
-                    attachment.parse_status = AttachmentParseStatus::Failed;
-                    attachment.warnings = vec![error];
-                }
-            }
 
+                Ok(())
+            })?;
+            self.persist_update(&update)?;
+            self.emit_update(&update)?;
             Ok(())
-        })?;
-        self.persist_update(&update)?;
-        self.emit_update(&update)?;
-        Ok(())
+        })
     }
 
     fn handle_bridge_event(&self, event: BridgeEvent) {
@@ -1337,50 +1517,52 @@ impl AppRuntime {
     }
 
     fn handle_bridge_offline(&self, error: String) -> Result<(), String> {
-        let affected_thread_ids = self.mutate_state(|state| {
-            let mut affected_thread_ids = Vec::new();
-            for project in &mut state.projects {
-                for thread in &mut project.threads {
-                    let had_queue = !thread.queue.is_empty();
-                    let was_running = matches!(thread.status, ThreadStatus::Running);
-                    if !was_running && !had_queue {
-                        continue;
-                    }
-
-                    for attachment in &mut thread.attachments {
-                        if attachment.stage == AttachmentStage::Sent {
-                            attachment.stage = AttachmentStage::Staged;
+        self.with_serialized_mutation(|| {
+            let affected_thread_ids = self.mutate_state(|state| {
+                let mut affected_thread_ids = Vec::new();
+                for project in &mut state.projects {
+                    for thread in &mut project.threads {
+                        let had_queue = !thread.queue.is_empty();
+                        let was_running = matches!(thread.status, ThreadStatus::Running);
+                        if !was_running && !had_queue {
+                            continue;
                         }
+
+                        for attachment in &mut thread.attachments {
+                            if attachment.stage == AttachmentStage::Sent {
+                                attachment.stage = AttachmentStage::Staged;
+                            }
+                        }
+                        thread.queue.clear();
+                        if was_running {
+                            thread.status = ThreadStatus::Failed;
+                        }
+                        thread.last_error = Some(error.clone());
+                        append_activity(
+                            thread,
+                            "Bridge offline",
+                            "The agent bridge disconnected before the current run completed."
+                                .to_string(),
+                            crate::model::ActivityTone::System,
+                        );
+                        affected_thread_ids.push(thread.id.clone());
                     }
-                    thread.queue.clear();
-                    if was_running {
-                        thread.status = ThreadStatus::Failed;
-                    }
-                    thread.last_error = Some(error.clone());
-                    append_activity(
-                        thread,
-                        "Bridge offline",
-                        "The agent bridge disconnected before the current run completed."
-                            .to_string(),
-                        crate::model::ActivityTone::System,
-                    );
-                    affected_thread_ids.push(thread.id.clone());
                 }
+
+                Ok(affected_thread_ids)
+            })?;
+
+            let mut events = vec![AppEvent::HealthUpdated {
+                health: self.build_health()?,
+            }];
+            for thread_id in affected_thread_ids {
+                events.extend(self.thread_update(&thread_id)?.events);
             }
-
-            Ok(affected_thread_ids)
-        })?;
-
-        let mut events = vec![AppEvent::HealthUpdated {
-            health: self.build_health()?,
-        }];
-        for thread_id in affected_thread_ids {
-            events.extend(self.thread_update(&thread_id)?.events);
-        }
-        let update = AppUpdate { events };
-        self.persist_update(&update)?;
-        self.emit_update(&update)?;
-        Ok(())
+            let update = AppUpdate { events };
+            self.persist_update(&update)?;
+            self.emit_update(&update)?;
+            Ok(())
+        })
     }
 
     fn apply_thread_snapshot(
@@ -1389,45 +1571,73 @@ impl AppRuntime {
         snapshot: BridgeThreadSnapshot,
         activity: Option<BridgeActivity>,
     ) -> Result<(), String> {
-        let update = self.mutate_thread(thread_id, |thread| {
-            thread.last_error = snapshot.last_error;
-            thread.messages = snapshot
-                .messages
-                .into_iter()
-                .map(|message| MessageRecord {
-                    id: message.id,
-                    role: message.role,
-                    status: message.status,
-                    text: message.text,
-                    timestamp_ms: message.timestamp_ms,
-                })
-                .collect();
-            thread.queue = snapshot
-                .queue
-                .into_iter()
-                .map(|entry| crate::model::QueueEntry {
-                    id: entry.id,
-                    mode: entry.mode,
-                    status: entry.status,
-                    text: entry.text,
-                })
-                .collect();
-            thread.status = snapshot.status;
-            thread.last_user_message_at_ms = latest_user_message_timestamp(
-                thread.messages.iter(),
-                thread.last_user_message_at_ms,
-            );
-            sync_thread_title_from_messages(thread);
+        self.with_serialized_mutation(|| {
+            let update = self.mutate_state(|state| {
+                let (project_index, thread_index) = locate_thread(state, thread_id)
+                    .ok_or_else(|| "Thread not found.".to_string())?;
+                {
+                    let thread = &mut state.projects[project_index].threads[thread_index];
+                    if activity.is_none() && snapshot_matches_thread(thread, &snapshot) {
+                        return Ok(None);
+                    }
 
-            if let Some(detail) = activity {
-                append_activity(thread, &detail.title, detail.detail, detail.tone);
-            }
+                    thread.last_error = snapshot.last_error;
+                    thread.messages = merge_thread_messages(
+                        &thread.messages,
+                        snapshot
+                            .messages
+                            .into_iter()
+                            .map(|message| MessageRecord {
+                                id: message.id,
+                                role: message.role,
+                                status: message.status,
+                                text: message.text,
+                                timestamp_ms: message.timestamp_ms,
+                            })
+                            .collect(),
+                        thread.last_user_message_at_ms,
+                    );
+                    thread.queue = snapshot
+                        .queue
+                        .into_iter()
+                        .map(|entry| crate::model::QueueEntry {
+                            id: entry.id,
+                            mode: entry.mode,
+                            status: entry.status,
+                            text: entry.text,
+                        })
+                        .collect();
+                    thread.status = snapshot.status;
+                    thread.last_user_message_at_ms = latest_user_message_timestamp(
+                        thread.messages.iter(),
+                        thread.last_user_message_at_ms,
+                    );
+                    sync_thread_title_from_messages(thread);
 
+                    if let Some(detail) = activity {
+                        append_activity(thread, &detail.title, detail.detail, detail.tone);
+                    }
+
+                    thread.updated_at_ms = now_ms();
+                }
+                let project_id = state.projects[project_index].id.clone();
+                let thread = state.projects[project_index].threads[thread_index].clone();
+                Ok(Some(AppUpdate {
+                    events: vec![AppEvent::ThreadUpserted {
+                        project_id,
+                        selected_project_id: state.selected_project_id.clone(),
+                        selected_thread_id: state.selected_thread_id.clone(),
+                        thread,
+                    }],
+                }))
+            })?;
+            let Some(update) = update else {
+                return Ok(());
+            };
+            self.persist_update(&update)?;
+            self.emit_update(&update)?;
             Ok(())
-        })?;
-        self.persist_update(&update)?;
-        self.emit_update(&update)?;
-        Ok(())
+        })
     }
 
     fn bridge(&self) -> Result<Arc<PiBridge>, String> {
@@ -1455,6 +1665,73 @@ fn locate_thread(state: &PersistedState, thread_id: &str) -> Option<(usize, usiz
         })
 }
 
+fn snapshot_matches_thread(thread: &ThreadRecord, snapshot: &BridgeThreadSnapshot) -> bool {
+    thread.last_error == snapshot.last_error
+        && thread.status == snapshot.status
+        && snapshot_messages_match(thread, snapshot)
+        && snapshot_queue_matches(thread, snapshot)
+}
+
+fn snapshot_messages_match(thread: &ThreadRecord, snapshot: &BridgeThreadSnapshot) -> bool {
+    thread.messages.len() == snapshot.messages.len()
+        && thread
+            .messages
+            .iter()
+            .zip(snapshot.messages.iter())
+            .all(|(left, right)| {
+                left.id == right.id
+                    && left.role == right.role
+                    && left.status == right.status
+                    && left.text == right.text
+                    && left.timestamp_ms == right.timestamp_ms
+            })
+}
+
+fn snapshot_queue_matches(thread: &ThreadRecord, snapshot: &BridgeThreadSnapshot) -> bool {
+    thread.queue.len() == snapshot.queue.len()
+        && thread
+            .queue
+            .iter()
+            .zip(snapshot.queue.iter())
+            .all(|(left, right)| {
+                left.id == right.id
+                    && left.mode == right.mode
+                    && left.status == right.status
+                    && left.text == right.text
+            })
+}
+
+fn merge_thread_messages(
+    existing_messages: &[MessageRecord],
+    mut snapshot_messages: Vec<MessageRecord>,
+    last_user_message_at_ms: u64,
+) -> Vec<MessageRecord> {
+    if last_user_message_at_ms == 0
+        || snapshot_messages.iter().any(|message| {
+            matches!(message.role, MessageRole::User)
+                && message.timestamp_ms >= last_user_message_at_ms
+        })
+    {
+        return snapshot_messages;
+    }
+
+    for message in existing_messages.iter().filter(|message| {
+        matches!(message.role, MessageRole::User) && message.timestamp_ms >= last_user_message_at_ms
+    }) {
+        if snapshot_messages.iter().any(|candidate| {
+            matches!(candidate.role, MessageRole::User)
+                && candidate.timestamp_ms == message.timestamp_ms
+                && candidate.text == message.text
+        }) {
+            continue;
+        }
+        snapshot_messages.push(message.clone());
+    }
+
+    snapshot_messages.sort_by_key(|message| message.timestamp_ms);
+    snapshot_messages
+}
+
 fn validated_name(value: &str, label: &str) -> Result<String, String> {
     let trimmed = value.trim();
     if trimmed.is_empty() {
@@ -1474,6 +1751,17 @@ fn attachment_mime_type(name: &str, preferred_mime_type: Option<&str>) -> String
                 .essence_str()
                 .to_string()
         })
+}
+
+fn validate_attachment_size(size_bytes: u64) -> Result<(), String> {
+    if size_bytes <= MAX_ATTACHMENT_BYTES {
+        return Ok(());
+    }
+
+    Err(format!(
+        "Attachment is larger than the {} MB limit.",
+        MAX_ATTACHMENT_BYTES / 1024 / 1024
+    ))
 }
 
 fn normalized_attachment_name(name: &str, mime_type: Option<&str>) -> String {
@@ -1653,14 +1941,18 @@ fn latest_user_message_timestamp<'a>(
 }
 
 struct ActiveDiffJobGuard {
-    fingerprint: String,
+    key: String,
     runtime: AppRuntime,
 }
 
 impl Drop for ActiveDiffJobGuard {
     fn drop(&mut self) {
-        self.runtime.clear_active_diff_job(&self.fingerprint);
+        self.runtime.clear_active_diff_job(&self.key);
     }
+}
+
+fn diff_analysis_job_key(fingerprint: &str, model_key: &str) -> String {
+    format!("{fingerprint}\n{model_key}")
 }
 
 fn update_thread_title(thread: &mut ThreadRecord, text: &str) {

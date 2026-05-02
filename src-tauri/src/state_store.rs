@@ -17,10 +17,12 @@ use crate::model::{
 const LEGACY_STATE_FILE_NAME: &str = "app-state.json";
 const STATE_DB_FILE_NAME: &str = "app-state.sqlite";
 const CURRENT_STATE_KEY: i64 = 1;
+const MAX_EVENT_LOG_ROWS: i64 = 5_000;
 
 pub fn load_state(data_dir: &Path) -> Result<PersistedState, String> {
     let connection = open_state_db(data_dir)?;
     if let Some(state) = load_current_state(&connection)? {
+        purge_thread_upserted_events(&connection)?;
         return Ok(state);
     }
 
@@ -37,9 +39,11 @@ pub fn load_state(data_dir: &Path) -> Result<PersistedState, String> {
         if missing_providers || needs_intent_migration {
             replace_state(data_dir, &state)?;
         }
+        purge_thread_upserted_events(&connection)?;
         return Ok(state);
     }
 
+    purge_thread_upserted_events(&connection)?;
     Ok(default_state())
 }
 
@@ -53,10 +57,7 @@ pub fn append_update(
         .iter()
         .filter(|event| is_persisted_event(event))
         .collect::<Vec<_>>();
-    if persisted_events.is_empty() {
-        return Ok(());
-    }
-
+    let should_prune_event_log = !persisted_events.is_empty();
     let mut connection = open_state_db(data_dir)?;
     let transaction = connection
         .transaction()
@@ -70,6 +71,9 @@ pub fn append_update(
             .map_err(|error| error.to_string())?;
     }
     write_current_state(&transaction, state)?;
+    if should_prune_event_log {
+        prune_event_log(&transaction)?;
+    }
     transaction.commit().map_err(|error| error.to_string())
 }
 
@@ -379,6 +383,9 @@ fn open_state_db(data_dir: &Path) -> Result<Connection, String> {
                 payload_json TEXT NOT NULL,
                 updated_at_ms INTEGER NOT NULL
             );
+            DROP INDEX IF EXISTS idx_event_log_created_at;
+            CREATE INDEX IF NOT EXISTS idx_event_log_type
+                ON event_log(event_type);
             ",
         )
         .map_err(|error| error.to_string())?;
@@ -454,13 +461,40 @@ fn write_current_state(connection: &Connection, state: &PersistedState) -> Resul
     Ok(())
 }
 
+fn prune_event_log(connection: &Connection) -> Result<(), String> {
+    connection
+        .execute(
+            "
+            DELETE FROM event_log
+            WHERE id IN (
+                SELECT id
+                FROM event_log
+                ORDER BY id DESC
+                LIMIT -1 OFFSET ?1
+            )
+            ",
+            params![MAX_EVENT_LOG_ROWS],
+        )
+        .map_err(|error| error.to_string())?;
+    Ok(())
+}
+
+fn purge_thread_upserted_events(connection: &Connection) -> Result<(), String> {
+    connection
+        .execute(
+            "DELETE FROM event_log WHERE event_type = 'thread-upserted'",
+            params![],
+        )
+        .map_err(|error| error.to_string())?;
+    Ok(())
+}
+
 fn is_persisted_event(event: &AppEvent) -> bool {
     matches!(
         event,
         AppEvent::ProjectUpserted { .. }
             | AppEvent::ProjectRemoved { .. }
             | AppEvent::ProjectOrderChanged { .. }
-            | AppEvent::ThreadUpserted { .. }
             | AppEvent::SettingsUpdated { .. }
     )
 }

@@ -6,9 +6,11 @@ import {
 	createCleanRepo,
 	createSampleRepo,
 	createThreadForProject,
+	verifyShipReviewPersistsAcrossThreadSwitch,
 	verifyShipWithDiffShowsReviewGate,
 	verifyShipWithoutDiffContinues
 } from './workbench-ship-helpers';
+import { verifyPromptFlow } from './workbench-prompt-helpers';
 
 const DESKTOP_DEBUG_URL = 'http://127.0.0.1:9333';
 const DESKTOP_PAGE_MARKER = 'DGCoder';
@@ -72,8 +74,10 @@ async function addProjectAndThread(page: import('@playwright/test').Page) {
 	await expect(page.getByRole('button', { name: 'Start' })).toBeVisible();
 	await expect(page.getByRole('button', { exact: true, name: 'Attach' })).toBeVisible();
 	await expect(page.getByRole('button', { exact: true, name: 'Ship' })).toBeVisible();
-	await expect(page.getByRole('radio', { name: 'Understand' })).toBeChecked();
-	await expect(page.locator('.thread-row[data-selected="true"]')).toContainText('Understand');
+	await expect(page.getByRole('radio', { name: 'Understand' })).toHaveCount(0);
+	await expect(page.locator('.thread-row[data-selected="true"] .thread-row__intent')).toHaveCount(
+		0
+	);
 }
 
 function escapeRegExp(value: string) {
@@ -206,6 +210,10 @@ async function verifySettingsAndDiff(
 
 	const aiReviewStatus = inspector.locator('.ai-review-panel');
 	await expect(aiReviewStatus).toBeVisible();
+	await expect(inspector.getByRole('tab', { name: 'AI Review' })).toHaveAttribute(
+		'aria-selected',
+		'true'
+	);
 	const patchViewButton = inspector.getByRole('tab', { name: 'Patch View' });
 	await patchViewButton.click();
 	await expect(
@@ -216,6 +224,7 @@ async function verifySettingsAndDiff(
 	await expect(inspector.getByText('pending label handling')).toBeVisible();
 
 	await inspector.getByRole('tab', { name: 'AI Review' }).click();
+	await expect(aiReviewStatus).toBeVisible();
 	const reviewState = await waitForReviewState(aiReviewStatus);
 
 	if (reviewState === 'ready') {
@@ -275,23 +284,6 @@ async function verifyLeftPanelActions(page: import('@playwright/test').Page, rep
 	).toBeVisible();
 }
 
-async function verifyThreadIntentSwitching(page: import('@playwright/test').Page) {
-	await page.getByRole('radio', { name: 'Plan' }).check();
-	await expect(page.getByRole('radio', { name: 'Plan' })).toBeChecked();
-	await expect(page.locator('.thread-row[data-selected="true"]')).toContainText('Plan');
-	await expect(page.locator('.activity-entry[data-kind="intent-switch"]')).toContainText(
-		'Intent set to Plan'
-	);
-	await page.getByRole('radio', { name: 'Plan' }).check();
-	await expect(page.locator('.activity-entry[data-kind="intent-switch"]')).toHaveCount(1);
-	await page.getByRole('radio', { name: 'Review' }).check();
-	await expect(page.getByRole('radio', { name: 'Review' })).toBeChecked();
-	await expect(page.locator('.thread-row[data-selected="true"]')).toContainText('Review');
-	await expect(page.locator('.activity-entry[data-kind="intent-switch"]').last()).toContainText(
-		'Intent set to Review'
-	);
-}
-
 async function removeSelectedProjectFromRail(page: import('@playwright/test').Page) {
 	const selectedProject = page.locator('.project-section[data-selected="true"]');
 	await selectedProject.getByLabel('Project actions').click();
@@ -331,6 +323,19 @@ async function attachReadmeToSelectedThread(page: import('@playwright/test').Pag
 	await settingsDialog.getByRole('button', { name: 'Refresh status' }).click();
 	await settingsDialog.getByLabel('Close the modal').click();
 	await page.getByRole('button', { exact: true, name: 'Spec' }).click();
+	await expect(inspector.getByRole('heading', { level: 3, name: 'Understand' })).toBeVisible();
+	await expect(inspector.getByRole('heading', { level: 3, name: 'Requirements' })).toBeVisible();
+	await expect(inspector.getByRole('heading', { level: 3, name: 'Design' })).toBeVisible();
+	await expect(inspector.getByRole('heading', { level: 3, name: 'Tasks' })).toBeVisible();
+	await expect(inspector.getByRole('heading', { level: 3, name: 'Implement' })).toBeVisible();
+	await expect(inspector.getByRole('heading', { level: 3, name: 'Review' })).toBeVisible();
+	await expect(inspector.getByRole('heading', { level: 3, name: 'Ship' })).toBeVisible();
+	await inspector
+		.locator('.spec-step')
+		.filter({ hasText: 'Requirements' })
+		.getByRole('button', { name: 'Use' })
+		.click();
+	await expect(page.getByLabel('Prompt')).toHaveValue(/Draft requirements/);
 	await expect
 		.poll(
 			async () => {
@@ -381,7 +386,14 @@ async function verifyPastedImageWarning(page: import('@playwright/test').Page) {
 	await pasteImageAttachment(page);
 
 	const attachmentChip = page.locator('.attachment-chip', { hasText: 'clipboard-image.png' });
-	await expect(attachmentChip).toContainText('limited');
+	await expect
+		.poll(
+			async () => {
+				return (await attachmentChip.textContent().catch(() => '')) ?? '';
+			},
+			{ timeout: 20_000 }
+		)
+		.toContain('limited');
 	await expect(attachmentChip).toContainText(warningText);
 	await expect(attachmentChip).not.toContainText('failed');
 
@@ -396,74 +408,12 @@ async function verifyPastedImageWarning(page: import('@playwright/test').Page) {
 	await expect(inspector).toContainText(warningText);
 }
 
-async function verifyPromptFlow(page: import('@playwright/test').Page) {
-	const modelEmptyState = page.locator('.model-empty-state');
-	const promptText = 'Reply with the word ready.';
-	if (await modelEmptyState.isVisible()) {
-		await page.getByLabel('Prompt').fill('Describe the current workbench state.');
-		await page.getByRole('button', { name: 'Start' }).click();
-		await expect(
-			page.getByText('Select a configured model before sending a prompt.')
-		).toBeVisible();
-		return;
-	}
-
-	await expect(page.locator('.composer-panel .bx--list-box').first()).toBeVisible();
-	await page.getByLabel('Prompt').fill(promptText);
-	await page.getByRole('button', { name: 'Start' }).click();
-	const readSendState = async () => {
-		if (
-			await page
-				.getByText('Select a configured model before sending a prompt.')
-				.isVisible()
-				.catch(() => false)
-		) {
-			return 'validation';
-		}
-
-		const userMessages = await page
-			.locator('.message-row[data-tone="user"] .message-row__body')
-			.allTextContents()
-			.catch(() => []);
-		return userMessages.some((message) => message.includes(promptText)) ? 'queued' : 'pending';
-	};
-	await expect.poll(readSendState, { timeout: 30_000 }).not.toBe('pending');
-	const sendState = await readSendState();
-	if (sendState === 'validation') {
-		await expect(
-			page.getByText('Select a configured model before sending a prompt.')
-		).toBeVisible();
-		return;
-	}
-
-	const assistantBody = page
-		.locator('.message-row[data-tone="assistant"] .message-row__body')
-		.first();
-	const failureAlert = page.getByText('Run failed');
-	const readOutcome = async () => {
-		if (await failureAlert.isVisible().catch(() => false)) {
-			return 'failed';
-		}
-		return (await assistantBody.textContent().catch(() => null))?.includes('ready')
-			? 'ready'
-			: 'pending';
-	};
-	await expect.poll(readOutcome, { timeout: 120_000 }).not.toBe('pending');
-	const outcome = await readOutcome();
-	if (outcome === 'ready') {
-		await expect(assistantBody).toContainText('ready');
-		return;
-	}
-
-	const failureText = (await failureAlert.textContent().catch(() => null)) ?? 'Run failed';
-	throw new Error(
-		`Expected an assistant response containing "ready", but the run failed: ${failureText}`
-	);
-}
-
 test('runs the real desktop workflow through Tauri', async () => {
 	const sampleRepo = createSampleRepo();
 	const cleanRepo = createCleanRepo();
+	const primaryProjectName = path.basename(process.cwd());
+	const reviewProjectName = 'Sample workspace';
+	const reviewThreadTitle = 'Review diff changes';
 	let browser: import('@playwright/test').Browser | undefined;
 	let page: import('@playwright/test').Page | undefined;
 	try {
@@ -474,12 +424,17 @@ test('runs the real desktop workflow through Tauri', async () => {
 		await addProjectByPath(page, sampleRepo);
 		await createThreadForProject(page, sampleRepo);
 		await verifyLeftPanelActions(page, sampleRepo);
-		await verifyThreadIntentSwitching(page);
-		await verifySettingsAndDiff(page, sampleRepo, 'Sample workspace');
+		await verifySettingsAndDiff(page, sampleRepo, reviewProjectName);
 		await verifyShipWithDiffShowsReviewGate(page);
+		await verifyShipReviewPersistsAcrossThreadSwitch(
+			page,
+			primaryProjectName,
+			reviewProjectName,
+			reviewThreadTitle
+		);
 		await attachReadmeToSelectedThread(page);
 		await verifyPastedImageWarning(page);
-		await page.getByRole('button', { name: 'Create thread in Sample workspace' }).click();
+		await page.getByRole('button', { name: `Create thread in ${reviewProjectName}` }).click();
 		await expect(page.getByText('Send a message to start the conversation.')).toBeVisible();
 		await verifyPromptFlow(page);
 		await removeSelectedProjectFromRail(page);

@@ -102,15 +102,22 @@ pub struct AppSettings {
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct FeatureSettings {
+    #[serde(default = "default_diagnostic_logging_enabled")]
+    pub diagnostic_logging_enabled: bool,
     pub docparser_enabled: bool,
 }
 
 impl Default for FeatureSettings {
     fn default() -> Self {
         Self {
+            diagnostic_logging_enabled: true,
             docparser_enabled: true,
         }
     }
+}
+
+fn default_diagnostic_logging_enabled() -> bool {
+    true
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
@@ -235,7 +242,7 @@ impl ThreadIntent {
     }
 }
 
-#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MessageRecord {
     pub id: String,
@@ -245,7 +252,7 @@ pub struct MessageRecord {
     pub timestamp_ms: u64,
 }
 
-#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum MessageRole {
     Assistant,
@@ -255,7 +262,7 @@ pub enum MessageRole {
     User,
 }
 
-#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum MessageStatus {
     Failed,
@@ -303,7 +310,7 @@ pub enum ActivityTone {
     Tool,
 }
 
-#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct QueueEntry {
     pub id: String,
@@ -312,7 +319,7 @@ pub struct QueueEntry {
     pub text: String,
 }
 
-#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum QueueMode {
     #[default]
@@ -320,7 +327,7 @@ pub enum QueueMode {
     Steer,
 }
 
-#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum QueueStatus {
     Failed,
@@ -373,7 +380,7 @@ pub enum AttachmentStage {
     Staged,
 }
 
-#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum ThreadStatus {
     Completed,
@@ -468,6 +475,8 @@ pub struct RemoveAttachmentInput {
 #[derive(Clone, Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SendPromptInput {
+    #[serde(default)]
+    pub include_intent_guidance: bool,
     pub mode: PromptMode,
     pub text: String,
     pub thread_id: String,
