@@ -57,6 +57,7 @@ export interface AppSettings {
 }
 
 export interface FeatureSettings {
+	diagnosticLoggingEnabled: boolean;
 	docparserEnabled: boolean;
 }
 

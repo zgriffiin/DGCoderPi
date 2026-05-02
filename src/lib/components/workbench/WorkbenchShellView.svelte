@@ -89,6 +89,7 @@
 		handleStop: () => void;
 		handleStopThread: (threadId: string) => void;
 		handleThreadSelect: (projectId: string, threadId: string) => void;
+		handleToggleDiagnosticLogging: (enabled: boolean) => void;
 		handleToggleDocparser: (enabled: boolean) => void;
 		setAddProjectOpen: (open: boolean) => void;
 		setInspectorMode: (mode: InspectorMode | null) => void;
@@ -294,6 +295,8 @@
 	addProjectOpen={shellState.addProjectOpen}
 	codex={shellState.workbenchState.snapshot.integrations.codex}
 	diffAnalysisModelKey={shellState.workbenchState.snapshot.settings.diffAnalysisModelKey}
+	diagnosticLoggingEnabled={shellState.workbenchState.snapshot.settings.features
+		.diagnosticLoggingEnabled}
 	docparserEnabled={shellState.workbenchState.snapshot.settings.features.docparserEnabled}
 	manualProjectPathOpen={shellState.manualProjectPathOpen}
 	models={shellState.workbenchState.snapshot.models}
@@ -308,6 +311,7 @@
 	onRefreshStatus={actions.handleRefreshStatus}
 	onSaveProvider={actions.handleSaveProvider}
 	onStartCodexLogin={actions.handleStartCodexLogin}
+	onToggleDiagnosticLogging={actions.handleToggleDiagnosticLogging}
 	onToggleDocparser={actions.handleToggleDocparser}
 	onToggleManualPath={() => actions.setManualProjectPathOpen(!shellState.manualProjectPathOpen)}
 	providerDrafts={shellState.providerDrafts}

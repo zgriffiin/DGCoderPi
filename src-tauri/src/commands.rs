@@ -161,27 +161,36 @@ pub fn send_prompt(input: SendPromptInput, runtime: State<'_, AppRuntime>) -> Up
 }
 
 #[tauri::command]
-pub fn load_project_diff(
+pub async fn load_project_diff(
     input: LoadProjectDiffInput,
     runtime: State<'_, AppRuntime>,
 ) -> DiffCommandResult {
-    runtime.load_project_diff(input)
+    let runtime = runtime.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || runtime.load_project_diff(input))
+        .await
+        .map_err(|error| error.to_string())?
 }
 
 #[tauri::command]
-pub fn load_diff_analysis(
+pub async fn load_diff_analysis(
     input: DiffAnalysisInput,
     runtime: State<'_, AppRuntime>,
 ) -> DiffAnalysisCommandResult {
-    runtime.load_diff_analysis(input)
+    let runtime = runtime.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || runtime.load_diff_analysis(input))
+        .await
+        .map_err(|error| error.to_string())?
 }
 
 #[tauri::command]
-pub fn refresh_diff_analysis(
+pub async fn refresh_diff_analysis(
     input: DiffAnalysisInput,
     runtime: State<'_, AppRuntime>,
 ) -> DiffAnalysisCommandResult {
-    runtime.refresh_diff_analysis(input)
+    let runtime = runtime.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || runtime.refresh_diff_analysis(input))
+        .await
+        .map_err(|error| error.to_string())?
 }
 
 #[tauri::command]

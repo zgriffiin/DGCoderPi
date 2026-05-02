@@ -6,9 +6,11 @@ import {
 	createCleanRepo,
 	createSampleRepo,
 	createThreadForProject,
+	verifyShipReviewPersistsAcrossThreadSwitch,
 	verifyShipWithDiffShowsReviewGate,
 	verifyShipWithoutDiffContinues
 } from './workbench-ship-helpers';
+import { verifyPromptFlow } from './workbench-prompt-helpers';
 
 const DESKTOP_DEBUG_URL = 'http://127.0.0.1:9333';
 const DESKTOP_PAGE_MARKER = 'DGCoder';
@@ -208,6 +210,10 @@ async function verifySettingsAndDiff(
 
 	const aiReviewStatus = inspector.locator('.ai-review-panel');
 	await expect(aiReviewStatus).toBeVisible();
+	await expect(inspector.getByRole('tab', { name: 'AI Review' })).toHaveAttribute(
+		'aria-selected',
+		'true'
+	);
 	const patchViewButton = inspector.getByRole('tab', { name: 'Patch View' });
 	await patchViewButton.click();
 	await expect(
@@ -218,6 +224,7 @@ async function verifySettingsAndDiff(
 	await expect(inspector.getByText('pending label handling')).toBeVisible();
 
 	await inspector.getByRole('tab', { name: 'AI Review' }).click();
+	await expect(aiReviewStatus).toBeVisible();
 	const reviewState = await waitForReviewState(aiReviewStatus);
 
 	if (reviewState === 'ready') {
@@ -401,74 +408,12 @@ async function verifyPastedImageWarning(page: import('@playwright/test').Page) {
 	await expect(inspector).toContainText(warningText);
 }
 
-async function verifyPromptFlow(page: import('@playwright/test').Page) {
-	const modelEmptyState = page.locator('.model-empty-state');
-	const promptText = 'Reply with the word ready.';
-	if (await modelEmptyState.isVisible()) {
-		await page.getByLabel('Prompt').fill('Describe the current workbench state.');
-		await page.getByRole('button', { name: 'Start' }).click();
-		await expect(
-			page.getByText('Select a configured model before sending a prompt.')
-		).toBeVisible();
-		return;
-	}
-
-	await expect(page.locator('.composer-panel .bx--list-box').first()).toBeVisible();
-	await page.getByLabel('Prompt').fill(promptText);
-	await page.getByRole('button', { name: 'Start' }).click();
-	const readSendState = async () => {
-		if (
-			await page
-				.getByText('Select a configured model before sending a prompt.')
-				.isVisible()
-				.catch(() => false)
-		) {
-			return 'validation';
-		}
-
-		const userMessages = await page
-			.locator('.message-row[data-tone="user"] .message-row__body')
-			.allTextContents()
-			.catch(() => []);
-		return userMessages.some((message) => message.includes(promptText)) ? 'queued' : 'pending';
-	};
-	await expect.poll(readSendState, { timeout: 30_000 }).not.toBe('pending');
-	const sendState = await readSendState();
-	if (sendState === 'validation') {
-		await expect(
-			page.getByText('Select a configured model before sending a prompt.')
-		).toBeVisible();
-		return;
-	}
-
-	const assistantBody = page
-		.locator('.message-row[data-tone="assistant"] .message-row__body')
-		.first();
-	const failureAlert = page.getByText('Run failed');
-	const readOutcome = async () => {
-		if (await failureAlert.isVisible().catch(() => false)) {
-			return 'failed';
-		}
-		return (await assistantBody.textContent().catch(() => null))?.includes('ready')
-			? 'ready'
-			: 'pending';
-	};
-	await expect.poll(readOutcome, { timeout: 120_000 }).not.toBe('pending');
-	const outcome = await readOutcome();
-	if (outcome === 'ready') {
-		await expect(assistantBody).toContainText('ready');
-		return;
-	}
-
-	const failureText = (await failureAlert.textContent().catch(() => null)) ?? 'Run failed';
-	throw new Error(
-		`Expected an assistant response containing "ready", but the run failed: ${failureText}`
-	);
-}
-
 test('runs the real desktop workflow through Tauri', async () => {
 	const sampleRepo = createSampleRepo();
 	const cleanRepo = createCleanRepo();
+	const primaryProjectName = path.basename(process.cwd());
+	const reviewProjectName = 'Sample workspace';
+	const reviewThreadTitle = 'Review diff changes';
 	let browser: import('@playwright/test').Browser | undefined;
 	let page: import('@playwright/test').Page | undefined;
 	try {
@@ -479,11 +424,17 @@ test('runs the real desktop workflow through Tauri', async () => {
 		await addProjectByPath(page, sampleRepo);
 		await createThreadForProject(page, sampleRepo);
 		await verifyLeftPanelActions(page, sampleRepo);
-		await verifySettingsAndDiff(page, sampleRepo, 'Sample workspace');
+		await verifySettingsAndDiff(page, sampleRepo, reviewProjectName);
 		await verifyShipWithDiffShowsReviewGate(page);
+		await verifyShipReviewPersistsAcrossThreadSwitch(
+			page,
+			primaryProjectName,
+			reviewProjectName,
+			reviewThreadTitle
+		);
 		await attachReadmeToSelectedThread(page);
 		await verifyPastedImageWarning(page);
-		await page.getByRole('button', { name: 'Create thread in Sample workspace' }).click();
+		await page.getByRole('button', { name: `Create thread in ${reviewProjectName}` }).click();
 		await expect(page.getByText('Send a message to start the conversation.')).toBeVisible();
 		await verifyPromptFlow(page);
 		await removeSelectedProjectFromRail(page);

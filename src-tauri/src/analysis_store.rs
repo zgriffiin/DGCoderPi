@@ -2,7 +2,10 @@ use std::path::Path;
 
 use rusqlite::{params, Connection};
 
-use crate::{diff_model::DiffAnalysis, state_store::state_db_path};
+use crate::{
+    diff_model::DiffAnalysis,
+    state_store::{now_ms, state_db_path},
+};
 
 const MAX_DIFF_ANALYSIS_CACHE_ROWS: i64 = 256;
 const STALE_ANALYSIS_ERROR: &str = "Diff analysis was interrupted before completion.";
@@ -70,10 +73,19 @@ pub fn fail_in_progress_diff_analyses(data_dir: &Path) -> Result<(), String> {
         .map_err(|error| error.to_string())?;
 
     let mut stale_analyses = Vec::new();
+    let mut malformed_rows = Vec::new();
     for row in rows {
-        let (_, _, payload_json) = row.map_err(|error| error.to_string())?;
-        let mut analysis: DiffAnalysis =
-            serde_json::from_str(&payload_json).map_err(|error| error.to_string())?;
+        let (fingerprint, model_key, payload_json) = row.map_err(|error| error.to_string())?;
+        let mut analysis: DiffAnalysis = match serde_json::from_str(&payload_json) {
+            Ok(analysis) => analysis,
+            Err(error) => {
+                eprintln!(
+                    "Skipping malformed diff analysis cache row for `{fingerprint}` / `{model_key}`: {error}"
+                );
+                malformed_rows.push((fingerprint, model_key));
+                continue;
+            }
+        };
         if !matches!(
             analysis.status,
             crate::diff_model::DiffAnalysisStatus::InProgress
@@ -82,9 +94,19 @@ pub fn fail_in_progress_diff_analyses(data_dir: &Path) -> Result<(), String> {
         }
         analysis.status = crate::diff_model::DiffAnalysisStatus::Failed;
         analysis.error = Some(STALE_ANALYSIS_ERROR.to_string());
+        analysis.updated_at_ms = now_ms();
         stale_analyses.push(analysis);
     }
     drop(statement);
+
+    for (fingerprint, model_key) in malformed_rows {
+        connection
+            .execute(
+                "DELETE FROM diff_analysis_cache WHERE fingerprint = ?1 AND model_key = ?2",
+                params![fingerprint, model_key],
+            )
+            .map_err(|error| error.to_string())?;
+    }
 
     for analysis in stale_analyses {
         save_diff_analysis(data_dir, &analysis)?;

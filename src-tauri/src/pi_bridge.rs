@@ -159,6 +159,7 @@ impl PiBridge {
             "bootstrap",
             json!({
                 "appDataDir": app_data_dir,
+                "diagnosticLoggingEnabled": features.diagnostic_logging_enabled,
                 "docparserEnabled": features.docparser_enabled,
             }),
         )?;
@@ -187,6 +188,7 @@ impl PiBridge {
         self.request(
             "set-features",
             json!({
+                "diagnosticLoggingEnabled": features.diagnostic_logging_enabled,
                 "docparserEnabled": features.docparser_enabled,
             }),
         )

@@ -295,7 +295,7 @@ Use a diff fingerprint based on:
 - rename or copy metadata
 - normalized patch content hash
 
-If the fingerprint and model key are unchanged, reuse the cached analysis.
+If the `(diff fingerprint, model key)` tuple is unchanged, reuse the cached analysis.
 
 ### 6. Model Strategy
 

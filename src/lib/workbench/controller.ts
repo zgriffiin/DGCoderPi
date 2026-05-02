@@ -20,6 +20,7 @@ const UPDATE_EVENT = 'app://update';
 declare global {
 	interface Window {
 		__PI_DEBUG__?: {
+			getSnapshot: () => AppSnapshot;
 			invoke: typeof invoke;
 		};
 	}
@@ -256,7 +257,10 @@ async function initializeRuntime(
 	try {
 		const snapshot = await runCommand<AppSnapshot>('load_app_state');
 		if (import.meta.env.DEV) {
-			window.__PI_DEBUG__ = { invoke };
+			window.__PI_DEBUG__ = {
+				getSnapshot: () => get(store).snapshot,
+				invoke
+			};
 		}
 		applySnapshot(snapshot);
 		readyForLiveUpdates = true;
@@ -368,9 +372,16 @@ function createThreadActions(
 				runCommand<AppUpdate>('select_reasoning', { input: { reasoningLevel, threadId } })
 			);
 		},
-		async sendPrompt(threadId: string, text: string, mode: PromptMode) {
+		async sendPrompt(
+			threadId: string,
+			text: string,
+			mode: PromptMode,
+			includeIntentGuidance = false
+		) {
 			await runAndApplyUpdate(
-				runCommand<AppUpdate>('send_prompt', { input: { mode, text, threadId } })
+				runCommand<AppUpdate>('send_prompt', {
+					input: { includeIntentGuidance, mode, text, threadId }
+				})
 			);
 		},
 		async stageAttachment(threadId: string, sourcePath: string) {

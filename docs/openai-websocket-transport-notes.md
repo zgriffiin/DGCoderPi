@@ -15,7 +15,9 @@ The current app delegates provider calls and agent-loop behavior to Pi through t
 
 OpenAI's Responses WebSocket mode keeps a persistent socket open and can reuse connection-local in-memory state when a follow-up `response.create` passes `previous_response_id`.
 
-That can reduce overhead in agentic workflows because OpenAI can avoid rebuilding as much prior response state from scratch. The cached state can include prior response objects, prior input and output items, tool definitions, namespaces, and reusable tokenization/rendering artifacts.
+That cache is scoped to the current WebSocket connection and only preserves the most recent response state available on that live connection. It is not a durable cross-connection conversation store.
+
+That can reduce overhead in agentic workflows because OpenAI can avoid rebuilding as much prior response state from scratch on that same socket. The cached state can include prior response objects, prior input and output items, tool definitions, namespaces, and reusable tokenization/rendering artifacts.
 
 This is especially relevant for coding agents because tool-heavy tasks often involve many repeated turns, tool calls, tool outputs, validations, and continuations.
 
@@ -27,6 +29,7 @@ WebSocket mode is not context compression.
 - Long sessions still need compaction, retrieval, or summarization.
 - Local durable history is still required for crash recovery, auditability, and UI state.
 - If the socket or connection-local cache is lost, the caller needs a fallback such as full context replay, durable Conversations state, or a rebuilt compacted prompt.
+- Cache misses happen on reconnects, on a different WebSocket connection, or when the provider no longer has the referenced response state available. In those cases, callers must resend the full required context and not rely on `previous_response_id` alone.
 - OpenAI conversation-state docs indicate that prior input tokens can still be billed when using `previous_response_id`.
 
 Prompt caching remains relevant even with WebSockets. OpenAI prompt caching works automatically for prompts at or above 1024 tokens, and the best practice is still to keep stable repeated content at the beginning and dynamic content at the end.

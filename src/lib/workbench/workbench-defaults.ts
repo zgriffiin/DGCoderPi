@@ -1,6 +1,7 @@
 import type { AppSettings, AppSnapshot, FeatureSettings } from '$lib/types/workbench';
 
 const DEFAULT_FEATURE_SETTINGS: FeatureSettings = {
+	diagnosticLoggingEnabled: true,
 	docparserEnabled: true
 };
 

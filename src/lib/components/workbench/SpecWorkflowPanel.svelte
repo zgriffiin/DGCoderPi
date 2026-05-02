@@ -23,6 +23,7 @@
 	let { onUsePrompt, project, thread }: Props = $props();
 	let selectedStepLabel = $state<string | null>(null);
 	let lastThreadId = $state<string | null>(null);
+	let lastThreadIntent = $state<string | null>(null);
 	const currentStepIndex = $derived.by(() => {
 		if (selectedStepLabel) {
 			const selectedIndex = SPEC_WORKFLOW_STEPS.findIndex(
@@ -42,12 +43,17 @@
 
 	$effect(() => {
 		const threadId = thread?.id ?? null;
-		if (threadId === lastThreadId) {
+		const threadIntent = thread?.intent ?? null;
+		if (threadId !== lastThreadId) {
+			lastThreadId = threadId;
+			lastThreadIntent = threadIntent;
+			selectedStepLabel = null;
 			return;
 		}
-
-		lastThreadId = threadId;
-		selectedStepLabel = null;
+		if (threadIntent !== lastThreadIntent) {
+			lastThreadIntent = threadIntent;
+			selectedStepLabel = null;
+		}
 	});
 </script>
 
@@ -64,9 +70,10 @@
 		</div>
 	{/if}
 
-	<div class="spec-workflow__rail" aria-label="Spec workflow">
+	<ol class="spec-workflow__rail" aria-label="Spec workflow">
 		{#each SPEC_WORKFLOW_STEPS as step, index (step.label)}
-			<section
+			<li
+				aria-current={index === currentStepIndex ? 'step' : undefined}
 				class="spec-step"
 				data-active={index === currentStepIndex ? 'true' : undefined}
 				data-complete={index < currentStepIndex ? 'true' : undefined}
@@ -80,6 +87,9 @@
 							<h3>{step.label}</h3>
 							<p>{step.artifact}</p>
 						</div>
+						<Tag size="sm" type={index <= currentStepIndex ? 'blue' : 'gray'}>
+							{step.gateLabel}
+						</Tag>
 						<Button
 							disabled={!thread}
 							icon={ArrowRight}
@@ -91,8 +101,12 @@
 						</Button>
 					</div>
 					<p>{step.body}</p>
+					<div class="spec-step__coverage">
+						<Tag size="sm" type="cool-gray">{step.coverageLabel}: pending</Tag>
+						<Tag size="sm" type="cool-gray">Blocking questions: pending</Tag>
+					</div>
 				</div>
-			</section>
+			</li>
 		{/each}
-	</div>
+	</ol>
 </div>

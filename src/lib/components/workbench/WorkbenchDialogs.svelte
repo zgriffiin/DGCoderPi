@@ -8,6 +8,7 @@
 		addProjectOpen: boolean;
 		codex: CodexStatus;
 		diffAnalysisModelKey: string | null;
+		diagnosticLoggingEnabled: boolean;
 		docparserEnabled: boolean;
 		manualProjectPathOpen: boolean;
 		models: ModelOption[];
@@ -22,6 +23,7 @@
 		onRefreshStatus: VoidFunction;
 		onSaveProvider: (provider: string) => void;
 		onStartCodexLogin: VoidFunction;
+		onToggleDiagnosticLogging: (enabled: boolean) => void;
 		onToggleDocparser: (enabled: boolean) => void;
 		onToggleManualPath: () => void;
 		providerDrafts: Record<string, string>;
@@ -35,6 +37,7 @@
 		addProjectOpen,
 		codex,
 		diffAnalysisModelKey,
+		diagnosticLoggingEnabled,
 		docparserEnabled,
 		manualProjectPathOpen,
 		models,
@@ -49,6 +52,7 @@
 		onRefreshStatus,
 		onSaveProvider,
 		onStartCodexLogin,
+		onToggleDiagnosticLogging,
 		onToggleDocparser,
 		onToggleManualPath,
 		providerDrafts,
@@ -73,6 +77,7 @@
 <SettingsModal
 	{codex}
 	{diffAnalysisModelKey}
+	{diagnosticLoggingEnabled}
 	{docparserEnabled}
 	onClose={onCloseSettings}
 	{onDiffAnalysisModelChange}
@@ -81,6 +86,7 @@
 	{onRefreshStatus}
 	{onSaveProvider}
 	{onStartCodexLogin}
+	{onToggleDiagnosticLogging}
 	{onToggleDocparser}
 	{models}
 	open={settingsOpen}

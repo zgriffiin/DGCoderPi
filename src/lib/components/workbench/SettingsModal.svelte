@@ -17,6 +17,7 @@
 	type Props = {
 		codex: CodexStatus;
 		diffAnalysisModelKey: string | null;
+		diagnosticLoggingEnabled: boolean;
 		docparserEnabled: boolean;
 		models: ModelOption[];
 		onClose: () => void;
@@ -26,6 +27,7 @@
 		onRefreshStatus: () => void;
 		onSaveProvider: (provider: string) => void;
 		onStartCodexLogin: () => void;
+		onToggleDiagnosticLogging: (enabled: boolean) => void;
 		onToggleDocparser: (enabled: boolean) => void;
 		open: boolean;
 		providerDrafts: Record<string, string>;
@@ -34,8 +36,12 @@
 
 	let section = $state<SettingsSection>('accounts');
 
-	function handleToggle(event: CustomEvent<{ toggled: boolean }>) {
+	function handleDocparserToggle(event: CustomEvent<{ toggled: boolean }>) {
 		onToggleDocparser(event.detail.toggled);
+	}
+
+	function handleDiagnosticLoggingToggle(event: CustomEvent<{ toggled: boolean }>) {
+		onToggleDiagnosticLogging(event.detail.toggled);
 	}
 
 	function providerSummary(providers: ProviderStatus[]) {
@@ -46,6 +52,7 @@
 	let {
 		codex,
 		diffAnalysisModelKey,
+		diagnosticLoggingEnabled,
 		docparserEnabled,
 		models,
 		onClose,
@@ -55,6 +62,7 @@
 		onRefreshStatus,
 		onSaveProvider,
 		onStartCodexLogin,
+		onToggleDiagnosticLogging,
 		onToggleDocparser,
 		open,
 		providerDrafts,
@@ -295,7 +303,23 @@
 							labelText="Document parser"
 							size="sm"
 							toggled={docparserEnabled}
-							on:toggle={handleToggle}
+							on:toggle={handleDocparserToggle}
+						/>
+					</div>
+
+					<div class="extension-row">
+						<div>
+							<h4>Diagnostic logging</h4>
+							<p>Log prompt, agent, tool, and timing events to the desktop console.</p>
+						</div>
+						<Toggle
+							id="diagnostic-logging-toggle"
+							labelA="Off"
+							labelB="On"
+							labelText="Diagnostic logging"
+							size="sm"
+							toggled={diagnosticLoggingEnabled}
+							on:toggle={handleDiagnosticLoggingToggle}
 						/>
 					</div>
 				</section>
