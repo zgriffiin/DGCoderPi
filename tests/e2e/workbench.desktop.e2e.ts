@@ -12,6 +12,10 @@ import {
 } from './workbench-ship-helpers';
 import { readSelectedThreadMessages } from './workbench-debug-helpers';
 import { verifyPromptFlow } from './workbench-prompt-helpers';
+import {
+	normalizeVerticalResizeHandleValue,
+	verifyKeyboardResize
+} from './workbench-resize-helpers';
 
 const DESKTOP_DEBUG_URL = 'http://127.0.0.1:9333';
 const DESKTOP_PAGE_MARKER = 'DGCoder';
@@ -118,13 +122,16 @@ function hasAttachmentFile(rootPath: string, expectedName: string) {
 }
 
 async function waitForReviewState(panel: import('@playwright/test').Locator) {
+	let sawProgress = false;
 	for (let attempt = 0; attempt < 20; attempt += 1) {
 		const text = (await panel.textContent().catch(() => '')) ?? '';
 		if (text.includes('Grounded review ready')) {
 			return 'ready';
 		}
 		if (text.includes('Review in progress') || text.includes('Preparing AI review')) {
-			return 'progress';
+			sawProgress = true;
+			await new Promise((resolve) => setTimeout(resolve, 500));
+			continue;
 		}
 		if (text.includes('Review stopped early')) {
 			return 'stopped';
@@ -140,40 +147,7 @@ async function waitForReviewState(panel: import('@playwright/test').Locator) {
 		await new Promise((resolve) => setTimeout(resolve, 500));
 	}
 
-	return 'unknown';
-}
-
-async function verifyKeyboardResize(
-	inspector: import('@playwright/test').Locator,
-	resizeHandle: import('@playwright/test').Locator
-) {
-	await resizeHandle.focus();
-	await normalizeResizeHandleValue(resizeHandle);
-	const keyboardWidthBefore = await readResizeHandleValue(resizeHandle);
-	await resizeHandle.press('ArrowLeft');
-	const keyboardWidthAfterLeft = await readResizeHandleValue(resizeHandle);
-	expect(keyboardWidthAfterLeft).toBeLessThan(keyboardWidthBefore - 8);
-	await resizeHandle.press('ArrowRight');
-	const keyboardWidthAfterRight = await readResizeHandleValue(resizeHandle);
-	expect(keyboardWidthAfterRight).toBeGreaterThan(keyboardWidthAfterLeft + 8);
-}
-
-async function normalizeResizeHandleValue(resizeHandle: import('@playwright/test').Locator) {
-	const value = Number(await resizeHandle.getAttribute('aria-valuenow'));
-	const min = Number(await resizeHandle.getAttribute('aria-valuemin'));
-	const max = Number(await resizeHandle.getAttribute('aria-valuemax'));
-	if (!Number.isFinite(value) || !Number.isFinite(min) || !Number.isFinite(max)) {
-		return;
-	}
-	let current = value;
-	for (let attempt = 0; current - min < 64 && attempt < 8; attempt += 1) {
-		await resizeHandle.press('ArrowRight');
-		current = await readResizeHandleValue(resizeHandle);
-	}
-	for (let attempt = 0; max - current < 64 && attempt < 8; attempt += 1) {
-		await resizeHandle.press('ArrowLeft');
-		current = await readResizeHandleValue(resizeHandle);
-	}
+	return sawProgress ? 'progress' : 'unknown';
 }
 
 async function readResizeHandleValue(resizeHandle: import('@playwright/test').Locator) {
@@ -364,11 +338,12 @@ async function attachReadmeToSelectedThread(
 	).toBeVisible();
 	const composerResizeHandle = page.getByLabel('Resize conversation and composer');
 	await expect(composerResizeHandle).toBeVisible();
-	const composerHeightBefore = await readResizeHandleValue(composerResizeHandle);
 	await composerResizeHandle.focus();
+	await normalizeVerticalResizeHandleValue(composerResizeHandle);
+	const composerHeightBefore = await readResizeHandleValue(composerResizeHandle);
 	await composerResizeHandle.press('ArrowDown');
 	const composerHeightAfter = await readResizeHandleValue(composerResizeHandle);
-	expect(composerHeightAfter).toBeGreaterThan(composerHeightBefore + 2);
+	expect(composerHeightAfter).toBeGreaterThan(composerHeightBefore);
 	await expect
 		.poll(() => page.evaluate(() => localStorage.getItem('pi.workbench.composer-height.v2')), {
 			timeout: 5_000

@@ -312,34 +312,36 @@
 					loading={artifactLoading}
 				/>
 
-				{#if !selectedArtifact && thread?.attachments?.length}
-					<ul class="inspector-list">
-						{#each thread.attachments as attachment (attachment.id)}
-							{@const displayState = attachmentDisplayState(attachment)}
-							<li>
-								<div class="inspector-block">
-									<div class="inspector-item">
-										<div class="inspector-item__header">
-											<p>{attachment.name}</p>
-											<Tag type={displayState.type}>{displayState.label}</Tag>
+				{#if !selectedArtifact}
+					{#if thread?.attachments?.length}
+						<ul class="inspector-list">
+							{#each thread.attachments as attachment (attachment.id)}
+								{@const displayState = attachmentDisplayState(attachment)}
+								<li>
+									<div class="inspector-block">
+										<div class="inspector-item">
+											<div class="inspector-item__header">
+												<p>{attachment.name}</p>
+												<Tag type={displayState.type}>{displayState.label}</Tag>
+											</div>
+											{#if attachment.warnings.length > 0}
+												<p>{attachment.warnings[0]}</p>
+											{/if}
+											{#if attachment.previewText}
+												<p>{attachment.previewText}</p>
+											{:else}
+												<p>{attachment.mimeType}</p>
+											{/if}
 										</div>
-										{#if attachment.warnings.length > 0}
-											<p>{attachment.warnings[0]}</p>
-										{/if}
-										{#if attachment.previewText}
-											<p>{attachment.previewText}</p>
-										{:else}
-											<p>{attachment.mimeType}</p>
-										{/if}
 									</div>
-								</div>
-							</li>
-						{/each}
-					</ul>
-				{:else}
-					<div class="empty-panel">
-						<p>No spec context yet</p>
-					</div>
+								</li>
+							{/each}
+						</ul>
+					{:else}
+						<div class="empty-panel">
+							<p>No spec context yet</p>
+						</div>
+					{/if}
 				{/if}
 			</div>
 		</div>

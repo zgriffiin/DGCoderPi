@@ -163,11 +163,14 @@ pub fn send_prompt(input: SendPromptInput, runtime: State<'_, AppRuntime>) -> Up
 }
 
 #[tauri::command]
-pub fn load_spec_artifact(
+pub async fn load_spec_artifact(
     input: LoadSpecArtifactInput,
     runtime: State<'_, AppRuntime>,
 ) -> SpecArtifactCommandResult {
-    runtime.load_spec_artifact(input)
+    let runtime = runtime.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || runtime.load_spec_artifact(input))
+        .await
+        .map_err(|error| error.to_string())?
 }
 
 #[tauri::command]

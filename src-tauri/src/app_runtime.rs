@@ -52,6 +52,7 @@ const UPDATE_EVENT: &str = "app://update";
 const MAX_ACTIVITY_ENTRIES: usize = 48;
 const MAX_ATTACHMENT_BYTES: u64 = 25 * 1024 * 1024;
 const MAX_PARSE_ATTACHMENT_BYTES: u64 = 10 * 1024 * 1024;
+const MAX_PROMPT_CHARS: usize = 200_000;
 
 #[derive(Clone)]
 pub struct AppRuntime {
@@ -666,6 +667,7 @@ impl AppRuntime {
     }
 
     pub fn send_prompt(&self, input: SendPromptInput) -> Result<AppUpdate, String> {
+        validate_prompt_length(&input.text)?;
         let (
             command_name,
             pending_message,
@@ -1853,6 +1855,18 @@ fn validate_attachment_size(size_bytes: u64) -> Result<(), String> {
     ))
 }
 
+fn validate_prompt_length(text: &str) -> Result<(), String> {
+    let prompt_chars = text.chars().count();
+    if prompt_chars <= MAX_PROMPT_CHARS {
+        return Ok(());
+    }
+
+    Err(format!(
+        "Prompt is too large. Limit is {} characters.",
+        MAX_PROMPT_CHARS
+    ))
+}
+
 fn normalized_attachment_name(name: &str, mime_type: Option<&str>) -> String {
     let trimmed = name.trim();
     let candidate = Path::new(trimmed)
@@ -2111,7 +2125,7 @@ mod tests {
     use super::{
         append_intent_switch_activity, compose_prompt_guidance, latest_user_message_timestamp,
         normalize_state, project_insert_index, resolve_spec_artifact_path,
-        sync_thread_model_selection,
+        sync_thread_model_selection, validate_prompt_length,
     };
     use crate::model::{
         MessageRecord, MessageRole, MessageStatus, PersistedState, ProjectRecord, QueueEntry,
@@ -2149,6 +2163,17 @@ mod tests {
             compose_prompt_guidance(Some("Intent: Plan."), Some("   ")),
             "Intent: Plan."
         );
+    }
+
+    #[test]
+    fn validate_prompt_length_rejects_oversized_text() {
+        let oversized_prompt = "a".repeat(200_001);
+
+        assert_eq!(
+            validate_prompt_length(&oversized_prompt),
+            Err("Prompt is too large. Limit is 200000 characters.".to_string())
+        );
+        assert!(validate_prompt_length("ok").is_ok());
     }
 
     #[test]

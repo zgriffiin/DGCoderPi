@@ -97,7 +97,15 @@ fn relocate_attachment(source_path: &Path, target_path: &Path) -> Result<(), Str
         Ok(()) => Ok(()),
         Err(_) => {
             fs::copy(source_path, target_path).map_err(|copy_error| copy_error.to_string())?;
-            fs::remove_file(source_path).map_err(|remove_error| remove_error.to_string())
+            if let Err(remove_error) = fs::remove_file(source_path) {
+                eprintln!(
+                    "warning: copied migrated attachment from {} to {} but could not remove source: {}",
+                    source_path.display(),
+                    target_path.display(),
+                    remove_error
+                );
+            }
+            Ok(())
         }
     }
 }
