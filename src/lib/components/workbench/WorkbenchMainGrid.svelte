@@ -177,14 +177,16 @@
 
 	<div bind:this={centerColumnElement} class="center-column">
 		<ConversationPane project={activeProject} {runtimeError} thread={activeThread} />
-		<WorkbenchVerticalResizeHandle
-			label="Resize conversation and composer"
-			max={MAX_COMPOSER_HEIGHT_PERCENT}
-			min={MIN_COMPOSER_HEIGHT_PERCENT}
-			onNudge={onNudgeComposerHeight}
-			onPointerDown={onBeginComposerResize}
-			value={composerHeightPercent}
-		/>
+		{#if canResizePanels}
+			<WorkbenchVerticalResizeHandle
+				label="Resize conversation and composer"
+				max={MAX_COMPOSER_HEIGHT_PERCENT}
+				min={MIN_COMPOSER_HEIGHT_PERCENT}
+				onNudge={onNudgeComposerHeight}
+				onPointerDown={onBeginComposerResize}
+				value={composerHeightPercent}
+			/>
+		{/if}
 		<ComposerPanel
 			{attachments}
 			canSend={Boolean(activeThread) && snapshot.models.length > 0}
