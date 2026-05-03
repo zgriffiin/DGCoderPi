@@ -351,14 +351,15 @@
 
 		const threadId = activeThread.id;
 		const threadIntent = activeThread.intent;
+		const hasPriorUserMessages = activeThread.messages.some(
+			(message) => message.role === 'user' && message.text.trim().length > 0
+		);
 		await runAction(async () => {
 			if (threadIntent !== step.intent) {
 				await controller.selectIntent(threadId, step.intent);
 			}
 			const runRequest = buildSpecWorkflowRunRequest(step, {
-				hasPriorUserMessages: activeThread.messages.some(
-					(message) => message.role === 'user' && message.text.trim().length > 0
-				),
+				hasPriorUserMessages,
 				workspaceRoot: activeProject?.path ?? null
 			});
 			await controller.sendPrompt(threadId, runRequest.text, 'prompt', {

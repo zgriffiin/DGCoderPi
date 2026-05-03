@@ -22,6 +22,14 @@ function buildThread(messages: ThreadRecord['messages']): ThreadRecord {
 	};
 }
 
+function stepByLabel(label: string) {
+	const step = SPEC_WORKFLOW_STEPS.find((entry) => entry.label === label);
+	if (!step) {
+		throw new Error(`Missing spec workflow step: ${label}`);
+	}
+	return step;
+}
+
 describe('spec workflow artifacts', () => {
 	it('returns the latest stage artifact text from thread messages', () => {
 		const thread = buildThread([
@@ -41,7 +49,7 @@ describe('spec workflow artifacts', () => {
 			}
 		]);
 
-		expect(latestSpecArtifactFallbackText(thread, SPEC_WORKFLOW_STEPS[4])).toBe(
+		expect(latestSpecArtifactFallbackText(thread, stepByLabel('Tasks'))).toBe(
 			'# Tasks\nlatest\n\n## Tasks Gate\nStatus: PASS'
 		);
 	});
@@ -57,7 +65,7 @@ describe('spec workflow artifacts', () => {
 			}
 		]);
 
-		expect(latestSpecArtifactFallbackText(thread, SPEC_WORKFLOW_STEPS[1])).toBe(
+		expect(latestSpecArtifactFallbackText(thread, stepByLabel('Understand'))).toBe(
 			'# Context Map\n## Repository shape\n- src\n\n## Understand Gate\nStatus: PASS'
 		);
 	});
@@ -73,6 +81,6 @@ describe('spec workflow artifacts', () => {
 			}
 		]);
 
-		expect(latestSpecArtifactFallbackText(thread, SPEC_WORKFLOW_STEPS[0])).toBeNull();
+		expect(latestSpecArtifactFallbackText(thread, stepByLabel('Intent'))).toBeNull();
 	});
 });

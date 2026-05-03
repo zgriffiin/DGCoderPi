@@ -27,31 +27,51 @@ function pendingStageStatus(step: SpecWorkflowStep): SpecWorkflowStageStatus {
 	};
 }
 
-function gateStatus(messageText: string) {
-	const match = /\bStatus:\s*(PASS|FAIL)\b/i.exec(messageText);
+function escapePattern(value: string) {
+	return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function sectionText(messageText: string, heading: string) {
+	const headingPattern = escapePattern(heading);
+	const headingMatch = new RegExp(`^##\\s*${headingPattern}\\s*$`, 'im').exec(messageText);
+	if (!headingMatch) {
+		return null;
+	}
+
+	const sectionStart = headingMatch.index + headingMatch[0].length;
+	const remainingText = messageText.slice(sectionStart);
+	const nextHeadingIndex = remainingText.search(/^\s*##\s+/m);
+	return nextHeadingIndex >= 0 ? remainingText.slice(0, nextHeadingIndex) : remainingText;
+}
+
+function gateStatus(messageText: string, gateLabel: string) {
+	const scopedText = sectionText(messageText, gateLabel) ?? messageText;
+	const match = /\bStatus:\s*(PASS|FAIL)\b/i.exec(scopedText);
 	return match?.[1]?.toUpperCase() ?? null;
 }
 
-function blockingStatus(messageText: string) {
-	if (/blocking questions resolved or listed:\s*yes/i.test(messageText)) {
+function blockingStatus(messageText: string, gateLabel: string) {
+	const gateSection = sectionText(messageText, gateLabel) ?? messageText;
+	if (/blocking questions resolved or listed:\s*yes/i.test(gateSection)) {
 		return 'clear';
 	}
 
-	if (/blocking questions resolved or listed:\s*no/i.test(messageText)) {
+	if (/blocking questions resolved or listed:\s*no/i.test(gateSection)) {
 		return 'open';
 	}
 
-	if (
-		/## Open questions[\s\S]*?blocking questions[\s\S]*?(none|no blocking questions)/i.test(
-			messageText
-		)
-	) {
+	const openQuestionsSection = sectionText(messageText, 'Open questions');
+	if (!openQuestionsSection) {
+		return 'pending';
+	}
+
+	if (/blocking questions[\s\S]*?(none|no blocking questions)/i.test(openQuestionsSection)) {
 		return 'clear';
 	}
 
 	if (
-		/## Open questions[\s\S]*?blocking questions[\s\S]*?(please|should|what|which|who|when|where|why|how)/i.test(
-			messageText
+		/blocking questions[\s\S]*?(please|should|what|which|who|when|where|why|how)/i.test(
+			openQuestionsSection
 		)
 	) {
 		return 'open';
@@ -61,7 +81,7 @@ function blockingStatus(messageText: string) {
 }
 
 function coverageBadge(step: SpecWorkflowStep, messageText: string): SpecStatusBadge {
-	const status = gateStatus(messageText);
+	const status = gateStatus(messageText, step.gateLabel);
 	if (status === 'PASS') {
 		return {
 			label: `${step.coverageLabel}: ready`,
@@ -82,8 +102,8 @@ function coverageBadge(step: SpecWorkflowStep, messageText: string): SpecStatusB
 	};
 }
 
-function blockingBadge(messageText: string): SpecStatusBadge {
-	const status = blockingStatus(messageText);
+function blockingBadge(step: SpecWorkflowStep, messageText: string): SpecStatusBadge {
+	const status = blockingStatus(messageText, step.gateLabel);
 	if (status === 'clear') {
 		return {
 			label: 'Blocking questions: clear',
@@ -118,7 +138,7 @@ export function specWorkflowStageStatus(
 	}
 
 	return {
-		blocking: blockingBadge(message.text),
+		blocking: blockingBadge(step, message.text),
 		coverage: coverageBadge(step, message.text)
 	};
 }

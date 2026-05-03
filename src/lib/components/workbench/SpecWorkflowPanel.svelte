@@ -94,6 +94,7 @@
 							{step.gateLabel}
 						</Tag>
 						<Button
+							aria-label={`Run ${step.label}`}
 							disabled={!thread}
 							icon={ArrowRight}
 							kind={index === currentStepIndex ? 'primary' : 'ghost'}
@@ -103,6 +104,7 @@
 							Run
 						</Button>
 						<Button
+							aria-label={`View ${step.label} artifact ${step.artifact}`}
 							disabled={!project || !step.artifact.endsWith('.md')}
 							kind="ghost"
 							size="small"

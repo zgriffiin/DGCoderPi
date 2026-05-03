@@ -22,9 +22,17 @@ function buildThread(messages: ThreadRecord['messages']): ThreadRecord {
 	};
 }
 
+function stepByLabel(label: string) {
+	const step = SPEC_WORKFLOW_STEPS.find((entry) => entry.label === label);
+	if (!step) {
+		throw new Error(`Missing spec workflow step: ${label}`);
+	}
+	return step;
+}
+
 describe('spec workflow stage status', () => {
 	it('stays pending when no matching stage response exists', () => {
-		const status = specWorkflowStageStatus(buildThread([]), SPEC_WORKFLOW_STEPS[0]);
+		const status = specWorkflowStageStatus(buildThread([]), stepByLabel('Intent'));
 
 		expect(status.coverage.label).toBe('Intent coverage: pending');
 		expect(status.blocking.label).toBe('Blocking questions: pending');
@@ -41,7 +49,7 @@ describe('spec workflow stage status', () => {
 			}
 		]);
 
-		const status = specWorkflowStageStatus(thread, SPEC_WORKFLOW_STEPS[4]);
+		const status = specWorkflowStageStatus(thread, stepByLabel('Tasks'));
 
 		expect(status.coverage.label).toBe('Task coverage: ready');
 		expect(status.coverage.tone).toBe('green');
@@ -60,7 +68,34 @@ describe('spec workflow stage status', () => {
 			}
 		]);
 
-		const status = specWorkflowStageStatus(thread, SPEC_WORKFLOW_STEPS[3]);
+		const status = specWorkflowStageStatus(thread, stepByLabel('Design'));
+
+		expect(status.coverage.label).toBe('Design coverage: needs work');
+		expect(status.coverage.tone).toBe('red');
+		expect(status.blocking.label).toBe('Blocking questions: open');
+		expect(status.blocking.tone).toBe('warm-gray');
+	});
+
+	it('prefers the matching gate status over earlier artifact content', () => {
+		const thread = buildThread([
+			{
+				id: 'm1',
+				role: 'assistant',
+				status: 'ready',
+				text: `# Design
+Status: PASS
+
+## Open questions
+Blocking questions:
+Should the cache be reset?
+
+## Design Gate
+Status: FAIL`,
+				timestampMs: 1
+			}
+		]);
+
+		const status = specWorkflowStageStatus(thread, stepByLabel('Design'));
 
 		expect(status.coverage.label).toBe('Design coverage: needs work');
 		expect(status.coverage.tone).toBe('red');

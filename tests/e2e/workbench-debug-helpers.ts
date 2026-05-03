@@ -20,7 +20,8 @@ async function readSelectedThreadField(page: Page, field: 'attachments' | 'messa
 		const snapshot =
 			typeof runtime.getSnapshot === 'function'
 				? runtime.getSnapshot()
-				: ((await runtime.invoke('load_app_state')) as DebugSnapshot);
+				: // load_app_state returns AppSnapshot, which is a superset of DebugSnapshot.
+					((await runtime.invoke('load_app_state')) as DebugSnapshot);
 		const threadId = snapshot.selectedThreadId;
 		const thread = snapshot.projects
 			.flatMap((project) => project.threads)
