@@ -18,14 +18,18 @@
 	import WorkbenchMainGrid from './WorkbenchMainGrid.svelte';
 	import WorkbenchTopbar from './WorkbenchTopbar.svelte';
 	import {
+		DEFAULT_COMPOSER_HEIGHT_PERCENT,
 		DEFAULT_PANEL_WIDTHS,
 		MIN_INSPECTOR_WIDTH,
 		RESIZE_BREAKPOINT,
+		clampComposerHeightPercent,
 		clampWidth,
 		formatWorkbenchGridStyle,
+		loadComposerHeightPercent,
 		loadPanelWidths,
 		maxLeftWidth as computeMaxLeftWidth,
 		maxRightWidth as computeMaxRightWidth,
+		saveComposerHeightPercent,
 		savePanelWidths,
 		type DragState,
 		type ResizablePane
@@ -108,16 +112,25 @@
 	let { actions, controller, minProjectRailWidth, shellState }: Props = $props();
 
 	let activeDrag = $state<DragState | null>(null);
+	let activeComposerDrag = $state<{
+		captureTarget: HTMLElement;
+		pointerId: number;
+		startComposerHeightPercent: number;
+		startY: number;
+	} | null>(null);
+	let centerColumn = $state<HTMLDivElement | null>(null);
+	let composerHeightPercent = $state(DEFAULT_COMPOSER_HEIGHT_PERCENT);
 	let panelWidths = $state(DEFAULT_PANEL_WIDTHS);
 	let viewportWidth = $state(0);
 	let workbenchGrid = $state<HTMLDivElement | null>(null);
 
 	const inspectorVisible = $derived(Boolean(shellState.inspectorMode));
 	const canResizePanels = $derived(viewportWidth > RESIZE_BREAKPOINT);
-	const workbenchGridStyle = $derived(formatWorkbenchGridStyle(panelWidths));
+	const workbenchGridStyle = $derived(formatWorkbenchGridStyle(panelWidths, composerHeightPercent));
 
 	onMount(() => {
 		viewportWidth = window.innerWidth;
+		composerHeightPercent = loadComposerHeightPercent(window.localStorage);
 		panelWidths = loadPanelWidths(window.localStorage);
 
 		const handleResize = () => {
@@ -176,7 +189,30 @@
 		setPaneWidth(pane, currentWidth + delta);
 	}
 
-	function releaseDragCapture(drag: DragState) {
+	function setComposerHeight(requestedPercent: number) {
+		composerHeightPercent = clampComposerHeightPercent(requestedPercent);
+	}
+
+	function beginComposerResize(event: PointerEvent) {
+		event.preventDefault();
+		const captureTarget = event.currentTarget;
+		if (!(captureTarget instanceof HTMLElement)) {
+			return;
+		}
+		captureTarget.setPointerCapture(event.pointerId);
+		activeComposerDrag = {
+			captureTarget,
+			pointerId: event.pointerId,
+			startComposerHeightPercent: composerHeightPercent,
+			startY: event.clientY
+		};
+	}
+
+	function nudgeComposerHeight(delta: number) {
+		setComposerHeight(composerHeightPercent + delta);
+	}
+
+	function releaseDragCapture(drag: { captureTarget: HTMLElement; pointerId: number }) {
 		if (drag.captureTarget.hasPointerCapture(drag.pointerId)) {
 			drag.captureTarget.releasePointerCapture(drag.pointerId);
 		}
@@ -197,6 +233,13 @@
 			return;
 		}
 		savePanelWidths(window.localStorage, panelWidths);
+	});
+
+	$effect(() => {
+		if (activeComposerDrag) {
+			return;
+		}
+		saveComposerHeightPercent(window.localStorage, composerHeightPercent);
 	});
 
 	$effect(() => {
@@ -225,6 +268,34 @@
 			window.removeEventListener('pointerup', handlePointerUp);
 		};
 	});
+
+	$effect(() => {
+		if (!activeComposerDrag) {
+			return;
+		}
+		const drag = activeComposerDrag;
+
+		const handlePointerMove = (event: PointerEvent) => {
+			const centerHeight = centerColumn?.clientHeight ?? window.innerHeight;
+			if (centerHeight <= 0) {
+				return;
+			}
+			const deltaPercent = ((event.clientY - drag.startY) / centerHeight) * 100;
+			setComposerHeight(drag.startComposerHeightPercent - deltaPercent);
+		};
+		const handlePointerUp = () => {
+			releaseDragCapture(drag);
+			activeComposerDrag = null;
+		};
+
+		window.addEventListener('pointermove', handlePointerMove);
+		window.addEventListener('pointerup', handlePointerUp);
+		return () => {
+			releaseDragCapture(drag);
+			window.removeEventListener('pointermove', handlePointerMove);
+			window.removeEventListener('pointerup', handlePointerUp);
+		};
+	});
 </script>
 
 <WorkbenchTopbar
@@ -240,6 +311,8 @@
 	activeThread={shellState.activeThread}
 	attachments={shellState.stagedAttachments}
 	{canResizePanels}
+	bind:centerColumnElement={centerColumn}
+	{composerHeightPercent}
 	composerHint={shellState.composerHint}
 	{controller}
 	draft={shellState.draft}
@@ -250,11 +323,13 @@
 	minInspectorWidth={MIN_INSPECTOR_WIDTH}
 	{minProjectRailWidth}
 	onAttach={actions.handleAttachFiles}
+	onBeginComposerResize={beginComposerResize}
 	onBeginResize={beginResize}
 	onCreateThread={actions.handleCreateThreadForProject}
 	onDraftChange={actions.handleDraftChange}
 	onModelChange={actions.handleModelChange}
 	onMoveProject={actions.handleMoveProject}
+	onNudgeComposerHeight={nudgeComposerHeight}
 	onNudgePaneWidth={nudgePaneWidth}
 	onOpenDiff={actions.handleOpenDiff}
 	onRefreshStatus={actions.handleRefreshStatus}

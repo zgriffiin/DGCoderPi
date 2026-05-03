@@ -1,4 +1,4 @@
-import { rmSync } from 'node:fs';
+import { readdirSync, rmSync } from 'node:fs';
 import path from 'node:path';
 import { chromium, expect, test } from '@playwright/test';
 import {
@@ -10,6 +10,7 @@ import {
 	verifyShipWithDiffShowsReviewGate,
 	verifyShipWithoutDiffContinues
 } from './workbench-ship-helpers';
+import { readSelectedThreadMessages } from './workbench-debug-helpers';
 import { verifyPromptFlow } from './workbench-prompt-helpers';
 
 const DESKTOP_DEBUG_URL = 'http://127.0.0.1:9333';
@@ -98,13 +99,31 @@ async function removeDirectoryWithRetries(targetPath: string) {
 	}
 }
 
+function hasAttachmentFile(rootPath: string, expectedName: string) {
+	try {
+		for (const threadDir of readdirSync(rootPath, { withFileTypes: true })) {
+			if (!threadDir.isDirectory()) {
+				continue;
+			}
+			const threadPath = path.join(rootPath, threadDir.name);
+			if (readdirSync(threadPath).some((fileName) => fileName.endsWith(expectedName))) {
+				return true;
+			}
+		}
+	} catch {
+		return false;
+	}
+
+	return false;
+}
+
 async function waitForReviewState(panel: import('@playwright/test').Locator) {
 	for (let attempt = 0; attempt < 20; attempt += 1) {
 		const text = (await panel.textContent().catch(() => '')) ?? '';
 		if (text.includes('Grounded review ready')) {
 			return 'ready';
 		}
-		if (text.includes('Review in progress')) {
+		if (text.includes('Review in progress') || text.includes('Preparing AI review')) {
 			return 'progress';
 		}
 		if (text.includes('Review stopped early')) {
@@ -114,7 +133,6 @@ async function waitForReviewState(panel: import('@playwright/test').Locator) {
 			text.includes('Retry analysis') ||
 			text.includes('Configure a model in Settings before running AI Review.') ||
 			text.includes('Start analysis') ||
-			text.includes('Preparing AI review') ||
 			text.includes('Clean working tree')
 		) {
 			return 'failed';
@@ -240,7 +258,7 @@ async function verifySettingsAndDiff(
 			);
 		}
 	} else if (reviewState === 'progress') {
-		await expect(aiReviewStatus.getByText('Review in progress')).toBeVisible();
+		await expect(aiReviewStatus).toContainText(/Review in progress|Preparing AI review/);
 		await expect(aiReviewStatus.getByText(/^complete$/)).toHaveCount(0);
 	} else if (reviewState === 'stopped') {
 		await expect(aiReviewStatus).toContainText(
@@ -293,9 +311,13 @@ async function removeSelectedProjectFromRail(page: import('@playwright/test').Pa
 	await expect(page.getByRole('heading', { name: 'Sample workspace' })).toHaveCount(0);
 }
 
-async function attachReadmeToSelectedThread(page: import('@playwright/test').Page) {
+async function attachReadmeToSelectedThread(
+	page: import('@playwright/test').Page,
+	repoPath: string
+) {
 	const inspector = page.locator('.inspector-rail');
 	const settingsButton = page.getByRole('button', { name: 'Settings' });
+	const expectedAttachmentRoot = path.join(repoPath, '.doc', 'attachments');
 	await page.evaluate(
 		async ({ sourcePath }) => {
 			const runtime = window.__PI_DEBUG__;
@@ -318,6 +340,7 @@ async function attachReadmeToSelectedThread(page: import('@playwright/test').Pag
 			sourcePath: path.resolve(process.cwd(), 'README.md')
 		}
 	);
+	await expect.poll(() => hasAttachmentFile(expectedAttachmentRoot, 'README.md')).toBe(true);
 	await settingsButton.click();
 	const settingsDialog = page.getByRole('dialog', { name: 'Settings' });
 	await settingsDialog.getByRole('button', { name: 'Refresh status' }).click();
@@ -332,10 +355,47 @@ async function attachReadmeToSelectedThread(page: import('@playwright/test').Pag
 	await expect(inspector.getByRole('heading', { level: 3, name: 'Ship' })).toBeVisible();
 	await inspector
 		.locator('.spec-step')
-		.filter({ hasText: 'Requirements' })
-		.getByRole('button', { name: 'Use' })
+		.filter({ hasText: 'Intent' })
+		.getByRole('button', { name: 'View' })
 		.click();
-	await expect(page.getByLabel('Prompt')).toHaveValue(/Draft requirements/);
+	await expect(inspector.getByText('Artifact Viewer')).toBeVisible();
+	await expect(
+		inspector.getByText('Spec artifact viewer should render markdown from disk.')
+	).toBeVisible();
+	const composerResizeHandle = page.getByLabel('Resize conversation and composer');
+	await expect(composerResizeHandle).toBeVisible();
+	const composerHeightBefore = await readResizeHandleValue(composerResizeHandle);
+	await composerResizeHandle.focus();
+	await composerResizeHandle.press('ArrowDown');
+	const composerHeightAfter = await readResizeHandleValue(composerResizeHandle);
+	expect(composerHeightAfter).toBeGreaterThan(composerHeightBefore + 2);
+	await expect
+		.poll(() => page.evaluate(() => localStorage.getItem('pi.workbench.composer-height.v2')), {
+			timeout: 5_000
+		})
+		.toBeTruthy();
+	const requirementsRunButton = inspector
+		.locator('.spec-step')
+		.filter({ hasText: 'Requirements' })
+		.getByRole('button', { name: 'Run' });
+	await requirementsRunButton.click();
+	await expect(page.getByLabel('Prompt')).toHaveValue('');
+	const modelEmptyState = page.locator('.model-empty-state');
+	if (await modelEmptyState.isVisible()) {
+		await expect(
+			page.getByText('Select a configured model before sending a prompt.')
+		).toBeVisible();
+	} else {
+		await expect
+			.poll(async () => {
+				const messages = await readSelectedThreadMessages(page);
+				return messages.some(
+					(message: { role: string; text: string }) =>
+						message.role === 'user' && message.text.includes('Run the Requirements stage')
+				);
+			})
+			.toBe(true);
+	}
 	await expect
 		.poll(
 			async () => {
@@ -377,6 +437,14 @@ async function pasteImageAttachment(page: import('@playwright/test').Page) {
 		});
 		textarea.dispatchEvent(event);
 	}, pngBytes);
+}
+
+async function verifyLargePromptInput(page: import('@playwright/test').Page) {
+	const promptField = page.getByLabel('Prompt');
+	const largePrompt = `${'Spec context line.\n'.repeat(450)}Tail marker for long input.`;
+	await expect(promptField).not.toHaveAttribute('maxlength', /\d+/);
+	await promptField.fill(largePrompt);
+	await expect(promptField).toHaveValue(largePrompt);
 }
 
 async function verifyPastedImageWarning(page: import('@playwright/test').Page) {
@@ -432,7 +500,8 @@ test('runs the real desktop workflow through Tauri', async () => {
 			reviewProjectName,
 			reviewThreadTitle
 		);
-		await attachReadmeToSelectedThread(page);
+		await attachReadmeToSelectedThread(page, sampleRepo);
+		await verifyLargePromptInput(page);
 		await verifyPastedImageWarning(page);
 		await page.getByRole('button', { name: `Create thread in ${reviewProjectName}` }).click();
 		await expect(page.getByText('Send a message to start the conversation.')).toBeVisible();

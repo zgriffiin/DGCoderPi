@@ -4,9 +4,11 @@
 	import type { ProjectRecord, ThreadRecord } from '$lib/types/workbench';
 	import type { SpecWorkflowStep } from '$lib/workbench/spec-workflow';
 	import { SPEC_WORKFLOW_STEPS } from '$lib/workbench/spec-workflow';
+	import { specWorkflowStageStatus } from '$lib/workbench/spec-workflow-status';
 
 	type Props = {
 		onUsePrompt: (step: SpecWorkflowStep) => void;
+		onViewArtifact: (step: SpecWorkflowStep) => void;
 		project: ProjectRecord | null;
 		thread: ThreadRecord | null;
 	};
@@ -20,7 +22,7 @@
 		return index >= 0 ? index : 0;
 	}
 
-	let { onUsePrompt, project, thread }: Props = $props();
+	let { onUsePrompt, onViewArtifact, project, thread }: Props = $props();
 	let selectedStepLabel = $state<string | null>(null);
 	let lastThreadId = $state<string | null>(null);
 	let lastThreadIntent = $state<string | null>(null);
@@ -72,6 +74,7 @@
 
 	<ol class="spec-workflow__rail" aria-label="Spec workflow">
 		{#each SPEC_WORKFLOW_STEPS as step, index (step.label)}
+			{@const stageStatus = specWorkflowStageStatus(thread, step)}
 			<li
 				aria-current={index === currentStepIndex ? 'step' : undefined}
 				class="spec-step"
@@ -97,13 +100,21 @@
 							size="small"
 							onclick={() => useStep(step)}
 						>
-							Use
+							Run
+						</Button>
+						<Button
+							disabled={!project || !step.artifact.endsWith('.md')}
+							kind="ghost"
+							size="small"
+							onclick={() => onViewArtifact(step)}
+						>
+							View
 						</Button>
 					</div>
 					<p>{step.body}</p>
 					<div class="spec-step__coverage">
-						<Tag size="sm" type="cool-gray">{step.coverageLabel}: pending</Tag>
-						<Tag size="sm" type="cool-gray">Blocking questions: pending</Tag>
+						<Tag size="sm" type={stageStatus.coverage.tone}>{stageStatus.coverage.label}</Tag>
+						<Tag size="sm" type={stageStatus.blocking.tone}>{stageStatus.blocking.label}</Tag>
 					</div>
 				</div>
 			</li>

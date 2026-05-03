@@ -7,6 +7,7 @@ mod diff_engine;
 mod diff_model;
 mod model;
 mod pi_bridge;
+mod project_storage;
 mod state_store;
 
 use std::path::PathBuf;
@@ -89,6 +90,7 @@ pub fn run() {
             commands::load_app_state,
             commands::load_diff_analysis,
             commands::load_project_diff,
+            commands::load_spec_artifact,
             commands::move_project,
             commands::remove_attachment,
             commands::remove_project,

@@ -96,6 +96,14 @@ export interface ProjectRecord {
 	threads: ThreadRecord[];
 }
 
+export interface SpecArtifactDocument {
+	artifact: string;
+	exists: boolean;
+	path: string;
+	text: string | null;
+	updatedAtMs: number | null;
+}
+
 export interface ThreadRecord {
 	activities: ActivityRecord[];
 	attachments: AttachmentRecord[];

@@ -3,6 +3,7 @@
 	import type { InspectorMode, ThinkingLevel } from '$lib/types/workbench';
 	import { buildShipSlicePrompt } from '$lib/workbench/preset-prompts';
 	import { createWorkbenchController } from '$lib/workbench/controller';
+	import { buildSpecWorkflowRunRequest } from '$lib/workbench/spec-workflow';
 	import {
 		createIdleShipReview,
 		createReviewingShipReview,
@@ -27,7 +28,6 @@
 	let addProjectDraft = $state('');
 	let addProjectOpen = $state(false);
 	let draft = $state('');
-	let draftUsesSpecGuidance = $state(false);
 	let inspectorMode = $state<InspectorMode | null>(null);
 	let manualProjectPathOpen = $state(false);
 	let providerDrafts = $state<Record<string, string>>({});
@@ -130,7 +130,6 @@
 
 	function handleDraftChange(value: string) {
 		draft = value;
-		draftUsesSpecGuidance = false;
 	}
 
 	async function sendShipPrompt(
@@ -287,9 +286,8 @@
 		}
 
 		await runAction(async () => {
-			await controller.sendPrompt(activeThread.id, draft.trim(), mode, draftUsesSpecGuidance);
+			await controller.sendPrompt(activeThread.id, draft.trim(), mode);
 			draft = '';
-			draftUsesSpecGuidance = false;
 		});
 	}
 
@@ -353,14 +351,20 @@
 
 		const threadId = activeThread.id;
 		const threadIntent = activeThread.intent;
-		draft = step.prompt;
-		draftUsesSpecGuidance = true;
-		if (threadIntent === step.intent) {
-			return;
-		}
-
 		await runAction(async () => {
-			await controller.selectIntent(threadId, step.intent);
+			if (threadIntent !== step.intent) {
+				await controller.selectIntent(threadId, step.intent);
+			}
+			const runRequest = buildSpecWorkflowRunRequest(step, {
+				hasPriorUserMessages: activeThread.messages.some(
+					(message) => message.role === 'user' && message.text.trim().length > 0
+				),
+				workspaceRoot: activeProject?.path ?? null
+			});
+			await controller.sendPrompt(threadId, runRequest.text, 'prompt', {
+				includeIntentGuidance: true,
+				promptGuidance: runRequest.promptGuidance
+			});
 		});
 	}
 

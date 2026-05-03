@@ -17,6 +17,12 @@ export const DEFAULT_PANEL_WIDTHS: PanelWidths = {
 	left: 288,
 	right: 304
 };
+export const DEFAULT_COMPOSER_HEIGHT_PERCENT = 34;
+export const DEFAULT_INSPECTOR_DETAIL_HEIGHT_PERCENT = 28;
+export const MAX_COMPOSER_HEIGHT_PERCENT = 70;
+export const MAX_INSPECTOR_DETAIL_HEIGHT_PERCENT = 70;
+export const MIN_COMPOSER_HEIGHT_PERCENT = 18;
+export const MIN_INSPECTOR_DETAIL_HEIGHT_PERCENT = 18;
 
 const HANDLE_WIDTH = 8;
 const MIN_CENTER_WIDTH = 300;
@@ -24,9 +30,22 @@ export const MIN_INSPECTOR_WIDTH = 304;
 export const MIN_PROJECT_RAIL_WIDTH = 224;
 export const RESIZE_BREAKPOINT = 1100;
 const WORKBENCH_LAYOUT_STORAGE_KEY = 'pi.workbench.layout.v1';
+const WORKBENCH_COMPOSER_HEIGHT_STORAGE_KEY = 'pi.workbench.composer-height.v2';
+const WORKBENCH_INSPECTOR_DETAIL_HEIGHT_STORAGE_KEY = 'pi.workbench.inspector-detail-height.v1';
 
 export function clampWidth(value: number, min: number, max: number) {
 	return Math.min(Math.max(value, min), max);
+}
+
+export function clampComposerHeightPercent(value: number) {
+	return Math.min(Math.max(value, MIN_COMPOSER_HEIGHT_PERCENT), MAX_COMPOSER_HEIGHT_PERCENT);
+}
+
+export function clampInspectorDetailHeightPercent(value: number) {
+	return Math.min(
+		Math.max(value, MIN_INSPECTOR_DETAIL_HEIGHT_PERCENT),
+		MAX_INSPECTOR_DETAIL_HEIGHT_PERCENT
+	);
 }
 
 export function loadPanelWidths(storage: Storage): PanelWidths {
@@ -50,8 +69,46 @@ export function savePanelWidths(storage: Storage, panelWidths: PanelWidths) {
 	storage.setItem(WORKBENCH_LAYOUT_STORAGE_KEY, JSON.stringify(panelWidths));
 }
 
-export function formatWorkbenchGridStyle(panelWidths: PanelWidths) {
-	return `--workbench-left-rail-width:${panelWidths.left}px; --workbench-inspector-width:${panelWidths.right}px;`;
+export function loadComposerHeightPercent(storage: Storage) {
+	const rawValue = storage.getItem(WORKBENCH_COMPOSER_HEIGHT_STORAGE_KEY);
+	if (rawValue === null) {
+		return DEFAULT_COMPOSER_HEIGHT_PERCENT;
+	}
+
+	const savedHeight = Number(rawValue);
+	return Number.isFinite(savedHeight)
+		? clampComposerHeightPercent(savedHeight)
+		: DEFAULT_COMPOSER_HEIGHT_PERCENT;
+}
+
+export function saveComposerHeightPercent(storage: Storage, composerHeightPercent: number) {
+	storage.setItem(
+		WORKBENCH_COMPOSER_HEIGHT_STORAGE_KEY,
+		String(clampComposerHeightPercent(composerHeightPercent))
+	);
+}
+
+export function loadInspectorDetailHeightPercent(storage: Storage) {
+	const rawValue = storage.getItem(WORKBENCH_INSPECTOR_DETAIL_HEIGHT_STORAGE_KEY);
+	if (rawValue === null) {
+		return DEFAULT_INSPECTOR_DETAIL_HEIGHT_PERCENT;
+	}
+
+	const savedHeight = Number(rawValue);
+	return Number.isFinite(savedHeight)
+		? clampInspectorDetailHeightPercent(savedHeight)
+		: DEFAULT_INSPECTOR_DETAIL_HEIGHT_PERCENT;
+}
+
+export function saveInspectorDetailHeightPercent(storage: Storage, detailHeightPercent: number) {
+	storage.setItem(
+		WORKBENCH_INSPECTOR_DETAIL_HEIGHT_STORAGE_KEY,
+		String(clampInspectorDetailHeightPercent(detailHeightPercent))
+	);
+}
+
+export function formatWorkbenchGridStyle(panelWidths: PanelWidths, composerHeightPercent: number) {
+	return `--workbench-left-rail-width:${panelWidths.left}px; --workbench-inspector-width:${panelWidths.right}px; --workbench-composer-height:${clampComposerHeightPercent(composerHeightPercent)}%;`;
 }
 
 export function maxLeftWidth(

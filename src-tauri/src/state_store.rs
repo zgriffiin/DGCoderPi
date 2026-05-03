@@ -90,10 +90,6 @@ pub fn state_db_path(data_dir: &Path) -> PathBuf {
     data_dir.join(STATE_DB_FILE_NAME)
 }
 
-pub fn attachment_directory(data_dir: &Path) -> PathBuf {
-    data_dir.join("attachments")
-}
-
 pub fn new_project(path: &str) -> ProjectRecord {
     let name = Path::new(path)
         .file_name()

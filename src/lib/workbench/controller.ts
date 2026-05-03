@@ -10,65 +10,25 @@ import type {
 	DiffAnalysis,
 	ProjectDiffSnapshot,
 	PromptMode,
+	SpecArtifactDocument,
 	ThreadIntent,
 	ThinkingLevel
 } from '$lib/types/workbench';
+import {
+	applyUnavailableState,
+	createSnapshotApplier,
+	runCommand,
+	type WorkbenchState
+} from '$lib/workbench/controller-state';
 import { EMPTY_SNAPSHOT } from '$lib/workbench/workbench-defaults';
-
 const UPDATE_EVENT = 'app://update';
-
-declare global {
-	interface Window {
-		__PI_DEBUG__?: {
-			getSnapshot: () => AppSnapshot;
-			invoke: typeof invoke;
-		};
-	}
-}
-
-type WorkbenchState = {
-	error: string | null;
-	heartbeatPending: boolean;
-	lastSnapshotAtMs: number | null;
-	runtimeAvailable: boolean;
-	snapshot: AppSnapshot;
-};
-
-async function runCommand<T>(command: string, args?: Record<string, unknown>) {
-	return invoke<T>(command, args);
-}
-
-function applyUnavailableState(store: ReturnType<typeof writable<WorkbenchState>>) {
-	store.update((state) => ({
-		...state,
-		error: 'Open the desktop shell with pnpm tauri:dev.',
-		heartbeatPending: false,
-		runtimeAvailable: false
-	}));
-}
-
-function createSnapshotApplier(store: ReturnType<typeof writable<WorkbenchState>>) {
-	return (snapshot: AppSnapshot) => {
-		store.update((state) => ({
-			...state,
-			error: null,
-			heartbeatPending: false,
-			lastSnapshotAtMs: Date.now(),
-			runtimeAvailable: true,
-			snapshot
-		}));
-	};
-}
-
 function applySelection(
 	snapshot: AppSnapshot,
 	selectedProjectId: string | null,
 	selectedThreadId: string | null
 ) {
-	snapshot.selectedProjectId = selectedProjectId;
-	snapshot.selectedThreadId = selectedThreadId;
+	Object.assign(snapshot, { selectedProjectId, selectedThreadId });
 }
-
 function upsertProject(snapshot: AppSnapshot, project: AppSnapshot['projects'][number]) {
 	const index = snapshot.projects.findIndex((entry) => entry.id === project.id);
 	if (index === -1) {
@@ -80,7 +40,6 @@ function upsertProject(snapshot: AppSnapshot, project: AppSnapshot['projects'][n
 		currentIndex === index ? project : entry
 	);
 }
-
 function upsertThread(
 	snapshot: AppSnapshot,
 	projectId: string,
@@ -112,7 +71,6 @@ function reorderProjects(snapshot: AppSnapshot, projectIds: string[]) {
 function removeProject(snapshot: AppSnapshot, projectId: string) {
 	snapshot.projects = snapshot.projects.filter((project) => project.id !== projectId);
 }
-
 function applyUpdateToSnapshot(snapshot: AppSnapshot, update: AppUpdate) {
 	for (const event of update.events) {
 		applyEventToSnapshot(snapshot, event);
@@ -321,6 +279,11 @@ function createProjectActions(
 				input: { hideWhitespace, projectId }
 			});
 		},
+		async loadSpecArtifact(projectId: string, artifact: string) {
+			return runCommand<SpecArtifactDocument>('load_spec_artifact', {
+				input: { artifact, projectId }
+			});
+		},
 		async moveProject(projectId: string, targetIndex: number) {
 			await runAndApplyUpdate(
 				runCommand<AppUpdate>('move_project', { input: { projectId, targetIndex } })
@@ -376,11 +339,20 @@ function createThreadActions(
 			threadId: string,
 			text: string,
 			mode: PromptMode,
-			includeIntentGuidance = false
+			options?: {
+				includeIntentGuidance?: boolean;
+				promptGuidance?: string | null;
+			}
 		) {
 			await runAndApplyUpdate(
 				runCommand<AppUpdate>('send_prompt', {
-					input: { includeIntentGuidance, mode, text, threadId }
+					input: {
+						includeIntentGuidance: options?.includeIntentGuidance ?? false,
+						mode,
+						promptGuidance: options?.promptGuidance ?? null,
+						text,
+						threadId
+					}
 				})
 			);
 		},
