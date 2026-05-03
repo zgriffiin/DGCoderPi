@@ -50,5 +50,10 @@ async function normalizeResizeHandleValue(resizeHandle: Locator) {
 }
 
 async function readResizeHandleValue(resizeHandle: Locator) {
-	return Number(await resizeHandle.getAttribute('aria-valuenow'));
+	const rawValue = await resizeHandle.getAttribute('aria-valuenow');
+	const value = Number(rawValue);
+	if (!Number.isFinite(value)) {
+		throw new Error(`Resize handle aria-valuenow was not numeric: ${rawValue ?? 'null'}`);
+	}
+	return value;
 }
