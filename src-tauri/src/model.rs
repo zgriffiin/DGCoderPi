@@ -154,6 +154,23 @@ pub struct ProjectRecord {
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct LoadSpecArtifactInput {
+    pub artifact: String,
+    pub project_id: String,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SpecArtifactDocument {
+    pub artifact: String,
+    pub exists: bool,
+    pub path: String,
+    pub text: Option<String>,
+    pub updated_at_ms: Option<u64>,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ThreadRecord {
     pub activities: Vec<ActivityRecord>,
     pub attachments: Vec<AttachmentRecord>,
@@ -478,6 +495,7 @@ pub struct SendPromptInput {
     #[serde(default)]
     pub include_intent_guidance: bool,
     pub mode: PromptMode,
+    pub prompt_guidance: Option<String>,
     pub text: String,
     pub thread_id: String,
 }

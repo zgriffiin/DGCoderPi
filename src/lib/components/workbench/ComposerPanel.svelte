@@ -238,20 +238,25 @@
 </script>
 
 <section class="composer-panel">
-	<div role="presentation" ondragover={handleDragOver} ondrop={handleDrop}>
+	<div
+		class="composer-panel__editor"
+		role="presentation"
+		ondragover={handleDragOver}
+		ondrop={handleDrop}
+	>
 		<TextArea
 			disabled={!canSend}
 			hideLabel
 			labelText="Prompt"
-			maxlength={4000}
 			placeholder={hint}
-			rows={3}
+			rows={10}
 			value={draft}
 			on:input={(event) => onDraftChange(readEventValue(event))}
 			on:keydown={handleKeydown}
 			on:paste={handlePaste}
 		/>
 	</div>
+	<p class="composer-panel__support-note">Longer prompts supported.</p>
 
 	{#if attachments.length > 0}
 		<div class="attachment-strip">

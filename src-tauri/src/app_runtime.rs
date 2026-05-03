@@ -29,21 +29,22 @@ use crate::{
     },
     model::{
         ActivityRecord, AddProjectInput, AppEvent, AppHealth, AppIntegrations, AppSnapshot,
-        AppUpdate, AttachmentParseStatus, AttachmentStage, CreateThreadInput, MessageRecord,
-        MessageRole, MessageStatus, ModelOption, MoveProjectInput, PersistedState, PromptMode,
-        ProviderKeyInput, RemoveAttachmentInput, RemoveProjectInput, RemoveThreadInput,
-        RenameProjectInput, RenameThreadInput, SelectIntentInput, SelectModelInput,
-        SelectReasoningInput, SendPromptInput, SetDiffAnalysisModelInput, StageAttachmentDataInput,
+        AppUpdate, AttachmentParseStatus, AttachmentStage, CreateThreadInput,
+        LoadSpecArtifactInput, MessageRecord, MessageRole, MessageStatus, ModelOption,
+        MoveProjectInput, PersistedState, PromptMode, ProviderKeyInput, RemoveAttachmentInput,
+        RemoveProjectInput, RemoveThreadInput, RenameProjectInput, RenameThreadInput,
+        SelectIntentInput, SelectModelInput, SelectReasoningInput, SendPromptInput,
+        SetDiffAnalysisModelInput, SpecArtifactDocument, StageAttachmentDataInput,
         StageAttachmentInput, ThreadIntent, ThreadRecord, ThreadStatus, ToggleFeatureInput,
     },
     pi_bridge::{
         attachment_status_from_bridge, BridgeActivity, BridgeEnvironment, BridgeEvent,
         BridgePromptAttachment, BridgeThreadSnapshot, PiBridge,
     },
+    project_storage::{migrate_attachments_to_project_storage, project_attachment_path},
     state_store::{
-        append_update, attachment_directory, build_snapshot, infer_mime_type, load_state,
-        make_attachment, new_project, new_thread, now_ms, read_codex_openai_key, read_codex_status,
-        replace_state,
+        append_update, build_snapshot, infer_mime_type, load_state, make_attachment, new_project,
+        new_thread, now_ms, read_codex_openai_key, read_codex_status, replace_state,
     },
 };
 
@@ -51,6 +52,7 @@ const UPDATE_EVENT: &str = "app://update";
 const MAX_ACTIVITY_ENTRIES: usize = 48;
 const MAX_ATTACHMENT_BYTES: u64 = 25 * 1024 * 1024;
 const MAX_PARSE_ATTACHMENT_BYTES: u64 = 10 * 1024 * 1024;
+const MAX_PROMPT_CHARS: usize = 200_000;
 
 #[derive(Clone)]
 pub struct AppRuntime {
@@ -79,6 +81,33 @@ struct PreparedPrompt {
     thread_status: ThreadStatus,
 }
 
+fn compose_prompt_guidance(intent_guidance: Option<&str>, prompt_guidance: Option<&str>) -> String {
+    [intent_guidance, prompt_guidance]
+        .into_iter()
+        .flatten()
+        .map(str::trim)
+        .filter(|segment| !segment.is_empty())
+        .collect::<Vec<_>>()
+        .join("\n\n")
+}
+
+fn resolve_spec_artifact_path(project_path: &str, artifact: &str) -> Result<PathBuf, String> {
+    let artifact_path = Path::new(artifact);
+    if artifact_path.is_absolute()
+        || artifact_path
+            .components()
+            .any(|component| !matches!(component, std::path::Component::Normal(_)))
+    {
+        return Err("Spec artifact path must be a workspace-local markdown filename.".to_string());
+    }
+
+    if artifact_path.extension().and_then(|value| value.to_str()) != Some("md") {
+        return Err("Only markdown spec artifacts are supported.".to_string());
+    }
+
+    Ok(PathBuf::from(project_path).join(artifact_path))
+}
+
 impl AppRuntime {
     pub fn new(
         app: AppHandle,
@@ -87,7 +116,9 @@ impl AppRuntime {
         resource_dir: PathBuf,
     ) -> Result<Self, String> {
         let mut state = load_state(&data_dir)?;
-        if normalize_state(&mut state) {
+        let normalized = normalize_state(&mut state);
+        let migrated_attachments = migrate_attachments_to_project_storage(&mut state)?;
+        if normalized || migrated_attachments {
             replace_state(&data_dir, &state)?;
         }
         fail_in_progress_diff_analyses(&data_dir)?;
@@ -140,6 +171,44 @@ impl AppRuntime {
 
     pub fn health_snapshot(&self) -> Result<AppHealth, String> {
         self.build_health()
+    }
+
+    pub fn load_spec_artifact(
+        &self,
+        input: LoadSpecArtifactInput,
+    ) -> Result<SpecArtifactDocument, String> {
+        let (project_path, _, _) = self.project_context(&input.project_id, None)?;
+        let artifact_path = resolve_spec_artifact_path(&project_path, &input.artifact)?;
+        let updated_at_ms = fs::metadata(&artifact_path)
+            .ok()
+            .and_then(|entry| entry.modified().ok())
+            .and_then(|modified| {
+                modified
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .ok()
+                    .map(|duration| duration.as_millis() as u64)
+            });
+
+        match fs::read_to_string(&artifact_path) {
+            Ok(text) => Ok(SpecArtifactDocument {
+                artifact: input.artifact,
+                exists: true,
+                path: artifact_path.display().to_string(),
+                text: Some(text),
+                updated_at_ms,
+            }),
+            Err(error) if error.kind() == ErrorKind::NotFound => Ok(SpecArtifactDocument {
+                artifact: input.artifact,
+                exists: false,
+                path: artifact_path.display().to_string(),
+                text: None,
+                updated_at_ms: None,
+            }),
+            Err(error) => Err(format!(
+                "Failed to read spec artifact `{}`: {error}",
+                artifact_path.display()
+            )),
+        }
     }
 
     pub fn load_project_diff(
@@ -598,6 +667,7 @@ impl AppRuntime {
     }
 
     pub fn send_prompt(&self, input: SendPromptInput) -> Result<AppUpdate, String> {
+        validate_prompt_length(&input.text)?;
         let (
             command_name,
             pending_message,
@@ -606,7 +676,11 @@ impl AppRuntime {
             staged_attachment_paths,
             update,
         ) = self.with_serialized_mutation(|| {
-            let prepared = self.prepare_prompt(&input.thread_id, input.include_intent_guidance)?;
+            let prepared = self.prepare_prompt(
+                &input.thread_id,
+                input.include_intent_guidance,
+                input.prompt_guidance.as_deref(),
+            )?;
             let effective_mode = if matches!(input.mode, PromptMode::Prompt)
                 && matches!(prepared.thread_status, ThreadStatus::Running)
             {
@@ -1308,6 +1382,7 @@ impl AppRuntime {
         &self,
         thread_id: &str,
         include_intent_guidance: bool,
+        prompt_guidance: Option<&str>,
     ) -> Result<PreparedPrompt, String> {
         let state = self
             .inner
@@ -1362,11 +1437,12 @@ impl AppRuntime {
         Ok(PreparedPrompt {
             attachments,
             cwd: project_path,
-            intent_guidance: if include_intent_guidance {
-                intent.guidance().to_string()
-            } else {
-                String::new()
-            },
+            intent_guidance: compose_prompt_guidance(
+                include_intent_guidance
+                    .then(|| intent.guidance())
+                    .filter(|guidance| !guidance.trim().is_empty()),
+                prompt_guidance,
+            ),
             messages,
             model_key,
             thinking_level,
@@ -1380,10 +1456,25 @@ impl AppRuntime {
         attachment_name: &str,
     ) -> Result<(String, PathBuf), String> {
         let attachment_id = Uuid::new_v4().to_string();
-        let attachment_dir = attachment_directory(&self.inner.data_dir).join(thread_id);
-        fs::create_dir_all(&attachment_dir).map_err(|error| error.to_string())?;
-        let file_name = format!("{}-{}", &attachment_id[..8], attachment_name);
-        Ok((attachment_id, attachment_dir.join(file_name)))
+        let state = self
+            .inner
+            .state
+            .lock()
+            .map_err(|_| "State lock was poisoned.".to_string())?;
+        let (project_index, _) =
+            locate_thread(&state, thread_id).ok_or_else(|| "Thread not found.".to_string())?;
+        let project_path = state.projects[project_index].path.clone();
+        drop(state);
+
+        let file_path =
+            project_attachment_path(&project_path, thread_id, &attachment_id, attachment_name);
+        fs::create_dir_all(
+            file_path
+                .parent()
+                .ok_or_else(|| "Attachment target did not have a parent directory.".to_string())?,
+        )
+        .map_err(|error| error.to_string())?;
+        Ok((attachment_id, file_path))
     }
 
     fn record_staged_attachment(
@@ -1764,6 +1855,18 @@ fn validate_attachment_size(size_bytes: u64) -> Result<(), String> {
     ))
 }
 
+fn validate_prompt_length(text: &str) -> Result<(), String> {
+    let prompt_chars = text.chars().count();
+    if prompt_chars <= MAX_PROMPT_CHARS {
+        return Ok(());
+    }
+
+    Err(format!(
+        "Prompt is too large. Limit is {} characters.",
+        MAX_PROMPT_CHARS
+    ))
+}
+
 fn normalized_attachment_name(name: &str, mime_type: Option<&str>) -> String {
     let trimmed = name.trim();
     let candidate = Path::new(trimmed)
@@ -2020,8 +2123,9 @@ fn launch_codex_login() -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::{
-        append_intent_switch_activity, latest_user_message_timestamp, normalize_state,
-        project_insert_index, sync_thread_model_selection,
+        append_intent_switch_activity, compose_prompt_guidance, latest_user_message_timestamp,
+        normalize_state, project_insert_index, resolve_spec_artifact_path,
+        sync_thread_model_selection, validate_prompt_length,
     };
     use crate::model::{
         MessageRecord, MessageRole, MessageStatus, PersistedState, ProjectRecord, QueueEntry,
@@ -2047,6 +2151,36 @@ mod tests {
     #[test]
     fn move_project_index_handles_forward_move() {
         assert_eq!(project_insert_index(1, 3, 3), 2);
+    }
+
+    #[test]
+    fn compose_prompt_guidance_joins_non_empty_segments() {
+        assert_eq!(
+            compose_prompt_guidance(Some("Intent: Plan."), Some("Stage prompt.")),
+            "Intent: Plan.\n\nStage prompt."
+        );
+        assert_eq!(
+            compose_prompt_guidance(Some("Intent: Plan."), Some("   ")),
+            "Intent: Plan."
+        );
+    }
+
+    #[test]
+    fn validate_prompt_length_rejects_oversized_text() {
+        let oversized_prompt = "a".repeat(200_001);
+
+        assert_eq!(
+            validate_prompt_length(&oversized_prompt),
+            Err("Prompt is too large. Limit is 200000 characters.".to_string())
+        );
+        assert!(validate_prompt_length("ok").is_ok());
+    }
+
+    #[test]
+    fn resolve_spec_artifact_path_rejects_non_markdown_and_parent_segments() {
+        assert!(resolve_spec_artifact_path("C:/repo", "intent.md").is_ok());
+        assert!(resolve_spec_artifact_path("C:/repo", "../intent.md").is_err());
+        assert!(resolve_spec_artifact_path("C:/repo", "intent.txt").is_err());
     }
 
     #[test]

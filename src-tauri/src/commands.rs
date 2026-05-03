@@ -4,10 +4,11 @@ use crate::{
     app_runtime::AppRuntime,
     diff_model::{DiffAnalysis, DiffAnalysisInput, LoadProjectDiffInput, ProjectDiffSnapshot},
     model::{
-        AddProjectInput, AppHealth, AppSnapshot, AppUpdate, CreateThreadInput, MoveProjectInput,
-        ProviderKeyInput, RemoveAttachmentInput, RemoveProjectInput, RemoveThreadInput,
-        RenameProjectInput, RenameThreadInput, SelectIntentInput, SelectModelInput,
-        SelectReasoningInput, SendPromptInput, SetDiffAnalysisModelInput, StageAttachmentDataInput,
+        AddProjectInput, AppHealth, AppSnapshot, AppUpdate, CreateThreadInput,
+        LoadSpecArtifactInput, MoveProjectInput, ProviderKeyInput, RemoveAttachmentInput,
+        RemoveProjectInput, RemoveThreadInput, RenameProjectInput, RenameThreadInput,
+        SelectIntentInput, SelectModelInput, SelectReasoningInput, SendPromptInput,
+        SetDiffAnalysisModelInput, SpecArtifactDocument, StageAttachmentDataInput,
         StageAttachmentInput, ToggleFeatureInput,
     },
 };
@@ -17,6 +18,7 @@ pub type UpdateCommandResult = Result<AppUpdate, String>;
 pub type DiffCommandResult = Result<ProjectDiffSnapshot, String>;
 pub type DiffAnalysisCommandResult = Result<DiffAnalysis, String>;
 pub type HealthCommandResult = Result<AppHealth, String>;
+pub type SpecArtifactCommandResult = Result<SpecArtifactDocument, String>;
 
 #[tauri::command]
 pub fn load_app_state(runtime: State<'_, AppRuntime>) -> SnapshotCommandResult {
@@ -158,6 +160,17 @@ pub fn remove_attachment(
 #[tauri::command]
 pub fn send_prompt(input: SendPromptInput, runtime: State<'_, AppRuntime>) -> UpdateCommandResult {
     runtime.send_prompt(input)
+}
+
+#[tauri::command]
+pub async fn load_spec_artifact(
+    input: LoadSpecArtifactInput,
+    runtime: State<'_, AppRuntime>,
+) -> SpecArtifactCommandResult {
+    let runtime = runtime.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || runtime.load_spec_artifact(input))
+        .await
+        .map_err(|error| error.to_string())?
 }
 
 #[tauri::command]
