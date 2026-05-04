@@ -22,6 +22,10 @@ export type InspectorMode = 'diff' | 'spec' | 'tasks';
 
 export type PromptMode = 'follow-up' | 'prompt' | 'steer';
 
+export type ResponseVerbosity = 'full' | 'lite' | 'ultra';
+
+export type ReviewPolicy = 'fallback' | 'off' | 'required';
+
 type QueueMode = 'follow-up' | 'steer';
 
 type QueueStatus = 'failed' | 'pending';
@@ -54,11 +58,18 @@ export interface AppSettings {
 	diffAnalysisModelKey: string | null;
 	features: FeatureSettings;
 	providers: ProviderStatus[];
+	workflow: WorkflowSettings;
 }
 
 export interface FeatureSettings {
 	diagnosticLoggingEnabled: boolean;
 	docparserEnabled: boolean;
+}
+
+export interface WorkflowSettings {
+	blockTaskAdvanceOnReviewFindings: boolean;
+	responseVerbosity: ResponseVerbosity;
+	reviewPolicy: ReviewPolicy;
 }
 
 export interface CodexStatus {

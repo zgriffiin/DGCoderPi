@@ -7,7 +7,8 @@
 		ProjectRecord,
 		PromptMode,
 		ThinkingLevel,
-		ThreadRecord
+		ThreadRecord,
+		WorkflowSettings
 	} from '$lib/types/workbench';
 	import type { WorkbenchController } from '$lib/workbench/controller';
 	import type { ShipReviewStatus } from '$lib/workbench/ship-review';
@@ -55,7 +56,7 @@
 		onReasoningChange: (reasoningLevel: ThinkingLevel) => void;
 		onSelectProject: (projectId: string) => void;
 		onSelectThread: (projectId: string, threadId: string) => void;
-		onSend: (mode: PromptMode) => void;
+		onSend: (mode: PromptMode, text?: string) => void;
 		onShipReviewContinue: () => void;
 		onShipReviewDismiss: () => void;
 		onShipSlice: () => void;
@@ -77,6 +78,7 @@
 		shipReviewStatus: ShipReviewStatus;
 		snapshot: AppSnapshot;
 		workbenchGridStyle: string;
+		workflowSettings: WorkflowSettings;
 	};
 
 	let {
@@ -135,7 +137,8 @@
 		shipReviewMaxRiskLevel,
 		shipReviewStatus,
 		snapshot,
-		workbenchGridStyle
+		workbenchGridStyle,
+		workflowSettings
 	}: Props = $props();
 </script>
 
@@ -211,6 +214,7 @@
 			{shipReviewIssueCount}
 			{shipReviewMaxRiskLevel}
 			{shipReviewStatus}
+			threadId={activeThread?.id ?? null}
 			threadStatus={activeThread?.status ?? 'idle'}
 		/>
 	</div>
@@ -235,6 +239,7 @@
 			{onSpecPromptSelect}
 			project={activeProject}
 			thread={activeThread}
+			{workflowSettings}
 		/>
 	{/if}
 </div>

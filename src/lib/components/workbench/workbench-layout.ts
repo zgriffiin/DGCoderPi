@@ -107,6 +107,31 @@ export function saveInspectorDetailHeightPercent(storage: Storage, detailHeightP
 	);
 }
 
+export function bindWindowPointerDrag<T extends { captureTarget: HTMLElement; pointerId: number }>(
+	drag: T,
+	onMove: (event: PointerEvent) => void,
+	onEnd: () => void
+) {
+	const releaseCapture = () => {
+		if (drag.captureTarget.hasPointerCapture(drag.pointerId)) {
+			drag.captureTarget.releasePointerCapture(drag.pointerId);
+		}
+	};
+
+	const handlePointerUp = () => {
+		releaseCapture();
+		onEnd();
+	};
+
+	window.addEventListener('pointermove', onMove);
+	window.addEventListener('pointerup', handlePointerUp);
+	return () => {
+		releaseCapture();
+		window.removeEventListener('pointermove', onMove);
+		window.removeEventListener('pointerup', handlePointerUp);
+	};
+}
+
 export function formatWorkbenchGridStyle(panelWidths: PanelWidths, composerHeightPercent: number) {
 	return `--workbench-left-rail-width:${panelWidths.left}px; --workbench-inspector-width:${panelWidths.right}px; --workbench-composer-height:${clampComposerHeightPercent(composerHeightPercent)}%;`;
 }

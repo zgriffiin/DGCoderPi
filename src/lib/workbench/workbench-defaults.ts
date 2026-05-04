@@ -1,8 +1,19 @@
-import type { AppSettings, AppSnapshot, FeatureSettings } from '$lib/types/workbench';
+import type {
+	AppSettings,
+	AppSnapshot,
+	FeatureSettings,
+	WorkflowSettings
+} from '$lib/types/workbench';
 
 const DEFAULT_FEATURE_SETTINGS: FeatureSettings = {
 	diagnosticLoggingEnabled: true,
 	docparserEnabled: true
+};
+
+const DEFAULT_WORKFLOW_SETTINGS: WorkflowSettings = {
+	blockTaskAdvanceOnReviewFindings: true,
+	responseVerbosity: 'full',
+	reviewPolicy: 'fallback'
 };
 
 const DEFAULT_APP_SETTINGS: AppSettings = {
@@ -15,7 +26,8 @@ const DEFAULT_APP_SETTINGS: AppSettings = {
 		{ configured: false, label: 'Google Gemini', provider: 'google', source: null },
 		{ configured: false, label: 'DeepSeek', provider: 'deepseek', source: null },
 		{ configured: false, label: 'OpenRouter', provider: 'openrouter', source: null }
-	]
+	],
+	workflow: DEFAULT_WORKFLOW_SETTINGS
 };
 
 export const EMPTY_SNAPSHOT: AppSnapshot = {

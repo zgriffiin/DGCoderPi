@@ -10,6 +10,8 @@ import type {
 	DiffAnalysis,
 	ProjectDiffSnapshot,
 	PromptMode,
+	ResponseVerbosity,
+	ReviewPolicy,
 	SpecArtifactDocument,
 	ThreadIntent,
 	ThinkingLevel
@@ -92,7 +94,8 @@ function cloneSnapshotShell(snapshot: AppSnapshot): AppSnapshot {
 		settings: {
 			...snapshot.settings,
 			features: { ...snapshot.settings.features },
-			providers: [...snapshot.settings.providers]
+			providers: [...snapshot.settings.providers],
+			workflow: { ...snapshot.settings.workflow }
 		}
 	};
 }
@@ -279,9 +282,9 @@ function createProjectActions(
 				input: { hideWhitespace, projectId }
 			});
 		},
-		async loadSpecArtifact(projectId: string, artifact: string) {
+		async loadSpecArtifact(projectId: string, threadId: string, artifact: string) {
 			return runCommand<SpecArtifactDocument>('load_spec_artifact', {
-				input: { artifact, projectId }
+				input: { artifact, projectId, threadId }
 			});
 		},
 		async moveProject(projectId: string, targetIndex: number) {
@@ -418,6 +421,15 @@ function createSettingsActions(
 		async setProviderKey(provider: string, key: string) {
 			await runAndApplyUpdate(
 				runCommand<AppUpdate>('set_provider_key', { input: { key, provider } })
+			);
+		},
+		async updateWorkflowSettings(settings: {
+			blockTaskAdvanceOnReviewFindings?: boolean;
+			responseVerbosity?: ResponseVerbosity;
+			reviewPolicy?: ReviewPolicy;
+		}) {
+			await runAndApplyUpdate(
+				runCommand<AppUpdate>('update_workflow_settings', { input: settings })
 			);
 		},
 		async startCodexLogin() {

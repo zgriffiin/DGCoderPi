@@ -1,105 +1,79 @@
 import { describe, expect, it } from 'vitest';
-import type { ThreadRecord } from '$lib/types/workbench';
-import { SPEC_WORKFLOW_STEPS } from '$lib/workbench/spec-workflow';
-import { specWorkflowStageStatus } from '$lib/workbench/spec-workflow-status';
+import type { ThreadRecord, WorkflowSettings } from '$lib/types/workbench';
+import { SPEC_WORKFLOW_STEPS } from './spec-workflow';
+import { specWorkflowAdvanceState } from './spec-workflow-status';
 
-function buildThread(messages: ThreadRecord['messages']): ThreadRecord {
+const DEFAULT_WORKFLOW_SETTINGS: WorkflowSettings = {
+	blockTaskAdvanceOnReviewFindings: true,
+	responseVerbosity: 'full',
+	reviewPolicy: 'fallback'
+};
+
+function threadWithAssistantMessage(text: string): ThreadRecord {
 	return {
 		activities: [],
 		attachments: [],
 		branch: 'main',
 		id: 'thread-1',
-		intent: 'plan',
+		intent: 'implement',
 		lastError: null,
 		lastUserMessageAtMs: 0,
-		messages,
+		messages: [
+			{
+				id: 'assistant-1',
+				role: 'assistant',
+				status: 'ready',
+				text,
+				timestampMs: 1
+			}
+		],
 		modelKey: null,
 		queue: [],
-		reasoningLevel: 'off',
+		reasoningLevel: 'medium',
 		status: 'idle',
-		title: 'Thread',
-		updatedAtMs: 0
+		title: 'Test thread',
+		updatedAtMs: 1
 	};
 }
 
-function stepByLabel(label: string) {
-	const step = SPEC_WORKFLOW_STEPS.find((entry) => entry.label === label);
-	if (!step) {
-		throw new Error(`Missing spec workflow step: ${label}`);
-	}
-	return step;
-}
+describe('spec workflow advance lock', () => {
+	it('blocks later stages when implement output still has blocker findings', () => {
+		const thread = threadWithAssistantMessage(`
+# Implementation Result
+## Blocking findings
+- workers/generation/generateBlueprint.ts: fabricated support still inferred by array position
+## Implementation Gate
+Status: FAIL
+`);
 
-describe('spec workflow stage status', () => {
-	it('stays pending when no matching stage response exists', () => {
-		const status = specWorkflowStageStatus(buildThread([]), stepByLabel('Intent'));
-
-		expect(status.coverage.label).toBe('Intent coverage: pending');
-		expect(status.blocking.label).toBe('Blocking questions: pending');
+		expect(
+			specWorkflowAdvanceState(thread, SPEC_WORKFLOW_STEPS, DEFAULT_WORKFLOW_SETTINGS)
+		).toEqual({
+			blocked: true,
+			blockingStepLabel: 'Implement',
+			reason: 'Implement still has unresolved blocker findings'
+		});
 	});
 
-	it('marks coverage ready and blockers clear on PASS responses', () => {
-		const thread = buildThread([
-			{
-				id: 'm1',
-				role: 'assistant',
-				status: 'ready',
-				text: `# Tasks\n## Tasks Gate\nStatus: PASS\nChecks:\nblocking questions resolved or listed: Yes`,
-				timestampMs: 1
-			}
-		]);
+	it('does not block when the setting is disabled', () => {
+		const thread = threadWithAssistantMessage(`
+# Review
+## Must-fix findings
+### REV-001
+Issue: unresolved issue
+## Review Gate
+Status: FAIL
+`);
 
-		const status = specWorkflowStageStatus(thread, stepByLabel('Tasks'));
-
-		expect(status.coverage.label).toBe('Task coverage: ready');
-		expect(status.coverage.tone).toBe('green');
-		expect(status.blocking.label).toBe('Blocking questions: clear');
-		expect(status.blocking.tone).toBe('green');
-	});
-
-	it('marks failed stages as needing work and blockers open when listed', () => {
-		const thread = buildThread([
-			{
-				id: 'm1',
-				role: 'assistant',
-				status: 'ready',
-				text: `# Design\n## Open questions\nBlocking questions:\nShould the cache be reset?\n## Design Gate\nStatus: FAIL`,
-				timestampMs: 1
-			}
-		]);
-
-		const status = specWorkflowStageStatus(thread, stepByLabel('Design'));
-
-		expect(status.coverage.label).toBe('Design coverage: needs work');
-		expect(status.coverage.tone).toBe('red');
-		expect(status.blocking.label).toBe('Blocking questions: open');
-		expect(status.blocking.tone).toBe('warm-gray');
-	});
-
-	it('prefers the matching gate status over earlier artifact content', () => {
-		const thread = buildThread([
-			{
-				id: 'm1',
-				role: 'assistant',
-				status: 'ready',
-				text: `# Design
-Status: PASS
-
-## Open questions
-Blocking questions:
-Should the cache be reset?
-
-## Design Gate
-Status: FAIL`,
-				timestampMs: 1
-			}
-		]);
-
-		const status = specWorkflowStageStatus(thread, stepByLabel('Design'));
-
-		expect(status.coverage.label).toBe('Design coverage: needs work');
-		expect(status.coverage.tone).toBe('red');
-		expect(status.blocking.label).toBe('Blocking questions: open');
-		expect(status.blocking.tone).toBe('warm-gray');
+		expect(
+			specWorkflowAdvanceState(thread, SPEC_WORKFLOW_STEPS, {
+				...DEFAULT_WORKFLOW_SETTINGS,
+				blockTaskAdvanceOnReviewFindings: false
+			})
+		).toEqual({
+			blocked: false,
+			blockingStepLabel: null,
+			reason: null
+		});
 	});
 });

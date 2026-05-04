@@ -1,11 +1,18 @@
 <script lang="ts">
-	import type { CodexStatus, ModelOption, ProviderStatus } from '$lib/types/workbench';
+	import type {
+		CodexStatus,
+		ModelOption,
+		ProviderStatus,
+		ResponseVerbosity,
+		ReviewPolicy
+	} from '$lib/types/workbench';
 	import AddProjectModal from './AddProjectModal.svelte';
 	import SettingsModal from './SettingsModal.svelte';
 
 	type Props = {
 		addProjectDraft: string;
 		addProjectOpen: boolean;
+		blockTaskAdvanceOnReviewFindings: boolean;
 		codex: CodexStatus;
 		diffAnalysisModelKey: string | null;
 		diagnosticLoggingEnabled: boolean;
@@ -21,13 +28,18 @@
 		onImportCodexOpenAiKey: VoidFunction;
 		onProviderDraftChange: (provider: string, value: string) => void;
 		onRefreshStatus: VoidFunction;
+		onResponseVerbosityChange: (value: ResponseVerbosity) => void;
+		onReviewPolicyChange: (value: ReviewPolicy) => void;
 		onSaveProvider: (provider: string) => void;
 		onStartCodexLogin: VoidFunction;
+		onToggleBlockTaskAdvanceOnReviewFindings: (enabled: boolean) => void;
 		onToggleDiagnosticLogging: (enabled: boolean) => void;
 		onToggleDocparser: (enabled: boolean) => void;
 		onToggleManualPath: () => void;
 		providerDrafts: Record<string, string>;
 		providers: ProviderStatus[];
+		responseVerbosity: ResponseVerbosity;
+		reviewPolicy: ReviewPolicy;
 		runtimeAvailable: boolean;
 		settingsOpen: boolean;
 	};
@@ -35,6 +47,7 @@
 	let {
 		addProjectDraft,
 		addProjectOpen,
+		blockTaskAdvanceOnReviewFindings,
 		codex,
 		diffAnalysisModelKey,
 		diagnosticLoggingEnabled,
@@ -50,13 +63,18 @@
 		onImportCodexOpenAiKey,
 		onProviderDraftChange,
 		onRefreshStatus,
+		onResponseVerbosityChange,
+		onReviewPolicyChange,
 		onSaveProvider,
 		onStartCodexLogin,
+		onToggleBlockTaskAdvanceOnReviewFindings,
 		onToggleDiagnosticLogging,
 		onToggleDocparser,
 		onToggleManualPath,
 		providerDrafts,
 		providers,
+		responseVerbosity,
+		reviewPolicy,
 		runtimeAvailable,
 		settingsOpen
 	}: Props = $props();
@@ -79,17 +97,23 @@
 	{diffAnalysisModelKey}
 	{diagnosticLoggingEnabled}
 	{docparserEnabled}
+	{blockTaskAdvanceOnReviewFindings}
 	onClose={onCloseSettings}
 	{onDiffAnalysisModelChange}
 	{onImportCodexOpenAiKey}
 	{onProviderDraftChange}
 	{onRefreshStatus}
+	{onResponseVerbosityChange}
+	{onReviewPolicyChange}
 	{onSaveProvider}
 	{onStartCodexLogin}
+	{onToggleBlockTaskAdvanceOnReviewFindings}
 	{onToggleDiagnosticLogging}
 	{onToggleDocparser}
 	{models}
 	open={settingsOpen}
 	{providerDrafts}
 	{providers}
+	{responseVerbosity}
+	{reviewPolicy}
 />

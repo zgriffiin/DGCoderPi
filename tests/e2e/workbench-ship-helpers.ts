@@ -24,13 +24,14 @@ export function createSampleRepo() {
 	const repoRoot = mkdtempSync(path.join(os.tmpdir(), 'pi-diff-viewer-'));
 	mkdirSync(path.join(repoRoot, 'src'), { recursive: true });
 	mkdirSync(path.join(repoRoot, 'docs'), { recursive: true });
+	mkdirSync(path.join(repoRoot, 'dgcoder', 'spec', 'current'), { recursive: true });
 	writeFileSync(
 		path.join(repoRoot, 'src', 'counter.ts'),
 		'export function counterLabel(count: number) {\n\treturn `Count: ${count}`;\n}\n'
 	);
 	writeFileSync(path.join(repoRoot, 'README.md'), '# Sample repo\n');
 	writeFileSync(
-		path.join(repoRoot, 'intent.md'),
+		path.join(repoRoot, 'dgcoder', 'spec', 'current', 'intent.md'),
 		[
 			'# Intent',
 			'',

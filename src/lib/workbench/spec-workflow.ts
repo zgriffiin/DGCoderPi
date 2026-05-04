@@ -1,4 +1,5 @@
-import type { ThreadIntent } from '$lib/types/workbench';
+import type { ThreadIntent, WorkflowSettings } from '$lib/types/workbench';
+import { workflowSettingsGuidance } from '$lib/workbench/workflow-settings';
 
 export type SpecWorkflowStep = {
 	artifact: string;
@@ -30,12 +31,14 @@ const GLOBAL_RULES = `Global spec-stage rules:
 11. Use artifact approval states: draft -> needs-user-input -> approved -> superseded. Do not consume draft downstream artifacts without explicit approval.
 12. For greenfield apps or major UX work, treat approved product behavior, workflow usability, and design fidelity as required acceptance criteria, not aspirational guidance.
 13. Never count scaffold-only structure, seeded demos, raw placeholder text, thin admin surfaces, or backend wiring without meaningful user-visible behavior as complete unless explicitly approved as the final product behavior.
+14. Default to terse reporting. Put blockers, findings, and next action first. Do not bury actionable issues in long recaps.
+15. Unresolved correctness issues from configured review tooling or user-supplied review findings block completion of the current slice until fixed or explicitly accepted by the user.
 
 Hard transition checks:
 - Requirements -> Design: FAIL if any FR/NFR/EC is missing from the design coverage matrix.
 - Design -> Tasks: FAIL if any requirement or design decision lacks implementation or validation tasks.
 - Tasks -> Implement: FAIL if selected tasks have unresolved dependencies or blocking questions, or if user-visible work is represented only as broad scaffolding instead of concrete product slices.
-- Implement -> Review: FAIL if unrelated files changed without explanation, or if any completed user-visible task lacks real UI validation evidence.
+- Implement -> Review: FAIL if unrelated files changed without explanation, if any completed user-visible task lacks real UI validation evidence, or if unresolved correctness findings remain from configured review tooling or user-supplied review results.
 - Review -> Ship: FAIL if must-fix findings remain unresolved, or if product-fidelity gaps remain unresolved even when code/tests pass.
 - Ship: FAIL if validation evidence is missing or unresolved risks are not accepted.`;
 
@@ -45,6 +48,7 @@ function specPrompt(stagePrompt: string) {
 
 type SpecWorkflowPromptContext = {
 	hasPriorUserMessages: boolean;
+	workflowSettings?: WorkflowSettings | null;
 	workspaceRoot: string | null;
 };
 
@@ -84,9 +88,10 @@ function renderSpecPlaceholder(token: string, context: SpecWorkflowPromptContext
 }
 
 function renderSpecWorkflowPrompt(step: SpecWorkflowStep, context: SpecWorkflowPromptContext) {
-	return step.prompt.replace(/\{([a-z_]+)\}/g, (match, token: string) => {
+	const renderedPrompt = step.prompt.replace(/\{([a-z_]+)\}/g, (match, token: string) => {
 		return renderSpecPlaceholder(token, context) ?? match;
 	});
+	return `${renderedPrompt}\n\n${workflowSettingsGuidance(context.workflowSettings)}`;
 }
 
 export function buildSpecWorkflowRunRequest(
@@ -307,9 +312,13 @@ Rules:
 - Do not introduce non-production-only stand-ins, alternate service layers, request interception, or throwaway scaffolding. Demo or example data is allowed only when it is committed, realistic, and part of the final product workflow.
 - No scaffold-only completion. Do not mark a task complete if the result is only structural wiring, seed-driven placeholder content, raw text dumps, or a thin surface that does not yet provide the approved user-visible behavior for that slice.
 - For every user-visible slice, launch the real app and prove the actual workflow in the UI before marking the task complete. Compare the observed behavior to the approved design and any approved example artifacts. If the implementation is technically valid but materially below the approved product/design fidelity, leave the task incomplete and report FAIL instead of continuing.
+- Use the strongest review signals available for this repo and session: repo-required local review tooling, configured external review tooling, PR review feedback, and user-supplied review findings. Treat correctness findings from any of those sources as blocking for the current slice.
+- If configured review tooling or user-supplied review results report unresolved correctness issues, fix them before moving on. Do not ask whether to proceed to the next task while such issues remain.
+- Do not force the user to resolve review scope for archived or generated artifact folders. By default, current product/runtime code, repo tooling, tests, and current working spec artifacts are in scope; archived thread artifacts are not blockers unless they affect runtime behavior or the user explicitly includes them.
 - Do not implement future tasks opportunistically. Do not add dependencies unless approved. Stop if the approved design is wrong or incomplete.
-- Stop only for hard blockers that require user input: missing approved prerequisites, contradictions in approved artifacts, unavailable required credentials or tools, or a user decision that changes scope or design.
+- Stop only for hard blockers that require user input: missing approved prerequisites, contradictions in approved artifacts, unavailable required credentials or tools that have no acceptable fallback, or a user decision that changes scope or design.
 - Keep validation real. Run the actual commands needed for the slice and record the outcomes. If a user-visible slice cannot reasonably be validated with Playwright yet, explain the concrete blocker and use the highest-signal real validation available without non-production stand-ins.
+- Response style: caveman concise. For routine progress or fail states, keep it short and concrete. Start with current task, exact blocking findings, and next action. Do not dump long process recaps or giant file inventories unless the user asks.
 Execution format:
 # Implementation Run
 ## Scope
@@ -334,6 +343,8 @@ Final output format:
 ## Validation
 | Command or check | Result | Notes |
 |---|---|---|
+## Blocking findings
+- Exact file and issue summary for every unresolved correctness blocker
 ## UI proof
 | Workflow or screen | How it was exercised | Observed result | Matches design? |
 |---|---|---|---|
@@ -349,11 +360,11 @@ User approval required for next stage: yes`);
 const reviewPrompt = specPrompt(`You are the Review agent for a spec-driven coding harness.
 Goal: Review implemented changes against approved intent, requirements, design, and tasks. Produce findings first. Do not fix anything unless explicitly asked.
 Inputs: Approved intent {intent_md}; Approved context {context_md}; Approved requirements {requirements_md}; Approved design {design_md}; Approved tasks {tasks_md}; Implementation log {implementation_log_md}; Diff or changed files {diff_or_changed_files}; User request {user_request}.
-Rules: Do not modify code. Review coverage, correctness, regressions, missing tests, security, performance, maintainability, task completion, and product fidelity. Treat scaffold-only completion, placeholder UI, raw text dumps, or output that materially misses the approved user workflow/design as real findings even when code compiles and tests pass. Every finding must include evidence and link to requirement, design, or task IDs where applicable.
+Rules: Do not modify code. Review coverage, correctness, regressions, missing tests, security, performance, maintainability, task completion, and product fidelity. Treat scaffold-only completion, placeholder UI, raw text dumps, or output that materially misses the approved user workflow/design as real findings even when code compiles and tests pass. Every finding must include evidence and link to requirement, design, or task IDs where applicable. Be terse. If review fails, the first useful content after scope must be the must-fix findings list with exact file and issue summaries.
 Output format:
 # Review
 ## Review scope
-## Findings
+## Must-fix findings
 ### REV-001: <finding title>
 Severity: Critical, High, Medium, Low, or Nit
 Confidence: High, Medium, or Low
@@ -366,6 +377,7 @@ Linked items:
 - Task:
 Issue:
 Recommendation:
+## Other findings
 ## Coverage audit
 | Requirement | Design | Task | Implementation evidence | Validation evidence | Status |
 |---|---|---|---|---|---|

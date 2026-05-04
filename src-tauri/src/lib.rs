@@ -8,6 +8,7 @@ mod diff_model;
 mod model;
 mod pi_bridge;
 mod project_storage;
+mod spec_artifacts;
 mod state_store;
 
 use std::path::PathBuf;
@@ -109,6 +110,7 @@ pub fn run() {
             commands::start_codex_login,
             commands::stage_attachment,
             commands::stage_attachment_data,
+            commands::update_workflow_settings,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

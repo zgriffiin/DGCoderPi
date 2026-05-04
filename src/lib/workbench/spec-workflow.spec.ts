@@ -64,6 +64,12 @@ describe('spec workflow prompt guards', () => {
 		expect(implementStep?.prompt).toContain('prefer Playwright UI coverage');
 		expect(implementStep?.prompt).toContain('No scaffold-only completion');
 		expect(implementStep?.prompt).toContain(
+			'Treat correctness findings from any of those sources as blocking'
+		);
+		expect(implementStep?.prompt).toContain('Do not ask whether to proceed to the next task');
+		expect(implementStep?.prompt).toContain('Response style: caveman concise');
+		expect(implementStep?.prompt).toContain('## Blocking findings');
+		expect(implementStep?.prompt).toContain(
 			'launch the real app and prove the actual workflow in the UI'
 		);
 		expect(implementStep?.prompt).toContain(
@@ -90,8 +96,23 @@ describe('spec workflow prompt guards', () => {
 		expect(reviewStep?.prompt).toContain('product fidelity');
 		expect(reviewStep?.prompt).toContain('placeholder UI');
 		expect(reviewStep?.prompt).toContain('## Product fidelity audit');
+		expect(reviewStep?.prompt).toContain('## Must-fix findings');
+		expect(reviewStep?.prompt).toContain(
+			'the first useful content after scope must be the must-fix findings list'
+		);
 		expect(shipStep?.prompt).toContain('materially below the approved user workflow');
 		expect(shipStep?.prompt).toContain('product fidelity is adequate for the approved scope');
+	});
+
+	it('treats unresolved review-tool correctness findings as a hard transition blocker', () => {
+		const allPrompts = SPEC_WORKFLOW_STEPS.map((step) => step.prompt).join('\n');
+
+		expect(allPrompts).toContain(
+			'Unresolved correctness issues from configured review tooling or user-supplied review findings block completion of the current slice'
+		);
+		expect(allPrompts).toContain(
+			'unresolved correctness findings remain from configured review tooling or user-supplied review results'
+		);
 	});
 });
 
@@ -131,5 +152,22 @@ describe('spec workflow prompt rendering', () => {
 		expect(request.text).toContain('Do not stop after planning');
 		expect(request.text).toContain('Do not count scaffold-only progress as completion');
 		expect(request.promptGuidance).toContain('Continue until every selected task is complete');
+	});
+
+	it('appends workflow settings guidance for review policy and caveman verbosity', () => {
+		const request = buildSpecWorkflowRunRequest(SPEC_WORKFLOW_STEPS[5], {
+			hasPriorUserMessages: true,
+			workflowSettings: {
+				blockTaskAdvanceOnReviewFindings: true,
+				responseVerbosity: 'lite',
+				reviewPolicy: 'required'
+			},
+			workspaceRoot: 'C:/repo/workspace'
+		});
+
+		expect(request.promptGuidance).toContain('Runtime workflow settings for this run:');
+		expect(request.promptGuidance).toContain('Review policy: required');
+		expect(request.promptGuidance).toContain('Response verbosity: lite');
+		expect(request.promptGuidance).toContain('Do not advance to later tasks or later spec stages');
 	});
 });

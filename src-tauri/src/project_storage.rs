@@ -5,21 +5,71 @@ use std::{
 
 use crate::model::{AttachmentRecord, PersistedState};
 
-const DOC_DIR_NAME: &str = ".doc";
+const APP_DIR_NAME: &str = "dgcoder";
 const ATTACHMENTS_DIR_NAME: &str = "attachments";
+const FILES_DIR_NAME: &str = "files";
+const SPEC_DIR_NAME: &str = "spec";
+const CURRENT_DIR_NAME: &str = "current";
+const LEGACY_DOC_DIR_NAME: &str = ".doc";
 
 fn attachment_prefix(attachment_id: &str) -> &str {
     attachment_id.get(..8).unwrap_or(attachment_id)
 }
 
-pub fn project_doc_dir(project_path: &str) -> PathBuf {
-    PathBuf::from(project_path).join(DOC_DIR_NAME)
+pub fn project_app_dir(project_path: &str) -> PathBuf {
+    PathBuf::from(project_path).join(APP_DIR_NAME)
+}
+
+pub fn legacy_project_doc_dir(project_path: &str) -> PathBuf {
+    PathBuf::from(project_path).join(LEGACY_DOC_DIR_NAME)
 }
 
 pub fn project_attachment_dir(project_path: &str, thread_id: &str) -> PathBuf {
-    project_doc_dir(project_path)
+    project_app_dir(project_path)
         .join(ATTACHMENTS_DIR_NAME)
         .join(thread_id)
+}
+
+pub fn project_spec_dir(project_path: &str) -> PathBuf {
+    project_app_dir(project_path).join(SPEC_DIR_NAME)
+}
+
+pub fn current_spec_dir(project_path: &str) -> PathBuf {
+    project_spec_dir(project_path).join(CURRENT_DIR_NAME)
+}
+
+pub fn current_spec_artifact_path(project_path: &str, artifact: &str) -> PathBuf {
+    current_spec_dir(project_path).join(artifact)
+}
+
+pub fn thread_spec_dir(project_path: &str, thread_id: &str) -> PathBuf {
+    project_spec_dir(project_path).join(thread_id)
+}
+
+pub fn thread_spec_artifact_path(project_path: &str, thread_id: &str, artifact: &str) -> PathBuf {
+    thread_spec_dir(project_path, thread_id).join(artifact)
+}
+
+pub fn project_files_dir(project_path: &str) -> PathBuf {
+    project_app_dir(project_path).join(FILES_DIR_NAME)
+}
+
+pub fn migrate_legacy_project_storage(project_path: &str) -> Result<bool, String> {
+    let legacy_root = legacy_project_doc_dir(project_path);
+    if !legacy_root.exists() {
+        return Ok(false);
+    }
+
+    let mut changed = false;
+    changed |= relocate_directory_contents(
+        &legacy_root.join(FILES_DIR_NAME),
+        &project_files_dir(project_path),
+    )?;
+    changed |= relocate_directory_contents(
+        &legacy_root.join(SPEC_DIR_NAME),
+        &project_spec_dir(project_path),
+    )?;
+    Ok(changed)
 }
 
 pub fn project_attachment_path(
@@ -110,13 +160,67 @@ fn relocate_attachment(source_path: &Path, target_path: &Path) -> Result<(), Str
     }
 }
 
+fn relocate_directory_contents(source_dir: &Path, target_dir: &Path) -> Result<bool, String> {
+    if !source_dir.exists() {
+        return Ok(false);
+    }
+
+    let mut changed = false;
+    fs::create_dir_all(target_dir).map_err(|error| {
+        format!(
+            "Failed to create directory `{}`: {error}",
+            target_dir.display()
+        )
+    })?;
+    for entry in fs::read_dir(source_dir).map_err(|error| {
+        format!(
+            "Failed to read directory `{}`: {error}",
+            source_dir.display()
+        )
+    })? {
+        let entry = entry.map_err(|error| error.to_string())?;
+        let source_path = entry.path();
+        let target_path = target_dir.join(entry.file_name());
+        if source_path.is_dir() {
+            changed |= relocate_directory_contents(&source_path, &target_path)?;
+            remove_empty_dir(&source_path);
+            continue;
+        }
+        if target_path.exists() {
+            continue;
+        }
+        fs::create_dir_all(target_path.parent().unwrap_or(target_dir)).map_err(|error| {
+            format!(
+                "Failed to create directory `{}`: {error}",
+                target_dir.display()
+            )
+        })?;
+        relocate_attachment(&source_path, &target_path)?;
+        if target_path.exists() {
+            changed = true;
+        }
+    }
+    remove_empty_dir(source_dir);
+    Ok(changed)
+}
+
+fn remove_empty_dir(path: &Path) {
+    if path.exists() {
+        let _ = fs::remove_dir(path);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::{env, fs, path::PathBuf};
 
     use uuid::Uuid;
 
-    use super::{migrate_attachments_to_project_storage, project_attachment_path};
+    use super::{
+        current_spec_artifact_path, migrate_attachments_to_project_storage,
+        migrate_legacy_project_storage, project_attachment_path, project_files_dir,
+        thread_spec_artifact_path,
+    };
     use crate::model::{AttachmentRecord, PersistedState, ProjectRecord, ThreadRecord};
 
     fn temp_path(prefix: &str) -> PathBuf {
@@ -130,7 +234,7 @@ mod tests {
         assert_eq!(
             path,
             PathBuf::from("C:/repo")
-                .join(".doc")
+                .join("dgcoder")
                 .join("attachments")
                 .join("thread-1")
                 .join("12345678-brief.pdf")
@@ -144,7 +248,7 @@ mod tests {
         let legacy_thread_dir = app_data_root.join("attachments").join("thread-1");
         let legacy_file = legacy_thread_dir.join("12345678-brief.pdf");
         let expected_file = repo_root
-            .join(".doc")
+            .join("dgcoder")
             .join("attachments")
             .join("thread-1")
             .join("12345678-brief.pdf");
@@ -183,5 +287,59 @@ mod tests {
 
         fs::remove_dir_all(&repo_root).unwrap();
         fs::remove_dir_all(&app_data_root).unwrap();
+    }
+
+    #[test]
+    fn thread_spec_artifact_path_uses_repo_local_doc_folder() {
+        let path = thread_spec_artifact_path("C:/repo", "thread-1", "intent.md");
+
+        assert_eq!(
+            path,
+            PathBuf::from("C:/repo")
+                .join("dgcoder")
+                .join("spec")
+                .join("thread-1")
+                .join("intent.md")
+        );
+    }
+
+    #[test]
+    fn current_spec_artifact_path_uses_project_dgcoder_folder() {
+        let path = current_spec_artifact_path("C:/repo", "intent.md");
+
+        assert_eq!(
+            path,
+            PathBuf::from("C:/repo")
+                .join("dgcoder")
+                .join("spec")
+                .join("current")
+                .join("intent.md")
+        );
+    }
+
+    #[test]
+    fn migrate_legacy_project_storage_moves_doc_subfolders_into_dgcoder() {
+        let repo_root = temp_path("repo-storage");
+        let legacy_files = repo_root.join(".doc").join("files");
+        let legacy_spec = repo_root.join(".doc").join("spec").join("thread-1");
+        let expected_file = project_files_dir(&repo_root.to_string_lossy()).join("note.txt");
+        let expected_spec = repo_root
+            .join("dgcoder")
+            .join("spec")
+            .join("thread-1")
+            .join("intent.md");
+
+        fs::create_dir_all(&legacy_files).unwrap();
+        fs::create_dir_all(&legacy_spec).unwrap();
+        fs::write(legacy_files.join("note.txt"), b"file").unwrap();
+        fs::write(legacy_spec.join("intent.md"), b"spec").unwrap();
+
+        let changed = migrate_legacy_project_storage(&repo_root.to_string_lossy()).unwrap();
+
+        assert!(changed);
+        assert!(expected_file.exists());
+        assert!(expected_spec.exists());
+
+        fs::remove_dir_all(&repo_root).unwrap();
     }
 }

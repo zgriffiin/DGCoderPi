@@ -36,12 +36,17 @@ use crate::{
         SelectIntentInput, SelectModelInput, SelectReasoningInput, SendPromptInput,
         SetDiffAnalysisModelInput, SpecArtifactDocument, StageAttachmentDataInput,
         StageAttachmentInput, ThreadIntent, ThreadRecord, ThreadStatus, ToggleFeatureInput,
+        UpdateWorkflowSettingsInput,
     },
     pi_bridge::{
         attachment_status_from_bridge, BridgeActivity, BridgeEnvironment, BridgeEvent,
         BridgePromptAttachment, BridgeThreadSnapshot, PiBridge,
     },
-    project_storage::{migrate_attachments_to_project_storage, project_attachment_path},
+    project_storage::{
+        current_spec_artifact_path, migrate_attachments_to_project_storage,
+        migrate_legacy_project_storage, project_attachment_path, thread_spec_artifact_path,
+    },
+    spec_artifacts::extract_thread_spec_artifacts,
     state_store::{
         append_update, build_snapshot, infer_mime_type, load_state, make_attachment, new_project,
         new_thread, now_ms, read_codex_openai_key, read_codex_status, replace_state,
@@ -105,7 +110,78 @@ fn resolve_spec_artifact_path(project_path: &str, artifact: &str) -> Result<Path
         return Err("Only markdown spec artifacts are supported.".to_string());
     }
 
-    Ok(PathBuf::from(project_path).join(artifact_path))
+    Ok(current_spec_artifact_path(project_path, artifact))
+}
+
+fn write_text_if_changed(path: &Path, text: &str) -> Result<(), String> {
+    if fs::read_to_string(path).ok().as_deref() == Some(text) {
+        return Ok(());
+    }
+
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).map_err(|error| {
+            format!("Failed to create directory `{}`: {error}", parent.display())
+        })?;
+    }
+
+    fs::write(path, text).map_err(|error| {
+        format!(
+            "Failed to write spec artifact `{}`: {error}",
+            path.display()
+        )
+    })
+}
+
+fn persist_thread_spec_artifacts(
+    project_path: &str,
+    thread: &ThreadRecord,
+    mirror_to_workspace_root: bool,
+) -> Result<(), String> {
+    if !Path::new(project_path).exists() {
+        return Ok(());
+    }
+
+    for artifact in extract_thread_spec_artifacts(thread) {
+        let thread_path = thread_spec_artifact_path(project_path, &thread.id, artifact.artifact);
+        write_text_if_changed(&thread_path, &artifact.text)?;
+
+        if mirror_to_workspace_root {
+            let workspace_path = resolve_spec_artifact_path(project_path, artifact.artifact)?;
+            write_text_if_changed(&workspace_path, &artifact.text)?;
+        }
+    }
+
+    Ok(())
+}
+
+fn preferred_spec_artifact_path(
+    project_path: &str,
+    thread_id: Option<&str>,
+    artifact: &str,
+) -> Result<PathBuf, String> {
+    let workspace_path = resolve_spec_artifact_path(project_path, artifact)?;
+    let Some(thread_id) = thread_id else {
+        return Ok(workspace_path);
+    };
+
+    let thread_path = thread_spec_artifact_path(project_path, thread_id, artifact);
+    if thread_path.exists() {
+        return Ok(thread_path);
+    }
+
+    if workspace_path.exists() {
+        return Ok(workspace_path);
+    }
+
+    Ok(thread_path)
+}
+
+fn migrate_project_storage_dirs(state: &PersistedState) -> Result<bool, String> {
+    let mut changed = false;
+    for project in &state.projects {
+        changed |= migrate_legacy_project_storage(&project.path)?;
+    }
+    Ok(changed)
 }
 
 impl AppRuntime {
@@ -117,8 +193,9 @@ impl AppRuntime {
     ) -> Result<Self, String> {
         let mut state = load_state(&data_dir)?;
         let normalized = normalize_state(&mut state);
+        let migrated_project_storage = migrate_project_storage_dirs(&state)?;
         let migrated_attachments = migrate_attachments_to_project_storage(&mut state)?;
-        if normalized || migrated_attachments {
+        if normalized || migrated_project_storage || migrated_attachments {
             replace_state(&data_dir, &state)?;
         }
         fail_in_progress_diff_analyses(&data_dir)?;
@@ -161,6 +238,7 @@ impl AppRuntime {
             .replace(Arc::new(bridge));
 
         runtime.refresh_environment()?;
+        runtime.backfill_spec_artifacts();
         Ok(runtime)
     }
 
@@ -177,8 +255,13 @@ impl AppRuntime {
         &self,
         input: LoadSpecArtifactInput,
     ) -> Result<SpecArtifactDocument, String> {
-        let (project_path, _, _) = self.project_context(&input.project_id, None)?;
-        let artifact_path = resolve_spec_artifact_path(&project_path, &input.artifact)?;
+        let (project_path, _, _) =
+            self.project_context(&input.project_id, input.thread_id.as_deref())?;
+        let artifact_path = preferred_spec_artifact_path(
+            &project_path,
+            input.thread_id.as_deref(),
+            &input.artifact,
+        )?;
         let updated_at_ms = fs::metadata(&artifact_path)
             .ok()
             .and_then(|entry| entry.modified().ok())
@@ -561,6 +644,30 @@ impl AppRuntime {
         self.with_serialized_mutation(|| {
             self.mutate_state(|state| {
                 state.settings.diff_analysis_model_key = input.model_key.clone();
+                Ok(())
+            })?;
+            self.persist_and_return(self.system_update()?)
+        })
+    }
+
+    pub fn update_workflow_settings(
+        &self,
+        input: UpdateWorkflowSettingsInput,
+    ) -> Result<AppUpdate, String> {
+        self.with_serialized_mutation(|| {
+            self.mutate_state(|state| {
+                if let Some(review_policy) = input.review_policy.clone() {
+                    state.settings.workflow.review_policy = review_policy;
+                }
+                if let Some(response_verbosity) = input.response_verbosity.clone() {
+                    state.settings.workflow.response_verbosity = response_verbosity;
+                }
+                if let Some(enabled) = input.block_task_advance_on_review_findings {
+                    state
+                        .settings
+                        .workflow
+                        .block_task_advance_on_review_findings = enabled;
+                }
                 Ok(())
             })?;
             self.persist_and_return(self.system_update()?)
@@ -1712,23 +1819,67 @@ impl AppRuntime {
                     thread.updated_at_ms = now_ms();
                 }
                 let project_id = state.projects[project_index].id.clone();
+                let project_path = state.projects[project_index].path.clone();
                 let thread = state.projects[project_index].threads[thread_index].clone();
-                Ok(Some(AppUpdate {
-                    events: vec![AppEvent::ThreadUpserted {
-                        project_id,
-                        selected_project_id: state.selected_project_id.clone(),
-                        selected_thread_id: state.selected_thread_id.clone(),
-                        thread,
-                    }],
-                }))
+                Ok(Some((
+                    AppUpdate {
+                        events: vec![AppEvent::ThreadUpserted {
+                            project_id,
+                            selected_project_id: state.selected_project_id.clone(),
+                            selected_thread_id: state.selected_thread_id.clone(),
+                            thread: thread.clone(),
+                        }],
+                    },
+                    project_path,
+                    thread,
+                )))
             })?;
-            let Some(update) = update else {
+            let Some((update, project_path, thread)) = update else {
                 return Ok(());
             };
             self.persist_update(&update)?;
+            if let Err(error) = persist_thread_spec_artifacts(&project_path, &thread, true) {
+                eprintln!(
+                    "Failed to persist spec artifacts for thread `{}` in `{}`: {}",
+                    thread.id, project_path, error
+                );
+            }
             self.emit_update(&update)?;
             Ok(())
         })
+    }
+
+    fn backfill_spec_artifacts(&self) {
+        let state = match self.clone_state() {
+            Ok(state) => state,
+            Err(error) => {
+                eprintln!("Failed to clone state for spec artifact backfill: {error}");
+                return;
+            }
+        };
+
+        for project in state.projects {
+            let latest_thread = project
+                .threads
+                .iter()
+                .max_by_key(|thread| thread.updated_at_ms);
+            for thread in &project.threads {
+                if let Err(error) = persist_thread_spec_artifacts(&project.path, thread, false) {
+                    eprintln!(
+                        "Failed to backfill thread-scoped spec artifacts for `{}` / `{}`: {}",
+                        project.path, thread.id, error
+                    );
+                }
+            }
+            if let Some(thread) = latest_thread {
+                if let Err(error) = persist_thread_spec_artifacts(&project.path, thread, true) {
+                    eprintln!(
+                        "Failed to backfill workspace spec artifacts for `{}` / `{}`: {}",
+                        project.path, thread.id, error
+                    );
+                }
+            }
+        }
     }
 
     fn bridge(&self) -> Result<Arc<PiBridge>, String> {

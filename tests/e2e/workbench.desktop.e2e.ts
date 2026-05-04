@@ -37,25 +37,36 @@ async function isWorkbenchPage(page: import('@playwright/test').Page) {
 test.skip(process.platform !== 'win32', 'Desktop runtime verification is Windows-only.');
 
 async function getDesktopPage() {
-	const browser = await chromium.connectOverCDP(DESKTOP_DEBUG_URL);
-	try {
-		for (let attempt = 0; attempt < 120; attempt += 1) {
-			for (const context of browser.contexts()) {
-				for (const page of context.pages()) {
-					if (await isWorkbenchPage(page)) {
-						return { browser, page };
+	for (let connectAttempt = 0; connectAttempt < 30; connectAttempt += 1) {
+		try {
+			const browser = await chromium.connectOverCDP(DESKTOP_DEBUG_URL);
+			try {
+				for (let attempt = 0; attempt < 120; attempt += 1) {
+					for (const context of browser.contexts()) {
+						for (const page of context.pages()) {
+							if (await isWorkbenchPage(page)) {
+								return { browser, page };
+							}
+						}
 					}
+
+					await new Promise((resolve) => setTimeout(resolve, 500));
 				}
+
+				throw new Error('The Tauri desktop page did not finish loading.');
+			} catch (error) {
+				await browser.close();
+				throw error;
 			}
-
-			await new Promise((resolve) => setTimeout(resolve, 500));
+		} catch (error) {
+			if (connectAttempt === 29) {
+				throw error;
+			}
+			await new Promise((resolve) => setTimeout(resolve, 1_000));
 		}
-
-		throw new Error('The Tauri desktop page did not finish loading.');
-	} catch (error) {
-		await browser.close();
-		throw error;
 	}
+
+	throw new Error('The Tauri desktop page did not finish loading.');
 }
 
 async function addProjectAndThread(page: import('@playwright/test').Page) {
@@ -291,7 +302,7 @@ async function attachReadmeToSelectedThread(
 ) {
 	const inspector = page.locator('.inspector-rail');
 	const settingsButton = page.getByRole('button', { name: 'Settings' });
-	const expectedAttachmentRoot = path.join(repoPath, '.doc', 'attachments');
+	const expectedAttachmentRoot = path.join(repoPath, 'dgcoder', 'attachments');
 	await page.evaluate(
 		async ({ sourcePath }) => {
 			const runtime = window.__PI_DEBUG__;

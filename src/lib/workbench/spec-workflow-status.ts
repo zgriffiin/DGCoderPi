@@ -1,4 +1,4 @@
-import type { ThreadRecord } from '$lib/types/workbench';
+import type { ThreadRecord, WorkflowSettings } from '$lib/types/workbench';
 import type { SpecWorkflowStep } from '$lib/workbench/spec-workflow';
 import { latestAssistantMessageForGate } from '$lib/workbench/spec-workflow-artifacts';
 
@@ -12,6 +12,12 @@ type SpecStatusBadge = {
 type SpecWorkflowStageStatus = {
 	blocking: SpecStatusBadge;
 	coverage: SpecStatusBadge;
+};
+
+type SpecWorkflowAdvanceState = {
+	blocked: boolean;
+	blockingStepLabel: string | null;
+	reason: string | null;
 };
 
 function pendingStageStatus(step: SpecWorkflowStep): SpecWorkflowStageStatus {
@@ -48,6 +54,33 @@ function gateStatus(messageText: string, gateLabel: string) {
 	const scopedText = sectionText(messageText, gateLabel) ?? messageText;
 	const match = /\bStatus:\s*(PASS|FAIL)\b/i.exec(scopedText);
 	return match?.[1]?.toUpperCase() ?? null;
+}
+
+function hasMeaningfulListContent(section: string | null) {
+	if (!section) {
+		return false;
+	}
+
+	const normalized = section
+		.replace(/^\s*[-*]\s*/gm, '')
+		.replace(/\bnone\b/gi, '')
+		.replace(/\bno unresolved blockers\b/gi, '')
+		.replace(/\bno blockers\b/gi, '')
+		.replace(/\bn\/a\b/gi, '')
+		.trim();
+	return normalized.length > 0;
+}
+
+function unresolvedReviewBlockers(messageText: string, gateLabel: string) {
+	if (gateStatus(messageText, gateLabel) !== 'FAIL') {
+		return false;
+	}
+
+	return (
+		hasMeaningfulListContent(sectionText(messageText, 'Blocking findings')) ||
+		hasMeaningfulListContent(sectionText(messageText, 'Must-fix findings')) ||
+		hasMeaningfulListContent(sectionText(messageText, 'Required fixes'))
+	);
 }
 
 function blockingStatus(messageText: string, gateLabel: string) {
@@ -141,4 +174,47 @@ export function specWorkflowStageStatus(
 		blocking: blockingBadge(step, message.text),
 		coverage: coverageBadge(step, message.text)
 	};
+}
+
+export function specWorkflowAdvanceState(
+	thread: ThreadRecord | null,
+	steps: SpecWorkflowStep[],
+	workflowSettings: WorkflowSettings
+): SpecWorkflowAdvanceState {
+	if (!thread || !workflowSettings.blockTaskAdvanceOnReviewFindings) {
+		return { blocked: false, blockingStepLabel: null, reason: null };
+	}
+
+	for (const step of steps) {
+		if (step.label !== 'Implement' && step.label !== 'Review') {
+			continue;
+		}
+		const message = latestAssistantMessageForGate(thread.messages, step.gateLabel);
+		if (!message || !unresolvedReviewBlockers(message.text, step.gateLabel)) {
+			continue;
+		}
+		return {
+			blocked: true,
+			blockingStepLabel: step.label,
+			reason: `${step.label} still has unresolved blocker findings`
+		};
+	}
+
+	return { blocked: false, blockingStepLabel: null, reason: null };
+}
+
+export function canRunSpecWorkflowStep(
+	thread: ThreadRecord | null,
+	steps: SpecWorkflowStep[],
+	workflowSettings: WorkflowSettings,
+	stepLabel: string
+) {
+	const advanceState = specWorkflowAdvanceState(thread, steps, workflowSettings);
+	if (!advanceState.blocked) {
+		return true;
+	}
+
+	const blockingIndex = steps.findIndex((step) => step.label === advanceState.blockingStepLabel);
+	const targetIndex = steps.findIndex((step) => step.label === stepLabel);
+	return blockingIndex < 0 || targetIndex <= blockingIndex;
 }

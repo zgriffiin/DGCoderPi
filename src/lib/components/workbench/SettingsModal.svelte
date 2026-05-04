@@ -8,13 +8,20 @@
 		TextInput,
 		Toggle
 	} from 'carbon-components-svelte';
-	import type { CodexStatus, ModelOption, ProviderStatus } from '$lib/types/workbench';
+	import type {
+		CodexStatus,
+		ModelOption,
+		ProviderStatus,
+		ResponseVerbosity,
+		ReviewPolicy
+	} from '$lib/types/workbench';
 	import { readEventValue } from '$lib/workbench/read-event-value';
 	import ThemeToggle from './ThemeToggle.svelte';
 
-	type SettingsSection = 'accounts' | 'appearance' | 'extensions' | 'providers';
+	type SettingsSection = 'accounts' | 'appearance' | 'extensions' | 'providers' | 'workflow';
 
 	type Props = {
+		blockTaskAdvanceOnReviewFindings: boolean;
 		codex: CodexStatus;
 		diffAnalysisModelKey: string | null;
 		diagnosticLoggingEnabled: boolean;
@@ -25,13 +32,18 @@
 		onImportCodexOpenAiKey: () => void;
 		onProviderDraftChange: (provider: string, value: string) => void;
 		onRefreshStatus: () => void;
+		onResponseVerbosityChange: (value: ResponseVerbosity) => void;
+		onReviewPolicyChange: (value: ReviewPolicy) => void;
 		onSaveProvider: (provider: string) => void;
 		onStartCodexLogin: () => void;
+		onToggleBlockTaskAdvanceOnReviewFindings: (enabled: boolean) => void;
 		onToggleDiagnosticLogging: (enabled: boolean) => void;
 		onToggleDocparser: (enabled: boolean) => void;
 		open: boolean;
 		providerDrafts: Record<string, string>;
 		providers: ProviderStatus[];
+		responseVerbosity: ResponseVerbosity;
+		reviewPolicy: ReviewPolicy;
 	};
 
 	let section = $state<SettingsSection>('accounts');
@@ -44,12 +56,17 @@
 		onToggleDiagnosticLogging(event.detail.toggled);
 	}
 
+	function handleBlockTaskAdvanceToggle(event: CustomEvent<{ toggled: boolean }>) {
+		onToggleBlockTaskAdvanceOnReviewFindings(event.detail.toggled);
+	}
+
 	function providerSummary(providers: ProviderStatus[]) {
 		const configured = providers.filter((provider) => provider.configured).length;
 		return configured === 0 ? 'No providers configured' : `${configured} providers configured`;
 	}
 
 	let {
+		blockTaskAdvanceOnReviewFindings,
 		codex,
 		diffAnalysisModelKey,
 		diagnosticLoggingEnabled,
@@ -60,13 +77,18 @@
 		onImportCodexOpenAiKey,
 		onProviderDraftChange,
 		onRefreshStatus,
+		onResponseVerbosityChange,
+		onReviewPolicyChange,
 		onSaveProvider,
 		onStartCodexLogin,
+		onToggleBlockTaskAdvanceOnReviewFindings,
 		onToggleDiagnosticLogging,
 		onToggleDocparser,
 		open,
 		providerDrafts,
-		providers
+		providers,
+		responseVerbosity,
+		reviewPolicy
 	}: Props = $props();
 
 	const diffReviewModels = $derived(
@@ -105,6 +127,15 @@
 				onclick={() => (section = 'providers')}
 			>
 				Providers
+			</button>
+			<button
+				aria-pressed={section === 'workflow'}
+				class="settings-nav__item"
+				data-selected={section === 'workflow' ? 'true' : undefined}
+				type="button"
+				onclick={() => (section = 'workflow')}
+			>
+				Workflow
 			</button>
 			<button
 				aria-pressed={section === 'appearance'}
@@ -263,6 +294,97 @@
 								{/if}
 							</section>
 						{/each}
+					</div>
+				</section>
+			{:else if section === 'workflow'}
+				<section class="settings-section">
+					<header class="settings-section__header">
+						<div>
+							<h3>Workflow</h3>
+							<p>Agent review policy, response density, and task-advance rules.</p>
+						</div>
+					</header>
+
+					<div class="provider-list">
+						<section class="provider-row">
+							<div class="provider-row__header">
+								<div>
+									<h4>Review policy</h4>
+									<p>Choose whether external review tooling is optional, disabled, or required.</p>
+								</div>
+								<Tag type={reviewPolicy === 'required' ? 'red' : 'blue'}>
+									{reviewPolicy}
+								</Tag>
+							</div>
+							<div class="provider-row__controls">
+								<Select
+									id="review-policy"
+									labelText="Review policy"
+									size="sm"
+									value={reviewPolicy}
+									on:change={(event) => onReviewPolicyChange(readEventValue(event) as ReviewPolicy)}
+								>
+									<SelectItem text="Fallback review tooling" value="fallback" />
+									<SelectItem text="No external review tooling" value="off" />
+									<SelectItem text="Require configured review tooling" value="required" />
+								</Select>
+								<p>
+									<code>fallback</code> uses the strongest available review path.
+									<code>required</code>
+									blocks when the configured tool is unavailable. <code>off</code> disables external review-tool
+									requirements.
+								</p>
+							</div>
+						</section>
+
+						<section class="provider-row">
+							<div class="provider-row__header">
+								<div>
+									<h4>Caveman verbosity</h4>
+									<p>
+										Caveman response density for routine progress, failures, and review results.
+									</p>
+								</div>
+								<Tag type="cool-gray">{responseVerbosity}</Tag>
+							</div>
+							<div class="provider-row__controls">
+								<Select
+									id="response-verbosity"
+									labelText="Caveman verbosity"
+									size="sm"
+									value={responseVerbosity}
+									on:change={(event) =>
+										onResponseVerbosityChange(readEventValue(event) as ResponseVerbosity)}
+								>
+									<SelectItem text="Lite" value="lite" />
+									<SelectItem text="Full" value="full" />
+									<SelectItem text="Ultra" value="ultra" />
+								</Select>
+								<p>
+									Default is <code>full</code>. <code>lite</code> is terse. <code>ultra</code> allows
+									more detail when you want deeper reasoning in the visible output.
+								</p>
+							</div>
+						</section>
+
+						<section class="extension-row">
+							<div>
+								<h4>Block task advance on review findings</h4>
+								<p>
+									Disable later spec-stage runs while the current Implement or Review output still
+									has unresolved blocker findings.
+								</p>
+							</div>
+							<Toggle
+								id="block-task-advance-toggle"
+								labelA="Off"
+								labelB="On"
+								labelText="Block task advance on review findings"
+								size="sm"
+								toggled={blockTaskAdvanceOnReviewFindings}
+								on:toggle={handleBlockTaskAdvanceToggle}
+							/>
+						</section>
 					</div>
 				</section>
 			{:else if section === 'appearance'}

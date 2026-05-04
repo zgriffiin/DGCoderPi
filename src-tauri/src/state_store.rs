@@ -11,7 +11,7 @@ use uuid::Uuid;
 use crate::model::{
     AppEvent, AppHealth, AppIntegrations, AppSettings, AppSnapshot, AppUpdate, AttachmentKind,
     AttachmentRecord, AttachmentStage, CodexStatus, FeatureSettings, ModelOption, PersistedState,
-    ProjectRecord, ProviderStatus, ThreadRecord, ThreadStatus,
+    ProjectRecord, ProviderStatus, ThreadRecord, ThreadStatus, WorkflowSettings,
 };
 
 const LEGACY_STATE_FILE_NAME: &str = "app-state.json";
@@ -30,13 +30,15 @@ pub fn load_state(data_dir: &Path) -> Result<PersistedState, String> {
     if file_path.exists() {
         let content = fs::read_to_string(&file_path).map_err(|error| error.to_string())?;
         let needs_intent_migration = state_requires_intent_migration(&content);
+        let needs_workflow_settings_migration =
+            state_requires_workflow_settings_migration(&content);
         let mut state =
             serde_json::from_str::<PersistedState>(&content).map_err(|error| error.to_string())?;
         let missing_providers = state.settings.providers.is_empty();
         if missing_providers {
             state.settings.providers = default_providers();
         }
-        if missing_providers || needs_intent_migration {
+        if missing_providers || needs_intent_migration || needs_workflow_settings_migration {
             replace_state(data_dir, &state)?;
         }
         purge_thread_upserted_events(&connection)?;
@@ -346,6 +348,7 @@ fn default_state() -> PersistedState {
             diff_analysis_model_key: None,
             features: FeatureSettings::default(),
             providers: default_providers(),
+            workflow: WorkflowSettings::default(),
         },
         ..PersistedState::default()
     }
@@ -403,13 +406,14 @@ fn load_current_state(connection: &Connection) -> Result<Option<PersistedState>,
     drop(rows);
     drop(statement);
     let needs_intent_migration = state_requires_intent_migration(&payload);
+    let needs_workflow_settings_migration = state_requires_workflow_settings_migration(&payload);
     let mut state =
         serde_json::from_str::<PersistedState>(&payload).map_err(|error| error.to_string())?;
     let missing_providers = state.settings.providers.is_empty();
     if missing_providers {
         state.settings.providers = default_providers();
     }
-    if missing_providers || needs_intent_migration {
+    if missing_providers || needs_intent_migration || needs_workflow_settings_migration {
         write_current_state(connection, &state)?;
     }
     Ok(Some(state))
@@ -438,6 +442,17 @@ fn state_requires_intent_migration(payload: &str) -> bool {
                         .is_some_and(|object| !object.contains_key("intent"))
                 })
         })
+}
+
+fn state_requires_workflow_settings_migration(payload: &str) -> bool {
+    let Ok(value) = serde_json::from_str::<serde_json::Value>(payload) else {
+        return false;
+    };
+
+    value
+        .get("settings")
+        .and_then(serde_json::Value::as_object)
+        .is_some_and(|settings| !settings.contains_key("workflow"))
 }
 
 fn write_current_state(connection: &Connection, state: &PersistedState) -> Result<(), String> {
@@ -510,7 +525,7 @@ fn event_type(event: &AppEvent) -> &'static str {
 
 #[cfg(test)]
 mod tests {
-    use super::state_requires_intent_migration;
+    use super::{state_requires_intent_migration, state_requires_workflow_settings_migration};
 
     #[test]
     fn detects_threads_missing_intent() {
@@ -529,5 +544,19 @@ mod tests {
     #[test]
     fn ignores_invalid_json_for_migration_detection() {
         assert!(!state_requires_intent_migration("{"));
+    }
+
+    #[test]
+    fn detects_settings_missing_workflow_preferences() {
+        let payload = r#"{"settings":{"providers":[]}}"#;
+
+        assert!(state_requires_workflow_settings_migration(payload));
+    }
+
+    #[test]
+    fn skips_settings_when_workflow_preferences_exist() {
+        let payload = r#"{"settings":{"workflow":{"reviewPolicy":"fallback"}}}"#;
+
+        assert!(!state_requires_workflow_settings_migration(payload));
     }
 }

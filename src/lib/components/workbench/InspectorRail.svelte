@@ -7,7 +7,8 @@
 		InspectorMode,
 		ProjectRecord,
 		SpecArtifactDocument,
-		ThreadRecord
+		ThreadRecord,
+		WorkflowSettings
 	} from '$lib/types/workbench';
 	import type { WorkbenchController } from '$lib/workbench/controller';
 	import type { SpecWorkflowStep } from '$lib/workbench/spec-workflow';
@@ -16,6 +17,7 @@
 		DEFAULT_INSPECTOR_DETAIL_HEIGHT_PERCENT,
 		MAX_INSPECTOR_DETAIL_HEIGHT_PERCENT,
 		MIN_INSPECTOR_DETAIL_HEIGHT_PERCENT,
+		bindWindowPointerDrag,
 		clampInspectorDetailHeightPercent,
 		loadInspectorDetailHeightPercent,
 		saveInspectorDetailHeightPercent
@@ -31,6 +33,7 @@
 		onSpecPromptSelect: (step: SpecWorkflowStep) => void;
 		project: ProjectRecord | null;
 		thread: ThreadRecord | null;
+		workflowSettings: WorkflowSettings;
 	};
 
 	function modeTitle(mode: InspectorMode) {
@@ -78,7 +81,8 @@
 		} as const;
 	}
 
-	let { controller, mode, onClose, onSpecPromptSelect, project, thread }: Props = $props();
+	let { controller, mode, onClose, onSpecPromptSelect, project, thread, workflowSettings }: Props =
+		$props();
 	let artifactDocument = $state<SpecArtifactDocument | null>(null);
 	let artifactError = $state<string | null>(null);
 	let artifactLoading = $state(false);
@@ -128,14 +132,8 @@
 		setDetailHeight(detailHeightPercent - delta);
 	}
 
-	function releaseDragCapture(drag: { captureTarget: HTMLElement; pointerId: number }) {
-		if (drag.captureTarget.hasPointerCapture(drag.pointerId)) {
-			drag.captureTarget.releasePointerCapture(drag.pointerId);
-		}
-	}
-
 	async function handleViewArtifact(step: SpecWorkflowStep) {
-		if (!project) {
+		if (!project || !thread) {
 			return;
 		}
 
@@ -148,7 +146,7 @@
 		artifactRequestKey = requestKey;
 
 		try {
-			const document = await controller.loadSpecArtifact(project.id, step.artifact);
+			const document = await controller.loadSpecArtifact(project.id, thread.id, step.artifact);
 			if (artifactRequestKey !== requestKey) {
 				return;
 			}
@@ -205,18 +203,9 @@
 			const deltaPercent = ((event.clientY - drag.startY) / detailHeight) * 100;
 			setDetailHeight(drag.startDetailHeightPercent - deltaPercent);
 		};
-		const handlePointerUp = () => {
-			releaseDragCapture(drag);
+		return bindWindowPointerDrag(drag, handlePointerMove, () => {
 			activeDetailDrag = null;
-		};
-
-		window.addEventListener('pointermove', handlePointerMove);
-		window.addEventListener('pointerup', handlePointerUp);
-		return () => {
-			releaseDragCapture(drag);
-			window.removeEventListener('pointermove', handlePointerMove);
-			window.removeEventListener('pointerup', handlePointerUp);
-		};
+		});
 	});
 </script>
 
@@ -291,6 +280,7 @@
 					onViewArtifact={handleViewArtifact}
 					{project}
 					{thread}
+					{workflowSettings}
 				/>
 			</div>
 

@@ -18,6 +18,7 @@
 	import WorkbenchMainGrid from './WorkbenchMainGrid.svelte';
 	import WorkbenchTopbar from './WorkbenchTopbar.svelte';
 	import {
+		bindWindowPointerDrag,
 		DEFAULT_COMPOSER_HEIGHT_PERCENT,
 		DEFAULT_PANEL_WIDTHS,
 		MIN_INSPECTOR_WIDTH,
@@ -83,7 +84,7 @@
 		handleRenameProject: (projectId: string, name: string) => void;
 		handleRenameThread: (threadId: string, title: string) => void;
 		handleSaveProvider: (provider: string) => void;
-		handleSend: (mode: PromptMode) => void;
+		handleSend: (mode: PromptMode, text?: string) => void;
 		handleShipReviewContinue: () => void;
 		handleShipReviewDismiss: () => void;
 		handleShipSlice: () => void;
@@ -93,8 +94,11 @@
 		handleStop: () => void;
 		handleStopThread: (threadId: string) => void;
 		handleThreadSelect: (projectId: string, threadId: string) => void;
+		handleToggleBlockTaskAdvanceOnReviewFindings: (enabled: boolean) => void;
 		handleToggleDiagnosticLogging: (enabled: boolean) => void;
 		handleToggleDocparser: (enabled: boolean) => void;
+		handleWorkflowReviewPolicyChange: (policy: 'fallback' | 'off' | 'required') => void;
+		handleWorkflowVerbosityChange: (verbosity: 'full' | 'lite' | 'ultra') => void;
 		setAddProjectOpen: (open: boolean) => void;
 		setInspectorMode: (mode: InspectorMode | null) => void;
 		setManualProjectPathOpen: (open: boolean) => void;
@@ -212,12 +216,6 @@
 		setComposerHeight(composerHeightPercent + delta);
 	}
 
-	function releaseDragCapture(drag: { captureTarget: HTMLElement; pointerId: number }) {
-		if (drag.captureTarget.hasPointerCapture(drag.pointerId)) {
-			drag.captureTarget.releasePointerCapture(drag.pointerId);
-		}
-	}
-
 	$effect(() => {
 		const leftWidth = clampWidth(panelWidths.left, minProjectRailWidth, maxLeftWidth());
 		const rightWidth = clampWidth(panelWidths.right, MIN_INSPECTOR_WIDTH, maxRightWidth());
@@ -255,18 +253,9 @@
 				drag.pane === 'left' ? drag.startWidth + delta : drag.startWidth - delta
 			);
 		};
-		const handlePointerUp = () => {
-			releaseDragCapture(drag);
+		return bindWindowPointerDrag(drag, handlePointerMove, () => {
 			activeDrag = null;
-		};
-
-		window.addEventListener('pointermove', handlePointerMove);
-		window.addEventListener('pointerup', handlePointerUp);
-		return () => {
-			releaseDragCapture(drag);
-			window.removeEventListener('pointermove', handlePointerMove);
-			window.removeEventListener('pointerup', handlePointerUp);
-		};
+		});
 	});
 
 	$effect(() => {
@@ -283,18 +272,9 @@
 			const deltaPercent = ((event.clientY - drag.startY) / centerHeight) * 100;
 			setComposerHeight(drag.startComposerHeightPercent - deltaPercent);
 		};
-		const handlePointerUp = () => {
-			releaseDragCapture(drag);
+		return bindWindowPointerDrag(drag, handlePointerMove, () => {
 			activeComposerDrag = null;
-		};
-
-		window.addEventListener('pointermove', handlePointerMove);
-		window.addEventListener('pointerup', handlePointerUp);
-		return () => {
-			releaseDragCapture(drag);
-			window.removeEventListener('pointermove', handlePointerMove);
-			window.removeEventListener('pointerup', handlePointerUp);
-		};
+		});
 	});
 </script>
 
@@ -363,11 +343,14 @@
 	shipReviewStatus={shellState.shipReview.status}
 	snapshot={shellState.workbenchState.snapshot}
 	{workbenchGridStyle}
+	workflowSettings={shellState.workbenchState.snapshot.settings.workflow}
 />
 
 <WorkbenchDialogs
 	addProjectDraft={shellState.addProjectDraft}
 	addProjectOpen={shellState.addProjectOpen}
+	blockTaskAdvanceOnReviewFindings={shellState.workbenchState.snapshot.settings.workflow
+		.blockTaskAdvanceOnReviewFindings}
 	codex={shellState.workbenchState.snapshot.integrations.codex}
 	diffAnalysisModelKey={shellState.workbenchState.snapshot.settings.diffAnalysisModelKey}
 	diagnosticLoggingEnabled={shellState.workbenchState.snapshot.settings.features
@@ -384,13 +367,18 @@
 	onImportCodexOpenAiKey={actions.handleImportCodexOpenAiKey}
 	onProviderDraftChange={actions.handleProviderDraftChange}
 	onRefreshStatus={actions.handleRefreshStatus}
+	onResponseVerbosityChange={actions.handleWorkflowVerbosityChange}
+	onReviewPolicyChange={actions.handleWorkflowReviewPolicyChange}
 	onSaveProvider={actions.handleSaveProvider}
 	onStartCodexLogin={actions.handleStartCodexLogin}
+	onToggleBlockTaskAdvanceOnReviewFindings={actions.handleToggleBlockTaskAdvanceOnReviewFindings}
 	onToggleDiagnosticLogging={actions.handleToggleDiagnosticLogging}
 	onToggleDocparser={actions.handleToggleDocparser}
 	onToggleManualPath={() => actions.setManualProjectPathOpen(!shellState.manualProjectPathOpen)}
 	providerDrafts={shellState.providerDrafts}
 	providers={shellState.workbenchState.snapshot.settings.providers}
+	responseVerbosity={shellState.workbenchState.snapshot.settings.workflow.responseVerbosity}
+	reviewPolicy={shellState.workbenchState.snapshot.settings.workflow.reviewPolicy}
 	runtimeAvailable={shellState.workbenchState.runtimeAvailable}
 	settingsOpen={shellState.settingsOpen}
 />

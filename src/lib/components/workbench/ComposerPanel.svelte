@@ -24,7 +24,7 @@
 		onModelChange: (modelKey: string) => void;
 		onReasoningChange: (reasoningLevel: ThinkingLevel) => void;
 		onRemoveAttachment: (attachmentId: string) => void;
-		onSend: (mode: PromptMode) => void;
+		onSend: (mode: PromptMode, text?: string) => void;
 		onShipReviewContinue: () => void;
 		onShipReviewDismiss: () => void;
 		onShipSlice: () => void;
@@ -37,6 +37,7 @@
 		shipReviewIssueCount: number;
 		shipReviewMaxRiskLevel: string | null;
 		shipReviewStatus: ShipReviewStatus;
+		threadId: string | null;
 		threadStatus: ThreadRecord['status'];
 	};
 
@@ -81,7 +82,7 @@
 
 		event.preventDefault();
 		if (threadStatus === 'running') {
-			onSend('follow-up');
+			queueSteerDraft();
 			return;
 		}
 
@@ -197,6 +198,7 @@
 		shipReviewIssueCount,
 		shipReviewMaxRiskLevel,
 		shipReviewStatus,
+		threadId,
 		threadStatus
 	}: Props = $props();
 
@@ -222,7 +224,49 @@
 	const running = $derived(threadStatus === 'running');
 	const reviewingForShip = $derived(shipReviewStatus === 'reviewing');
 	const startLabel = $derived(running ? 'Queue' : 'Start');
+	let queuedSteerDrafts = $state<Record<string, string>>({});
+	const queuedSteerDraft = $derived(threadId ? (queuedSteerDrafts[threadId] ?? '') : '');
 	let lastRequestedReasoningLevel = $state<ThinkingLevel | null>(null);
+
+	function queueSteerDraft() {
+		if (!threadId || !draft.trim()) {
+			return;
+		}
+
+		queuedSteerDrafts = {
+			...queuedSteerDrafts,
+			[threadId]: draft.trim()
+		};
+		onDraftChange('');
+	}
+
+	function clearQueuedSteerDraft() {
+		if (!threadId || !(threadId in queuedSteerDrafts)) {
+			return;
+		}
+
+		const nextDrafts = { ...queuedSteerDrafts };
+		delete nextDrafts[threadId];
+		queuedSteerDrafts = nextDrafts;
+	}
+
+	function editQueuedSteerDraft() {
+		if (!queuedSteerDraft) {
+			return;
+		}
+
+		onDraftChange(queuedSteerDraft);
+		clearQueuedSteerDraft();
+	}
+
+	function sendQueuedSteerDraft() {
+		if (!queuedSteerDraft) {
+			return;
+		}
+
+		onSend('steer', queuedSteerDraft);
+		clearQueuedSteerDraft();
+	}
 
 	$effect(() => {
 		if (selectedReasoningLevel === effectiveReasoningLevel) {
@@ -238,6 +282,19 @@
 </script>
 
 <section class="composer-panel">
+	{#if queuedSteerDraft}
+		<div class="composer-panel__queued-steer" aria-live="polite">
+			<div class="composer-panel__queued-steer-copy">
+				<p>Queued steer</p>
+				<span title={queuedSteerDraft}>{queuedSteerDraft}</span>
+			</div>
+			<div class="composer-panel__queued-steer-actions">
+				<Button kind="ghost" size="small" on:click={editQueuedSteerDraft}>Edit</Button>
+				<Button kind="ghost" size="small" on:click={clearQueuedSteerDraft}>Delete</Button>
+				<Button kind="primary" size="small" on:click={sendQueuedSteerDraft}>Steer</Button>
+			</div>
+		</div>
+	{/if}
 	<div
 		class="composer-panel__editor"
 		role="presentation"
@@ -256,7 +313,6 @@
 			on:paste={handlePaste}
 		/>
 	</div>
-	<p class="composer-panel__support-note">Longer prompts supported.</p>
 
 	{#if attachments.length > 0}
 		<div class="attachment-strip">
@@ -323,7 +379,7 @@
 				icon={ArrowRight}
 				kind="primary"
 				size="small"
-				on:click={() => onSend(running ? 'follow-up' : 'prompt')}
+				on:click={() => (running ? queueSteerDraft() : onSend('prompt'))}
 			>
 				{startLabel}
 			</Button>

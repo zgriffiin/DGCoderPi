@@ -1,16 +1,20 @@
 <script lang="ts">
 	import { Button, Tag } from 'carbon-components-svelte';
 	import ArrowRight from 'carbon-icons-svelte/lib/ArrowRight.svelte';
-	import type { ProjectRecord, ThreadRecord } from '$lib/types/workbench';
+	import type { ProjectRecord, ThreadRecord, WorkflowSettings } from '$lib/types/workbench';
 	import type { SpecWorkflowStep } from '$lib/workbench/spec-workflow';
 	import { SPEC_WORKFLOW_STEPS } from '$lib/workbench/spec-workflow';
-	import { specWorkflowStageStatus } from '$lib/workbench/spec-workflow-status';
+	import {
+		specWorkflowAdvanceState,
+		specWorkflowStageStatus
+	} from '$lib/workbench/spec-workflow-status';
 
 	type Props = {
 		onUsePrompt: (step: SpecWorkflowStep) => void;
 		onViewArtifact: (step: SpecWorkflowStep) => void;
 		project: ProjectRecord | null;
 		thread: ThreadRecord | null;
+		workflowSettings: WorkflowSettings;
 	};
 
 	function activeStepIndex(thread: ThreadRecord | null) {
@@ -22,10 +26,13 @@
 		return index >= 0 ? index : 0;
 	}
 
-	let { onUsePrompt, onViewArtifact, project, thread }: Props = $props();
+	let { onUsePrompt, onViewArtifact, project, thread, workflowSettings }: Props = $props();
 	let selectedStepLabel = $state<string | null>(null);
 	let lastThreadId = $state<string | null>(null);
 	let lastThreadIntent = $state<string | null>(null);
+	const advanceState = $derived(
+		specWorkflowAdvanceState(thread, SPEC_WORKFLOW_STEPS, workflowSettings)
+	);
 	const currentStepIndex = $derived.by(() => {
 		if (selectedStepLabel) {
 			const selectedIndex = SPEC_WORKFLOW_STEPS.findIndex(
@@ -41,6 +48,17 @@
 	function useStep(step: SpecWorkflowStep) {
 		selectedStepLabel = step.label;
 		onUsePrompt(step);
+	}
+
+	function canRunStep(index: number) {
+		if (!advanceState.blocked) {
+			return true;
+		}
+
+		const blockingIndex = SPEC_WORKFLOW_STEPS.findIndex(
+			(step) => step.label === advanceState.blockingStepLabel
+		);
+		return blockingIndex < 0 || index <= blockingIndex;
 	}
 
 	$effect(() => {
@@ -95,17 +113,18 @@
 						</Tag>
 						<Button
 							aria-label={`Run ${step.label}`}
-							disabled={!thread}
+							disabled={!thread || !canRunStep(index)}
 							icon={ArrowRight}
 							kind={index === currentStepIndex ? 'primary' : 'ghost'}
 							size="small"
+							title={!canRunStep(index) && advanceState.reason ? advanceState.reason : undefined}
 							onclick={() => useStep(step)}
 						>
 							Run
 						</Button>
 						<Button
 							aria-label={`View ${step.label} artifact ${step.artifact}`}
-							disabled={!project || !step.artifact.endsWith('.md')}
+							disabled={!project || !thread || !step.artifact.endsWith('.md')}
 							kind="ghost"
 							size="small"
 							onclick={() => onViewArtifact(step)}
@@ -118,6 +137,9 @@
 						<Tag size="sm" type={stageStatus.coverage.tone}>{stageStatus.coverage.label}</Tag>
 						<Tag size="sm" type={stageStatus.blocking.tone}>{stageStatus.blocking.label}</Tag>
 					</div>
+					{#if advanceState.blocked && !canRunStep(index) && advanceState.reason}
+						<p>{advanceState.reason}.</p>
+					{/if}
 				</div>
 			</li>
 		{/each}

@@ -94,9 +94,14 @@ pub struct CodexStatus {
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AppSettings {
+    #[serde(default)]
     pub diff_analysis_model_key: Option<String>,
+    #[serde(default)]
     pub features: FeatureSettings,
+    #[serde(default)]
     pub providers: Vec<ProviderStatus>,
+    #[serde(default)]
+    pub workflow: WorkflowSettings,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -104,6 +109,7 @@ pub struct AppSettings {
 pub struct FeatureSettings {
     #[serde(default = "default_diagnostic_logging_enabled")]
     pub diagnostic_logging_enabled: bool,
+    #[serde(default = "default_docparser_enabled")]
     pub docparser_enabled: bool,
 }
 
@@ -118,6 +124,43 @@ impl Default for FeatureSettings {
 
 fn default_diagnostic_logging_enabled() -> bool {
     true
+}
+
+fn default_docparser_enabled() -> bool {
+    true
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkflowSettings {
+    #[serde(default = "default_block_task_advance_on_review_findings")]
+    pub block_task_advance_on_review_findings: bool,
+    #[serde(default)]
+    pub response_verbosity: ResponseVerbosity,
+    #[serde(default)]
+    pub review_policy: ReviewPolicy,
+}
+
+fn default_block_task_advance_on_review_findings() -> bool {
+    true
+}
+
+#[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum ReviewPolicy {
+    Off,
+    #[default]
+    Fallback,
+    Required,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum ResponseVerbosity {
+    Lite,
+    #[default]
+    Full,
+    Ultra,
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
@@ -157,6 +200,7 @@ pub struct ProjectRecord {
 pub struct LoadSpecArtifactInput {
     pub artifact: String,
     pub project_id: String,
+    pub thread_id: Option<String>,
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
@@ -464,6 +508,14 @@ pub struct ToggleFeatureInput {
 #[serde(rename_all = "camelCase")]
 pub struct SetDiffAnalysisModelInput {
     pub model_key: Option<String>,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateWorkflowSettingsInput {
+    pub block_task_advance_on_review_findings: Option<bool>,
+    pub response_verbosity: Option<ResponseVerbosity>,
+    pub review_policy: Option<ReviewPolicy>,
 }
 
 #[derive(Clone, Debug, Deserialize)]

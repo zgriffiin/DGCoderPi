@@ -161,6 +161,7 @@
 	let nowMs = $state(Date.now());
 	let statusTimer: ReturnType<typeof setInterval> | null = null;
 	let activityListElement: HTMLDivElement | null = null;
+	let lastThreadId = $state<string | null>(null);
 	let stickToBottom = $state(true);
 	let visibleMessageCount = $state(MESSAGE_PAGE_SIZE);
 
@@ -243,6 +244,11 @@
 
 	$effect(() => {
 		const currentThreadId = thread?.id ?? null;
+		if (currentThreadId === lastThreadId) {
+			return;
+		}
+
+		lastThreadId = currentThreadId;
 		if (currentThreadId === null) {
 			visibleMessageCount = MESSAGE_PAGE_SIZE;
 			stickToBottom = true;

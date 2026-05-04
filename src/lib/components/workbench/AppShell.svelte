@@ -1,9 +1,15 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import type { InspectorMode, ThinkingLevel } from '$lib/types/workbench';
+	import type {
+		InspectorMode,
+		ResponseVerbosity,
+		ReviewPolicy,
+		ThinkingLevel
+	} from '$lib/types/workbench';
 	import { buildShipSlicePrompt } from '$lib/workbench/preset-prompts';
 	import { createWorkbenchController } from '$lib/workbench/controller';
-	import { buildSpecWorkflowRunRequest } from '$lib/workbench/spec-workflow';
+	import { buildSpecWorkflowRunRequest, SPEC_WORKFLOW_STEPS } from '$lib/workbench/spec-workflow';
+	import { canRunSpecWorkflowStep } from '$lib/workbench/spec-workflow-status';
 	import {
 		createIdleShipReview,
 		createReviewingShipReview,
@@ -142,7 +148,7 @@
 		}
 
 		const mode = status === 'running' ? 'follow-up' : 'prompt';
-		await controller.sendPrompt(threadId, buildShipSlicePrompt(), mode);
+		await controller.sendPrompt(threadId, buildShipSlicePrompt(snapshot.settings.workflow), mode);
 		setScopedShipReview(projectId, threadId, createIdleShipReview());
 	}
 
@@ -280,14 +286,17 @@
 		});
 	}
 
-	async function handleSend(mode: 'follow-up' | 'prompt' | 'steer') {
-		if (!activeThread || !draft.trim()) {
+	async function handleSend(mode: 'follow-up' | 'prompt' | 'steer', text?: string) {
+		const promptText = (text ?? draft).trim();
+		if (!activeThread || !promptText) {
 			return;
 		}
 
 		await runAction(async () => {
-			await controller.sendPrompt(activeThread.id, draft.trim(), mode);
-			draft = '';
+			await controller.sendPrompt(activeThread.id, promptText, mode);
+			if (text === undefined || promptText === draft.trim()) {
+				draft = '';
+			}
 		});
 	}
 
@@ -348,6 +357,16 @@
 		if (!activeThread) {
 			return;
 		}
+		if (
+			!canRunSpecWorkflowStep(
+				activeThread,
+				SPEC_WORKFLOW_STEPS,
+				snapshot.settings.workflow,
+				step.label
+			)
+		) {
+			return;
+		}
 
 		const threadId = activeThread.id;
 		const threadIntent = activeThread.intent;
@@ -360,6 +379,7 @@
 			}
 			const runRequest = buildSpecWorkflowRunRequest(step, {
 				hasPriorUserMessages,
+				workflowSettings: snapshot.settings.workflow,
 				workspaceRoot: activeProject?.path ?? null
 			});
 			await controller.sendPrompt(threadId, runRequest.text, 'prompt', {
@@ -406,6 +426,23 @@
 			await controller.setDiffAnalysisModel(modelKey);
 		});
 	}
+
+	async function updateWorkflowSettings(settings: {
+		blockTaskAdvanceOnReviewFindings?: boolean;
+		responseVerbosity?: ResponseVerbosity;
+		reviewPolicy?: ReviewPolicy;
+	}) {
+		await runAction(async () => {
+			await controller.updateWorkflowSettings(settings);
+		});
+	}
+
+	const handleWorkflowReviewPolicyChange = (reviewPolicy: ReviewPolicy) =>
+		updateWorkflowSettings({ reviewPolicy });
+	const handleWorkflowVerbosityChange = (responseVerbosity: ResponseVerbosity) =>
+		updateWorkflowSettings({ responseVerbosity });
+	const handleToggleBlockTaskAdvanceOnReviewFindings = (enabled: boolean) =>
+		updateWorkflowSettings({ blockTaskAdvanceOnReviewFindings: enabled });
 
 	async function handleImportCodexOpenAiKey() {
 		await runAction(async () => {
@@ -510,8 +547,11 @@
 					await controller.abortThread(threadId);
 				}),
 			handleThreadSelect,
+			handleToggleBlockTaskAdvanceOnReviewFindings,
 			handleToggleDiagnosticLogging,
 			handleToggleDocparser,
+			handleWorkflowReviewPolicyChange,
+			handleWorkflowVerbosityChange,
 			setAddProjectOpen,
 			setInspectorMode,
 			setManualProjectPathOpen,

@@ -9,7 +9,7 @@ use crate::{
         RemoveProjectInput, RemoveThreadInput, RenameProjectInput, RenameThreadInput,
         SelectIntentInput, SelectModelInput, SelectReasoningInput, SendPromptInput,
         SetDiffAnalysisModelInput, SpecArtifactDocument, StageAttachmentDataInput,
-        StageAttachmentInput, ToggleFeatureInput,
+        StageAttachmentInput, ToggleFeatureInput, UpdateWorkflowSettingsInput,
     },
 };
 
@@ -217,4 +217,12 @@ pub fn set_diff_analysis_model(
     runtime: State<'_, AppRuntime>,
 ) -> UpdateCommandResult {
     runtime.set_diff_analysis_model(input)
+}
+
+#[tauri::command]
+pub fn update_workflow_settings(
+    input: UpdateWorkflowSettingsInput,
+    runtime: State<'_, AppRuntime>,
+) -> UpdateCommandResult {
+    runtime.update_workflow_settings(input)
 }
