@@ -94,6 +94,7 @@
 		startY: number;
 	} | null>(null);
 	let artifactRequestKey = 0;
+	let lastArtifactScopeKey = '';
 	const artifactFallbackText = $derived(
 		selectedStep ? latestSpecArtifactFallbackText(thread, selectedStep) : null
 	);
@@ -145,22 +146,23 @@
 		artifactLoading = true;
 		artifactError = null;
 		const requestKey = artifactRequestKey + 1;
+		const scopeKey = lastArtifactScopeKey;
 		artifactRequestKey = requestKey;
 
 		try {
 			const document = await controller.loadSpecArtifact(project.id, step.artifact);
-			if (artifactRequestKey !== requestKey) {
+			if (artifactRequestKey !== requestKey || scopeKey !== lastArtifactScopeKey) {
 				return;
 			}
 			artifactDocument = document;
 		} catch (error) {
-			if (artifactRequestKey !== requestKey) {
+			if (artifactRequestKey !== requestKey || scopeKey !== lastArtifactScopeKey) {
 				return;
 			}
 			artifactDocument = null;
 			artifactError = error instanceof Error ? error.message : String(error);
 		} finally {
-			if (artifactRequestKey === requestKey) {
+			if (artifactRequestKey === requestKey && scopeKey === lastArtifactScopeKey) {
 				artifactLoading = false;
 			}
 		}
@@ -169,8 +171,12 @@
 	$effect(() => {
 		const projectId = project?.id ?? null;
 		const threadId = thread?.id ?? null;
-		void projectId;
-		void threadId;
+		const scopeKey = `${projectId ?? ''}::${threadId ?? ''}`;
+		if (scopeKey === lastArtifactScopeKey) {
+			return;
+		}
+
+		lastArtifactScopeKey = scopeKey;
 		selectedArtifact = null;
 		selectedStep = null;
 		artifactDocument = null;
@@ -312,36 +318,34 @@
 					loading={artifactLoading}
 				/>
 
-				{#if !selectedArtifact}
-					{#if thread?.attachments?.length}
-						<ul class="inspector-list">
-							{#each thread.attachments as attachment (attachment.id)}
-								{@const displayState = attachmentDisplayState(attachment)}
-								<li>
-									<div class="inspector-block">
-										<div class="inspector-item">
-											<div class="inspector-item__header">
-												<p>{attachment.name}</p>
-												<Tag type={displayState.type}>{displayState.label}</Tag>
-											</div>
-											{#if attachment.warnings.length > 0}
-												<p>{attachment.warnings[0]}</p>
-											{/if}
-											{#if attachment.previewText}
-												<p>{attachment.previewText}</p>
-											{:else}
-												<p>{attachment.mimeType}</p>
-											{/if}
+				{#if thread?.attachments?.length}
+					<ul class="inspector-list">
+						{#each thread.attachments as attachment (attachment.id)}
+							{@const displayState = attachmentDisplayState(attachment)}
+							<li>
+								<div class="inspector-block">
+									<div class="inspector-item">
+										<div class="inspector-item__header">
+											<p>{attachment.name}</p>
+											<Tag type={displayState.type}>{displayState.label}</Tag>
 										</div>
+										{#if attachment.warnings.length > 0}
+											<p>{attachment.warnings[0]}</p>
+										{/if}
+										{#if attachment.previewText}
+											<p>{attachment.previewText}</p>
+										{:else}
+											<p>{attachment.mimeType}</p>
+										{/if}
 									</div>
-								</li>
-							{/each}
-						</ul>
-					{:else}
-						<div class="empty-panel">
-							<p>No spec context yet</p>
-						</div>
-					{/if}
+								</div>
+							</li>
+						{/each}
+					</ul>
+				{:else if !selectedArtifact}
+					<div class="empty-panel">
+						<p>No spec context yet</p>
+					</div>
 				{/if}
 			</div>
 		</div>

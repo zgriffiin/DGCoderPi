@@ -40,6 +40,7 @@
 		onBeginResize: (pane: 'left' | 'right', event: PointerEvent) => void;
 		onBeginComposerResize: (event: PointerEvent) => void;
 		onCreateThread: (projectId: string) => void;
+		onCompactThread: (threadId: string) => void;
 		onDraftChange: (value: string) => void;
 		onMoveProject: (projectId: string, targetIndex: number) => void;
 		onModelChange: (modelKey: string) => void;
@@ -58,6 +59,7 @@
 		onSend: (mode: PromptMode) => void;
 		onShipReviewContinue: () => void;
 		onShipReviewDismiss: () => void;
+		onShipReviewFixIssues: () => void;
 		onShipSlice: () => void;
 		onSpecPromptSelect: (step: SpecWorkflowStep) => void;
 		onStageFiles: (files: File[]) => void;
@@ -99,6 +101,7 @@
 		onBeginResize,
 		onBeginComposerResize,
 		onCreateThread,
+		onCompactThread,
 		onDraftChange,
 		onMoveProject,
 		onModelChange,
@@ -117,6 +120,7 @@
 		onSend,
 		onShipReviewContinue,
 		onShipReviewDismiss,
+		onShipReviewFixIssues,
 		onShipSlice,
 		onSpecPromptSelect,
 		onStageFiles,
@@ -176,7 +180,12 @@
 	{/if}
 
 	<div bind:this={centerColumnElement} class="center-column">
-		<ConversationPane project={activeProject} {runtimeError} thread={activeThread} />
+		<ConversationPane
+			{onCompactThread}
+			project={activeProject}
+			{runtimeError}
+			thread={activeThread}
+		/>
 		{#if canResizePanels}
 			<WorkbenchVerticalResizeHandle
 				label="Resize conversation and composer"
@@ -201,6 +210,7 @@
 			{onSend}
 			{onShipReviewContinue}
 			{onShipReviewDismiss}
+			{onShipReviewFixIssues}
 			{onShipSlice}
 			{onStageFiles}
 			{onStop}

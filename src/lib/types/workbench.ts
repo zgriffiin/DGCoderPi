@@ -108,6 +108,7 @@ export interface ThreadRecord {
 	activities: ActivityRecord[];
 	attachments: AttachmentRecord[];
 	branch: string;
+	contextUsage?: ContextUsageRecord | null;
 	id: string;
 	intent: ThreadIntent;
 	lastError: string | null;
@@ -119,6 +120,12 @@ export interface ThreadRecord {
 	status: ThreadStatus;
 	title: string;
 	updatedAtMs: number;
+}
+
+interface ContextUsageRecord {
+	contextWindow: number;
+	percent: number | null;
+	tokens: number | null;
 }
 
 interface ActivityRecord {

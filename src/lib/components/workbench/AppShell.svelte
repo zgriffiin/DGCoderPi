@@ -39,7 +39,9 @@
 
 	const workbenchState = $derived($controller);
 	const snapshot = $derived(workbenchState.snapshot);
-	const activeProject = $derived(findActiveProject(snapshot.projects, selectedProjectId));
+	const activeProject = $derived(
+		findActiveProject(snapshot.projects, selectedProjectId, selectedThreadId)
+	);
 	const activeThread = $derived(findActiveThread(activeProject, selectedThreadId));
 	const selectedModelKey = $derived(activeThread?.modelKey ?? snapshot.models[0]?.key ?? '');
 	const selectedModel = $derived(
@@ -477,6 +479,7 @@
 			handleAddProjectDraftChange,
 			handleAttachFiles,
 			handleBrowseProjectFolder,
+			handleCompactThread: (threadId) => runAction(() => controller.compactThread(threadId)),
 			handleCreateThreadForProject,
 			handleDiffAnalysisModelChange,
 			handleDraftChange,

@@ -175,6 +175,8 @@ pub struct ThreadRecord {
     pub activities: Vec<ActivityRecord>,
     pub attachments: Vec<AttachmentRecord>,
     pub branch: String,
+    #[serde(default)]
+    pub context_usage: Option<ContextUsageRecord>,
     pub id: String,
     #[serde(default)]
     pub intent: ThreadIntent,
@@ -189,6 +191,14 @@ pub struct ThreadRecord {
     pub status: ThreadStatus,
     pub title: String,
     pub updated_at_ms: u64,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ContextUsageRecord {
+    pub context_window: u64,
+    pub percent: Option<f64>,
+    pub tokens: Option<u64>,
 }
 
 #[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
@@ -497,6 +507,13 @@ pub struct SendPromptInput {
     pub mode: PromptMode,
     pub prompt_guidance: Option<String>,
     pub text: String,
+    pub thread_id: String,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CompactThreadInput {
+    pub custom_instructions: Option<String>,
     pub thread_id: String,
 }
 

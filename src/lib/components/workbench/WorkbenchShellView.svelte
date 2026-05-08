@@ -12,7 +12,11 @@
 	} from '$lib/types/workbench';
 	import type { WorkbenchController } from '$lib/workbench/controller';
 	import type { ShipReviewState } from '$lib/workbench/ship-review';
-	import { shipReviewDetail, shipReviewMaxRiskLevel } from '$lib/workbench/ship-review';
+	import {
+		buildShipReviewFixPrompt,
+		shipReviewDetail,
+		shipReviewMaxRiskLevel
+	} from '$lib/workbench/ship-review';
 	import type { SpecWorkflowStep } from '$lib/workbench/spec-workflow';
 	import WorkbenchDialogs from './WorkbenchDialogs.svelte';
 	import WorkbenchMainGrid from './WorkbenchMainGrid.svelte';
@@ -65,6 +69,7 @@
 		handleAddProject: () => void;
 		handleAttachFiles: () => void;
 		handleBrowseProjectFolder: () => void;
+		handleCompactThread: (threadId: string) => void;
 		handleCreateThreadForProject: (projectId: string) => void;
 		handleDiffAnalysisModelChange: (modelKey: string | null) => void;
 		handleAddProjectDraftChange: (value: string) => void;
@@ -296,6 +301,18 @@
 			window.removeEventListener('pointerup', handlePointerUp);
 		};
 	});
+
+	async function handleShipReviewFixIssues() {
+		const analysis = shellState.shipReview.analysis;
+		const thread = shellState.activeThread;
+		if (!analysis || !thread) {
+			return;
+		}
+
+		const mode = thread.status === 'running' ? 'follow-up' : 'prompt';
+		await controller.sendPrompt(thread.id, buildShipReviewFixPrompt(analysis), mode);
+		actions.handleShipReviewDismiss();
+	}
 </script>
 
 <WorkbenchTopbar
@@ -325,6 +342,7 @@
 	onAttach={actions.handleAttachFiles}
 	onBeginComposerResize={beginComposerResize}
 	onBeginResize={beginResize}
+	onCompactThread={actions.handleCompactThread}
 	onCreateThread={actions.handleCreateThreadForProject}
 	onDraftChange={actions.handleDraftChange}
 	onModelChange={actions.handleModelChange}
@@ -344,6 +362,7 @@
 	onSend={actions.handleSend}
 	onShipReviewContinue={actions.handleShipReviewContinue}
 	onShipReviewDismiss={actions.handleShipReviewDismiss}
+	onShipReviewFixIssues={handleShipReviewFixIssues}
 	onShipSlice={actions.handleShipSlice}
 	onSpecPromptSelect={actions.handleSpecPromptSelect}
 	onStageFiles={actions.handleStageComposerFiles}
