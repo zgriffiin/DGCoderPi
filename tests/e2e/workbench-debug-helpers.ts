@@ -12,7 +12,7 @@ type DebugSnapshot = {
 };
 
 async function readSelectedThreadField(page: Page, field: 'attachments' | 'messages') {
-	return page.evaluate(async (selector) => {
+	return page.evaluate(async (field) => {
 		const runtime = window.__PI_DEBUG__;
 		if (!runtime) {
 			return null;
@@ -27,7 +27,7 @@ async function readSelectedThreadField(page: Page, field: 'attachments' | 'messa
 			.flatMap((project) => project.threads)
 			.find((entry) => entry.id === threadId);
 
-		return selector === 'attachments' ? (thread?.attachments ?? []) : (thread?.messages ?? []);
+		return field === 'attachments' ? (thread?.attachments ?? []) : (thread?.messages ?? []);
 	}, field);
 }
 

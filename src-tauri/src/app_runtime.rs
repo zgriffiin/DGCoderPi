@@ -29,7 +29,7 @@ use crate::{
     },
     model::{
         ActivityRecord, AddProjectInput, AppEvent, AppHealth, AppIntegrations, AppSnapshot,
-        AppUpdate, AttachmentParseStatus, AttachmentStage, CreateThreadInput,
+        AppUpdate, AttachmentParseStatus, AttachmentStage, CompactThreadInput, CreateThreadInput,
         LoadSpecArtifactInput, MessageRecord, MessageRole, MessageStatus, ModelOption,
         MoveProjectInput, PersistedState, PromptMode, ProviderKeyInput, RemoveAttachmentInput,
         RemoveProjectInput, RemoveThreadInput, RenameProjectInput, RenameThreadInput,
@@ -38,8 +38,8 @@ use crate::{
         StageAttachmentInput, ThreadIntent, ThreadRecord, ThreadStatus, ToggleFeatureInput,
     },
     pi_bridge::{
-        attachment_status_from_bridge, BridgeActivity, BridgeEnvironment, BridgeEvent,
-        BridgePromptAttachment, BridgeThreadSnapshot, PiBridge,
+        attachment_status_from_bridge, BridgeActivity, BridgeCompactThreadRequest,
+        BridgeEnvironment, BridgeEvent, BridgePromptAttachment, BridgeThreadSnapshot, PiBridge,
     },
     project_storage::{migrate_attachments_to_project_storage, project_attachment_path},
     state_store::{
@@ -772,6 +772,57 @@ impl AppRuntime {
             }) {
                 eprintln!(
                     "Failed to roll back prompt state after bridge error `{bridge_error}`: {rollback_error}"
+                );
+            }
+            return Err(bridge_error);
+        }
+
+        Ok(update)
+    }
+
+    pub fn compact_thread(&self, input: CompactThreadInput) -> Result<AppUpdate, String> {
+        let (prepared, update) = self.with_serialized_mutation(|| {
+            let prepared = self.prepare_prompt(&input.thread_id, false, None)?;
+            let update = self.mutate_thread(&input.thread_id, |thread| {
+                if matches!(thread.status, ThreadStatus::Running) {
+                    return Err("Stop the current run before compacting this thread.".to_string());
+                }
+                thread.status = ThreadStatus::Running;
+                thread.last_error = None;
+                append_activity(
+                    thread,
+                    "Compaction requested",
+                    "Manual compaction was requested from the context indicator.".to_string(),
+                    crate::model::ActivityTone::System,
+                );
+                Ok(())
+            })?;
+            self.persist_update(&update)?;
+            Ok((prepared, update))
+        })?;
+
+        let bridge_input = BridgeCompactThreadRequest {
+            custom_instructions: input.custom_instructions.as_deref(),
+            cwd: &prepared.cwd,
+            messages: &prepared.messages,
+            model_key: &prepared.model_key,
+            thinking_level: &prepared.thinking_level,
+            thread_id: &input.thread_id,
+        };
+
+        if let Err(error) = self.bridge()?.compact_thread(bridge_input) {
+            let bridge_error = error.clone();
+            if let Err(rollback_error) = self.with_serialized_mutation(|| {
+                let update = self.mutate_thread(&input.thread_id, |thread| {
+                    thread.last_error = Some(error.clone());
+                    thread.status = prepared.thread_status.clone();
+                    Ok(())
+                })?;
+                self.persist_update(&update)?;
+                self.emit_update(&update)
+            }) {
+                eprintln!(
+                    "Failed to roll back compaction state after bridge error `{bridge_error}`: {rollback_error}"
                 );
             }
             return Err(bridge_error);
@@ -1672,6 +1723,7 @@ impl AppRuntime {
                         return Ok(None);
                     }
 
+                    thread.context_usage = snapshot.context_usage.clone();
                     thread.last_error = snapshot.last_error;
                     thread.messages = merge_thread_messages(
                         &thread.messages,
@@ -1757,7 +1809,8 @@ fn locate_thread(state: &PersistedState, thread_id: &str) -> Option<(usize, usiz
 }
 
 fn snapshot_matches_thread(thread: &ThreadRecord, snapshot: &BridgeThreadSnapshot) -> bool {
-    thread.last_error == snapshot.last_error
+    thread.context_usage == snapshot.context_usage
+        && thread.last_error == snapshot.last_error
         && thread.status == snapshot.status
         && snapshot_messages_match(thread, snapshot)
         && snapshot_queue_matches(thread, snapshot)

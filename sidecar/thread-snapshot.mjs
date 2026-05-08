@@ -6,61 +6,75 @@ import {
 } from './message-content-format.mjs';
 
 export function buildActivity(event) {
-	if (event.type === 'agent_start') {
-		return { detail: 'The agent accepted the current turn.', title: 'Run started', tone: 'system' };
-	}
+	const builder = ACTIVITY_BUILDERS[event.type];
+	return builder ? builder(event) : null;
+}
 
-	if (event.type === 'agent_end') {
+const ACTIVITY_BUILDERS = {
+	agent_end: () => ({
+		detail: 'The agent finished the current turn.',
+		title: 'Run complete',
+		tone: 'system'
+	}),
+	agent_start: () => ({
+		detail: 'The agent accepted the current turn.',
+		title: 'Run started',
+		tone: 'system'
+	}),
+	auto_retry_start: (event) => ({
+		detail: `Retry ${event.attempt} of ${event.maxAttempts} after ${event.delayMs}ms.`,
+		title: 'Retry scheduled',
+		tone: 'system'
+	}),
+	compaction_end: buildCompactionEndActivity,
+	compaction_start: (event) => ({
+		detail: `Compaction started because of ${event.reason}.`,
+		title: 'Compaction running',
+		tone: 'system'
+	}),
+	queue_update: (event) => ({
+		detail: `${event.steering.length} steer and ${event.followUp.length} follow-up items pending.`,
+		title: 'Queue updated',
+		tone: 'system'
+	}),
+	tool_execution_end: (event) => ({
+		detail: event.isError
+			? `${event.toolName} reported an error.`
+			: `${event.toolName} completed successfully.`,
+		title: 'Tool finished',
+		tone: 'tool'
+	}),
+	tool_execution_start: (event) => ({
+		detail: `${event.toolName} started.`,
+		title: 'Tool running',
+		tone: 'tool'
+	})
+};
+
+function buildCompactionEndActivity(event) {
+	if (event.aborted) {
 		return {
-			detail: 'The agent finished the current turn.',
-			title: 'Run complete',
+			detail: 'Compaction was stopped before it changed the thread context.',
+			title: 'Compaction stopped',
 			tone: 'system'
 		};
 	}
 
-	if (event.type === 'tool_execution_start') {
+	if (event.errorMessage) {
 		return {
-			detail: `${event.toolName} started.`,
-			title: 'Tool running',
-			tone: 'tool'
-		};
-	}
-
-	if (event.type === 'tool_execution_end') {
-		return {
-			detail: event.isError
-				? `${event.toolName} reported an error.`
-				: `${event.toolName} completed successfully.`,
-			title: 'Tool finished',
-			tone: 'tool'
-		};
-	}
-
-	if (event.type === 'queue_update') {
-		return {
-			detail: `${event.steering.length} steer and ${event.followUp.length} follow-up items pending.`,
-			title: 'Queue updated',
+			detail: event.errorMessage,
+			title: 'Compaction failed',
 			tone: 'system'
 		};
 	}
 
-	if (event.type === 'auto_retry_start') {
-		return {
-			detail: `Retry ${event.attempt} of ${event.maxAttempts} after ${event.delayMs}ms.`,
-			title: 'Retry scheduled',
-			tone: 'system'
-		};
-	}
-
-	if (event.type === 'compaction_start') {
-		return {
-			detail: `Compaction started because of ${event.reason}.`,
-			title: 'Compaction running',
-			tone: 'system'
-		};
-	}
-
-	return null;
+	return {
+		detail: event.willRetry
+			? 'Compaction finished and the failed turn will be retried.'
+			: 'Compaction finished and older context was summarized.',
+		title: 'Compaction complete',
+		tone: 'system'
+	};
 }
 
 export function buildThreadSnapshot(session, sessionManager) {
@@ -69,6 +83,7 @@ export function buildThreadSnapshot(session, sessionManager) {
 	const liveMessages = Array.isArray(session?.messages) ? session.messages : [];
 	const messages = resolveSnapshotMessages(liveMessages, sessionManager, snapshotTimestamp);
 	return {
+		contextUsage: readContextUsage(session),
 		lastError: sessionError ?? lastAssistantError(liveMessages),
 		messages,
 		queue: [
@@ -77,6 +92,32 @@ export function buildThreadSnapshot(session, sessionManager) {
 		],
 		status: sessionStatus(session, sessionError, messages.length)
 	};
+}
+
+function readContextUsage(session) {
+	if (typeof session?.getContextUsage !== 'function') {
+		return null;
+	}
+
+	const usage = session.getContextUsage();
+	if (!usage || typeof usage !== 'object') {
+		return null;
+	}
+
+	const contextWindow = finiteNumber(usage.contextWindow);
+	if (contextWindow === null) {
+		return null;
+	}
+
+	return {
+		contextWindow,
+		percent: finiteNumber(usage.percent),
+		tokens: finiteNumber(usage.tokens)
+	};
+}
+
+function finiteNumber(value) {
+	return typeof value === 'number' && Number.isFinite(value) ? value : null;
 }
 
 function serializeQueue(items, mode) {

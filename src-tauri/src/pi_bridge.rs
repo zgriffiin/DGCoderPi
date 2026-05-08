@@ -15,8 +15,8 @@ use uuid::Uuid;
 
 use crate::diff_model::{DiffAnalysis, DiffAnalysisRequest};
 use crate::model::{
-    ActivityTone, AttachmentParseStatus, FeatureSettings, MessageRole, MessageStatus, ModelOption,
-    ProviderStatus, QueueMode, QueueStatus, ThreadStatus,
+    ActivityTone, AttachmentParseStatus, ContextUsageRecord, FeatureSettings, MessageRole,
+    MessageStatus, ModelOption, ProviderStatus, QueueMode, QueueStatus, ThreadStatus,
 };
 
 type PendingRequests = Arc<Mutex<HashMap<String, mpsc::Sender<BridgeResponse>>>>;
@@ -46,6 +46,7 @@ pub enum BridgeAttachmentStatus {
 #[derive(Clone, Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BridgeThreadSnapshot {
+    pub context_usage: Option<ContextUsageRecord>,
     pub last_error: Option<String>,
     pub messages: Vec<BridgeMessage>,
     pub queue: Vec<BridgeQueueEntry>,
@@ -234,6 +235,21 @@ impl PiBridge {
         Ok(())
     }
 
+    pub fn compact_thread(&self, input: BridgeCompactThreadRequest<'_>) -> Result<(), String> {
+        self.request::<Value>(
+            "compact-thread",
+            json!({
+                "cwd": input.cwd,
+                "customInstructions": input.custom_instructions,
+                "messages": input.messages,
+                "modelKey": input.model_key,
+                "thinkingLevel": input.thinking_level,
+                "threadId": input.thread_id,
+            }),
+        )?;
+        Ok(())
+    }
+
     fn request<T>(&self, command_type: &str, payload: Value) -> Result<T, String>
     where
         T: DeserializeOwned,
@@ -358,6 +374,15 @@ pub struct BridgePromptRequest<'a> {
     pub messages: &'a [crate::model::MessageRecord],
     pub model_key: &'a str,
     pub text: &'a str,
+    pub thinking_level: &'a str,
+    pub thread_id: &'a str,
+}
+
+pub struct BridgeCompactThreadRequest<'a> {
+    pub custom_instructions: Option<&'a str>,
+    pub cwd: &'a str,
+    pub messages: &'a [crate::model::MessageRecord],
+    pub model_key: &'a str,
     pub thinking_level: &'a str,
     pub thread_id: &'a str,
 }

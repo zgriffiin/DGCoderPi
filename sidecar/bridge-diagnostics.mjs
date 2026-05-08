@@ -31,7 +31,11 @@ export function logAgentEvent(features, threadId, event) {
 			toolName: event.toolName,
 			type: event.type
 		});
-	} else if (event.type === 'auto_retry_start' || event.type === 'compaction_start') {
+	} else if (
+		event.type === 'auto_retry_start' ||
+		event.type === 'compaction_start' ||
+		event.type === 'compaction_end'
+	) {
 		logDiagnostic(features, 'agent-event', {
 			at: new Date().toISOString(),
 			threadId,

@@ -85,6 +85,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             commands::abort_thread,
             commands::add_project,
+            commands::compact_thread,
             commands::create_thread,
             commands::import_codex_openai_key,
             commands::load_app_state,

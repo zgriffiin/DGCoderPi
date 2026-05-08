@@ -1,11 +1,12 @@
 <script lang="ts">
 	import { onDestroy } from 'svelte';
 	import { tick } from 'svelte';
-	import { InlineNotification } from 'carbon-components-svelte';
+	import Close from 'carbon-icons-svelte/lib/Close.svelte';
 	import type { ProjectRecord, ThreadRecord } from '$lib/types/workbench';
 	import ThreadMessage from './ThreadMessage.svelte';
 
 	type Props = {
+		onCompactThread: (threadId: string) => void;
 		project: ProjectRecord | null;
 		runtimeError: string | null;
 		thread: ThreadRecord | null;
@@ -158,13 +159,77 @@
 		return match?.[1] || detail.trim();
 	}
 
+	function errorBannerFor(runtimeError: string | null, thread: ThreadRecord | null) {
+		if (runtimeError) {
+			return {
+				key: `runtime:${runtimeError}`,
+				message: runtimeError,
+				title: 'Desktop runtime',
+				tone: 'warning'
+			};
+		}
+
+		if (thread?.lastError) {
+			return {
+				key: `thread:${thread.id}:${thread.lastError}`,
+				message: thread.lastError,
+				title: 'Run failed',
+				tone: 'error'
+			};
+		}
+
+		return null;
+	}
+
+	function contextUsageLabel(thread: ThreadRecord | null) {
+		const usage = thread?.contextUsage;
+		if (!usage) {
+			return 'Context ?';
+		}
+
+		if (typeof usage.percent === 'number') {
+			return `Context ${Math.round(usage.percent)}%`;
+		}
+
+		return 'Context ?';
+	}
+
+	function contextUsageTitle(thread: ThreadRecord | null) {
+		const usage = thread?.contextUsage;
+		if (!usage) {
+			return 'Context usage is not available yet. Click to compact this thread.';
+		}
+
+		const tokenText =
+			usage.tokens === null
+				? 'Token usage is unknown until the next model response.'
+				: `${usage.tokens.toLocaleString()} of ${usage.contextWindow.toLocaleString()} context tokens used.`;
+		return `${tokenText} Click to compact this thread now.`;
+	}
+
+	function contextUsageTone(thread: ThreadRecord | null) {
+		const percent = thread?.contextUsage?.percent;
+		if (typeof percent !== 'number') {
+			return 'unknown';
+		}
+		if (percent >= 85) {
+			return 'high';
+		}
+		if (percent >= 65) {
+			return 'medium';
+		}
+		return 'low';
+	}
+
 	let nowMs = $state(Date.now());
 	let statusTimer: ReturnType<typeof setInterval> | null = null;
 	let activityListElement: HTMLDivElement | null = null;
+	let dismissedErrorKey = $state<string | null>(null);
+	let lastThreadId = $state<string | null>(null);
 	let stickToBottom = $state(true);
 	let visibleMessageCount = $state(MESSAGE_PAGE_SIZE);
 
-	let { project, runtimeError, thread }: Props = $props();
+	let { onCompactThread, project, runtimeError, thread }: Props = $props();
 
 	const messages = $derived(visibleMessages(thread));
 	const timelineActivities = $derived(visibleTimelineActivities(thread));
@@ -191,6 +256,11 @@
 		hiddenMessageCount > 0 ? timeline.slice(-visibleMessageCount) : timeline
 	);
 	const runStatus = $derived(buildRunStatus(thread, nowMs));
+	const contextLabel = $derived(contextUsageLabel(thread));
+	const contextTitle = $derived(contextUsageTitle(thread));
+	const contextTone = $derived(contextUsageTone(thread));
+	const errorBanner = $derived(errorBannerFor(runtimeError, thread));
+	const showErrorBanner = $derived(Boolean(errorBanner && errorBanner.key !== dismissedErrorKey));
 	const scrollKey = $derived.by(() => {
 		const lastEntry = pagedMessages.at(-1);
 		const textLength = lastEntry?.type === 'message' ? lastEntry.item.text.length : 0;
@@ -208,6 +278,18 @@
 
 	function showOlderMessages() {
 		visibleMessageCount += MESSAGE_PAGE_SIZE;
+	}
+
+	function dismissErrorBanner() {
+		dismissedErrorKey = errorBanner?.key ?? null;
+	}
+
+	function compactThread() {
+		if (!thread || thread.status === 'running') {
+			return;
+		}
+
+		onCompactThread(thread.id);
 	}
 
 	async function scrollToBottom(force = false) {
@@ -243,6 +325,11 @@
 
 	$effect(() => {
 		const currentThreadId = thread?.id ?? null;
+		if (currentThreadId === lastThreadId) {
+			return;
+		}
+
+		lastThreadId = currentThreadId;
 		if (currentThreadId === null) {
 			visibleMessageCount = MESSAGE_PAGE_SIZE;
 			stickToBottom = true;
@@ -295,24 +382,37 @@
 				</p>
 			</div>
 		{/if}
+		{#if thread}
+			<button
+				class="context-usage-pill"
+				data-tone={contextTone}
+				disabled={thread.status === 'running'}
+				title={contextTitle}
+				type="button"
+				onclick={compactThread}
+			>
+				<span aria-hidden="true"></span>
+				{contextLabel}
+			</button>
+		{/if}
 	</header>
 
-	{#if runtimeError}
-		<InlineNotification
-			hideCloseButton
-			kind="warning"
-			lowContrast
-			subtitle={runtimeError}
-			title="Desktop runtime"
-		/>
-	{:else if thread?.lastError}
-		<InlineNotification
-			hideCloseButton
-			kind="error"
-			lowContrast
-			subtitle={thread.lastError}
-			title="Run failed"
-		/>
+	{#if showErrorBanner && errorBanner}
+		<section class="workbench-error-banner" data-tone={errorBanner.tone} aria-live="polite">
+			<div class="workbench-error-banner__mark" aria-hidden="true">!</div>
+			<div class="workbench-error-banner__body">
+				<h3>{errorBanner.title}</h3>
+				<p>{errorBanner.message}</p>
+			</div>
+			<button
+				aria-label="Dismiss error"
+				class="workbench-error-banner__close"
+				type="button"
+				onclick={dismissErrorBanner}
+			>
+				<Close size={16} />
+			</button>
+		</section>
 	{/if}
 
 	<div bind:this={activityListElement} class="activity-list" onscroll={handleActivityScroll}>

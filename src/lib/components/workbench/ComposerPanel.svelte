@@ -27,6 +27,7 @@
 		onSend: (mode: PromptMode) => void;
 		onShipReviewContinue: () => void;
 		onShipReviewDismiss: () => void;
+		onShipReviewFixIssues: () => void;
 		onShipSlice: () => void;
 		onStageFiles: (files: File[]) => void;
 		onStop: () => void;
@@ -187,6 +188,7 @@
 		onSend,
 		onShipReviewContinue,
 		onShipReviewDismiss,
+		onShipReviewFixIssues,
 		onShipSlice,
 		onStageFiles,
 		onStop,
@@ -301,9 +303,14 @@
 					<Button kind="ghost" size="small" on:click={onShipSlice}>Retry</Button>
 					<Button kind="ghost" size="small" on:click={onShipReviewDismiss}>Dismiss</Button>
 				{:else if shipReviewStatus === 'needs-decision'}
-					<Tag size="sm" type={shipReviewIssueCount > 0 ? 'warm-gray' : 'green'}>
-						{shipReviewIssueCount} issues
-					</Tag>
+					<Button
+						disabled={!canSend || shipReviewIssueCount === 0}
+						kind="tertiary"
+						size="small"
+						on:click={onShipReviewFixIssues}
+					>
+						Fix {shipReviewIssueCount} issue{shipReviewIssueCount === 1 ? '' : 's'}
+					</Button>
 					<Button kind="ghost" size="small" on:click={onShipReviewDismiss}>Cancel</Button>
 					<Button kind="primary" size="small" on:click={onShipReviewContinue}>
 						{shipReviewMaxRiskLevel === 'high' ? 'Ship despite high-risk findings' : 'Continue'}

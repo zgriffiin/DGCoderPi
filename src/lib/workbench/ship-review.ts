@@ -11,6 +11,9 @@ export type ShipReviewState = {
 	threadId: string | null;
 };
 
+const SHIP_REVIEW_POLL_INTERVAL_MS = 1500;
+const SHIP_REVIEW_TIMEOUT_MS = 10 * 60 * 1000;
+
 export function createIdleShipReview(): ShipReviewState {
 	return {
 		analysis: null,
@@ -61,6 +64,37 @@ export function shipReviewMaxRiskLevel(shipReview: ShipReviewState) {
 	return null;
 }
 
+export function buildShipReviewFixPrompt(analysis: DiffAnalysis) {
+	const issueCount = analysis.risks.length;
+	const issueLines = analysis.risks.flatMap((risk, index) => [
+		`${index + 1}. ${risk.title || 'Untitled risk'} (${risk.level} risk, ${risk.confidence} confidence)`,
+		`   Detail: ${risk.detail || 'No detail provided.'}`,
+		`   Why it matters: ${risk.whyItMatters || 'No impact detail provided.'}`,
+		`   Evidence: ${formatEvidenceList(risk.evidence)}`
+	]);
+	const focusLines = analysis.focusQueue.map(
+		(item, index) =>
+			`${index + 1}. ${item.file} (${item.priority}): ${item.reason} [${item.hunkId}]`
+	);
+
+	return [
+		`Fix the ${issueCount} ship review issue${issueCount === 1 ? '' : 's'} before shipping.`,
+		'',
+		'Rules:',
+		'- Inspect each cited file and hunk before editing.',
+		'- Fix every real issue with the smallest correct code change.',
+		'- If a finding is a false positive, explain why with file-level evidence.',
+		'- Validate user-visible fixes through the real app UI with Playwright where applicable.',
+		'- Rerun the diff review or ship gate after fixes and report remaining findings.',
+		'',
+		'Ship review issues:',
+		...issueLines,
+		'',
+		'Files to inspect first:',
+		...(focusLines.length > 0 ? focusLines : ['No focus queue was returned.'])
+	].join('\n');
+}
+
 export function shipReviewScopeMatches(
 	shipReview: ShipReviewState,
 	projectId: string | null,
@@ -80,16 +114,15 @@ async function waitForShipReview(
 		analysis = await controller.refreshDiffAnalysis(projectId, threadId, false);
 	}
 
-	let attempts = 0;
+	const startedAt = Date.now();
 	while (analysis.status === 'pending' || analysis.status === 'in-progress') {
 		if (!shouldContinue()) {
 			throw new Error('Ship review was cancelled.');
 		}
-		if (attempts >= 80) {
-			throw new Error('Diff review did not finish after 2 minutes. Retry before committing.');
+		if (Date.now() - startedAt >= SHIP_REVIEW_TIMEOUT_MS) {
+			throw new Error('Diff review did not finish after 10 minutes. Retry before committing.');
 		}
-		attempts += 1;
-		await new Promise((resolve) => window.setTimeout(resolve, 1500));
+		await new Promise((resolve) => window.setTimeout(resolve, SHIP_REVIEW_POLL_INTERVAL_MS));
 		analysis = await controller.loadDiffAnalysis(projectId, threadId, false);
 	}
 
@@ -137,6 +170,24 @@ export async function runShipReviewGate(
 
 function shipReviewHasIssues(analysis: DiffAnalysis) {
 	return analysis.risks.length > 0;
+}
+
+function formatEvidenceList(evidence: DiffAnalysis['risks'][number]['evidence']) {
+	if (evidence.length === 0) {
+		return 'No direct hunk evidence returned.';
+	}
+
+	return evidence
+		.map((item) => {
+			const lines =
+				item.startLine && item.endLine
+					? item.startLine === item.endLine
+						? ` line ${item.startLine}`
+						: ` lines ${item.startLine}-${item.endLine}`
+					: '';
+			return `${item.file}${lines} [${item.hunkId}]`;
+		})
+		.join('; ');
 }
 
 function shipReviewSummary(analysis: DiffAnalysis) {

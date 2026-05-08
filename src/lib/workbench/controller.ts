@@ -307,6 +307,13 @@ function createThreadActions(
 		async abortThread(threadId: string) {
 			await runAndApplyUpdate(runCommand<AppUpdate>('abort_thread', { threadId }));
 		},
+		async compactThread(threadId: string, customInstructions: string | null = null) {
+			await runAndApplyUpdate(
+				runCommand<AppUpdate>('compact_thread', {
+					input: { customInstructions, threadId }
+				})
+			);
+		},
 		async removeAttachment(threadId: string, attachmentId: string) {
 			await runAndApplyUpdate(
 				runCommand<AppUpdate>('remove_attachment', { input: { attachmentId, threadId } })

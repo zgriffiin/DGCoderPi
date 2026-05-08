@@ -56,6 +56,7 @@ const PREFERRED_MODEL_KEYS = [
 	'openai::gpt-5.4',
 	'openai::gpt-5.4-mini'
 ];
+const COMPACTION_SETTINGS = { enabled: true, keepRecentTokens: 20_000, reserveTokens: 16_384 };
 const MAX_IMAGE_ATTACHMENT_BYTES = 5 * 1024 * 1024;
 
 function hashDiagnosticText(value) {
@@ -217,6 +218,14 @@ class BridgeRuntime {
 		return {};
 	}
 
+	async compactThread(payload) {
+		const sessionEntry = await this.ensureSession(payload);
+		this.runSessionCommand(payload.threadId, () =>
+			sessionEntry.session.compact(payload.customInstructions)
+		);
+		return {};
+	}
+
 	async buildEnvironment() {
 		await this.syncCodexOauth();
 		this.modelRegistry.refresh();
@@ -329,7 +338,7 @@ class BridgeRuntime {
 		}
 
 		const settingsManager = SettingsManager.inMemory({
-			compaction: { enabled: false },
+			compaction: COMPACTION_SETTINGS,
 			retry: { enabled: true, maxRetries: 2 }
 		});
 		const loader = this.createLoader(cwd, settingsManager);

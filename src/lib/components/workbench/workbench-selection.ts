@@ -11,7 +11,18 @@ export function buildComposerHint(snapshot: AppSnapshot, thread: ThreadRecord | 
 	return 'Ask the agent to inspect or change.';
 }
 
-export function findActiveProject(projects: ProjectRecord[], selectedProjectId: string) {
+export function findActiveProject(
+	projects: ProjectRecord[],
+	selectedProjectId: string,
+	selectedThreadId = ''
+) {
+	const threadProject = selectedThreadId
+		? projects.find((project) => project.threads.some((thread) => thread.id === selectedThreadId))
+		: null;
+	if (threadProject) {
+		return threadProject;
+	}
+
 	return projects.find((project) => project.id === selectedProjectId) ?? projects[0] ?? null;
 }
 

@@ -16,7 +16,26 @@ import { REVIEW_RESPONSE_SCHEMA, REVIEW_TOOL_SCHEMA } from './diff-analysis-sche
 
 const REVIEW_TOOL_NAME = 'diff_review_result';
 const DIAGNOSTIC_TEXT_PREVIEW_ENABLED = process.env.DGCODER_PI_DIFF_ANALYSIS_DEBUG === 'true';
-const OPENAI_RESPONSES_TIMEOUT_MS = 20_000;
+const DEFAULT_OPENAI_RESPONSES_TIMEOUT_MS = 120_000;
+const MAX_SET_TIMEOUT_MS = 2_147_483_647;
+const OPENAI_RESPONSES_TIMEOUT_MS = resolveOpenAiResponsesTimeoutMs();
+
+function resolveOpenAiResponsesTimeoutMs() {
+	const rawTimeout = process.env.DGCODER_PI_DIFF_ANALYSIS_TIMEOUT_MS;
+	if (!rawTimeout) {
+		return DEFAULT_OPENAI_RESPONSES_TIMEOUT_MS;
+	}
+
+	const timeoutMs = Number(rawTimeout);
+	if (Number.isFinite(timeoutMs) && timeoutMs >= 10_000 && timeoutMs <= MAX_SET_TIMEOUT_MS) {
+		return timeoutMs;
+	}
+
+	console.warn(
+		`[diff-analysis] Ignoring invalid DGCODER_PI_DIFF_ANALYSIS_TIMEOUT_MS value: ${rawTimeout}`
+	);
+	return DEFAULT_OPENAI_RESPONSES_TIMEOUT_MS;
+}
 
 function openAiResponsesUrl(baseUrl) {
 	return /\/v1$/i.test(baseUrl) ? `${baseUrl}/responses` : `${baseUrl}/v1/responses`;

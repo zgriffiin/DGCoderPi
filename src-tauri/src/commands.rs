@@ -4,7 +4,7 @@ use crate::{
     app_runtime::AppRuntime,
     diff_model::{DiffAnalysis, DiffAnalysisInput, LoadProjectDiffInput, ProjectDiffSnapshot},
     model::{
-        AddProjectInput, AppHealth, AppSnapshot, AppUpdate, CreateThreadInput,
+        AddProjectInput, AppHealth, AppSnapshot, AppUpdate, CompactThreadInput, CreateThreadInput,
         LoadSpecArtifactInput, MoveProjectInput, ProviderKeyInput, RemoveAttachmentInput,
         RemoveProjectInput, RemoveThreadInput, RenameProjectInput, RenameThreadInput,
         SelectIntentInput, SelectModelInput, SelectReasoningInput, SendPromptInput,
@@ -160,6 +160,14 @@ pub fn remove_attachment(
 #[tauri::command]
 pub fn send_prompt(input: SendPromptInput, runtime: State<'_, AppRuntime>) -> UpdateCommandResult {
     runtime.send_prompt(input)
+}
+
+#[tauri::command]
+pub fn compact_thread(
+    input: CompactThreadInput,
+    runtime: State<'_, AppRuntime>,
+) -> UpdateCommandResult {
+    runtime.compact_thread(input)
 }
 
 #[tauri::command]
