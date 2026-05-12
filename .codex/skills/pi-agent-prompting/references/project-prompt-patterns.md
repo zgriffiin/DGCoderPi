@@ -102,6 +102,7 @@ Relevant files:
 
 - OpenAI variant: lean on structured outputs, prompt versioning, eval hooks, and minimal prompt text.
 - Anthropic variant: keep role framing and context blocks explicit; add anti-overengineering guidance for coding tasks where useful.
+- Kiro Enterprise variant: same as Anthropic variant (Claude Opus 4.6 / Sonnet 4.6 via Bedrock). Use XML tags for structured sections, extended thinking levels for reasoning control, and literal instruction style.
 
 ## Review Prompt
 

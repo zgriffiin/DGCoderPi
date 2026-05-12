@@ -1,4 +1,3 @@
-import { createHash } from 'node:crypto';
 import { readFile, mkdir, stat } from 'node:fs/promises';
 import path from 'node:path';
 
@@ -14,7 +13,13 @@ import {
 	logSessionCommandFailure,
 	safeFindLatestAssistantError
 } from './bridge-errors.mjs';
-import { logAgentEvent, logDiagnostic, readFeatures } from './bridge-diagnostics.mjs';
+import {
+	formatBytes,
+	hashDiagnosticText,
+	logAgentEvent,
+	logDiagnostic,
+	readFeatures
+} from './bridge-diagnostics.mjs';
 import {
 	clearRun,
 	heartbeatPayload,
@@ -26,8 +31,23 @@ import {
 import { readCodexOauthCredential } from './codex-auth.mjs';
 import { analyzeDiff } from './diff-analysis.mjs';
 import { parseAttachment } from './docparser.mjs';
+import {
+	completeKiroSsoLogin,
+	logoutKiro,
+	startKiroSsoLogin,
+	syncKiroSso
+} from './bridge-kiro.mjs';
+import { buildKiroModelOptions } from './kiro-models.mjs';
+import {
+	isSupportedWorkbenchModel,
+	modelLabel,
+	PREFERRED_MODEL_KEYS,
+	PROVIDERS,
+	SUPPORTED_THINKING_LEVELS
+} from './model-filter.mjs';
 import { formatPromptText } from './prompt-format.mjs';
 import {
+	assistantMessageCount,
 	evictDormantSessions,
 	recordSessionPreferences,
 	sessionManagerForPayload,
@@ -35,76 +55,8 @@ import {
 } from './session-history.mjs';
 import { runBridge, writeMessage } from './bridge-dispatch.mjs';
 import { buildActivity, buildThreadSnapshot } from './thread-snapshot.mjs';
-const PROVIDERS = [
-	['anthropic', 'Anthropic'],
-	['openai-codex', 'ChatGPT Codex'],
-	['openai', 'OpenAI'],
-	['google', 'Google Gemini'],
-	['deepseek', 'DeepSeek'],
-	['openrouter', 'OpenRouter']
-];
-const UNSUPPORTED_CHATGPT_CODEX_MODELS = new Set([
-	'gpt-5.1',
-	'gpt-5.1-codex-max',
-	'gpt-5.1-codex-mini'
-]);
-const SUPPORTED_THINKING_LEVELS = ['off', 'minimal', 'low', 'medium', 'high', 'xhigh'];
-const PREFERRED_MODEL_KEYS = [
-	'openai-codex::gpt-5.5',
-	'openai-codex::gpt-5.4',
-	'openai::gpt-5.5',
-	'openai::gpt-5.4',
-	'openai::gpt-5.4-mini'
-];
 const COMPACTION_SETTINGS = { enabled: true, keepRecentTokens: 20_000, reserveTokens: 16_384 };
 const MAX_IMAGE_ATTACHMENT_BYTES = 5 * 1024 * 1024;
-
-function hashDiagnosticText(value) {
-	if (typeof value !== 'string' || value.length === 0) {
-		return null;
-	}
-	return createHash('sha256').update(value).digest('hex').slice(0, 16);
-}
-
-function formatBytes(bytes) {
-	if (bytes >= 1024 * 1024) {
-		return `${Math.round((bytes / (1024 * 1024)) * 10) / 10} MB`;
-	}
-	if (bytes >= 1024) {
-		return `${Math.round((bytes / 1024) * 10) / 10} KB`;
-	}
-	return `${bytes} bytes`;
-}
-
-function isSupportedWorkbenchModel(model, usingChatGptSubscription) {
-	if (
-		(model.provider === 'openai' || model.provider === 'openai-codex') &&
-		!model.id.startsWith('gpt-5')
-	) {
-		return false;
-	}
-	return !(
-		usingChatGptSubscription &&
-		model.provider === 'openai-codex' &&
-		UNSUPPORTED_CHATGPT_CODEX_MODELS.has(model.id)
-	);
-}
-
-function providerLabelForModel(model, codexCredential) {
-	switch (model.provider) {
-		case 'openai-codex':
-			return codexCredential?.type === 'oauth' ? 'Pro Account' : 'API';
-		case 'openai':
-			return 'API';
-		default:
-			return PROVIDERS.find(([provider]) => provider === model.provider)?.[1] ?? null;
-	}
-}
-
-function modelLabel(model, codexCredential) {
-	const providerLabel = providerLabelForModel(model, codexCredential);
-	return providerLabel ? `${model.name} (${providerLabel})` : model.name;
-}
 
 class BridgeRuntime {
 	constructor() {
@@ -228,44 +180,52 @@ class BridgeRuntime {
 
 	async buildEnvironment() {
 		await this.syncCodexOauth();
+		await this.syncKiroSso();
 		this.modelRegistry.refresh();
 		const codexCredential = this.authStorage.get('openai-codex');
+		const kiroCredential = this.authStorage.get('kiro');
 		const usingChatGptSubscription = codexCredential?.type === 'oauth';
 		const modelRank = new Map(PREFERRED_MODEL_KEYS.map((key, index) => [key, index]));
+		const registryModels = this.modelRegistry
+			.getAvailable()
+			.filter((model) => isSupportedWorkbenchModel(model, usingChatGptSubscription))
+			.map((model) => ({
+				availableThinkingLevels: model.reasoning ? SUPPORTED_THINKING_LEVELS : ['off'],
+				configured: true,
+				id: model.id,
+				key: `${model.provider}::${model.id}`,
+				label: modelLabel(model, codexCredential),
+				provider: model.provider,
+				supportsImages: Array.isArray(model.input) && model.input.includes('image'),
+				supportsReasoning: Boolean(model.reasoning)
+			}));
+
+		const kiroModels = kiroCredential ? buildKiroModelOptions() : [];
+		const allModels = [...registryModels, ...kiroModels].sort((left, right) => {
+			const lr = modelRank.get(left.key) ?? Number.MAX_SAFE_INTEGER;
+			const rr = modelRank.get(right.key) ?? Number.MAX_SAFE_INTEGER;
+			return lr !== rr ? lr - rr : left.label.localeCompare(right.label);
+		});
+
 		return {
-			models: this.modelRegistry
-				.getAvailable()
-				.filter((model) => isSupportedWorkbenchModel(model, usingChatGptSubscription))
-				.map((model) => ({
-					availableThinkingLevels: model.reasoning ? SUPPORTED_THINKING_LEVELS : ['off'],
-					configured: true,
-					id: model.id,
-					key: `${model.provider}::${model.id}`,
-					label: modelLabel(model, codexCredential),
-					provider: model.provider,
-					supportsImages: Array.isArray(model.input) && model.input.includes('image'),
-					supportsReasoning: Boolean(model.reasoning)
-				}))
-				.sort((left, right) => {
-					const leftRank = modelRank.get(left.key) ?? Number.MAX_SAFE_INTEGER;
-					const rightRank = modelRank.get(right.key) ?? Number.MAX_SAFE_INTEGER;
-					if (leftRank !== rightRank) {
-						return leftRank - rightRank;
-					}
-					return left.label.localeCompare(right.label);
-				}),
+			models: allModels,
 			providers: PROVIDERS.map(([provider, label]) => {
+				if (provider === 'kiro') {
+					const configured = Boolean(kiroCredential);
+					return {
+						configured,
+						label,
+						provider,
+						source: configured ? 'IAM Identity Center SSO' : null
+					};
+				}
 				const status = this.authStorage.getAuthStatus(provider);
-				const credential = this.authStorage.get(provider);
-				return {
-					configured: status.configured,
-					label,
-					provider,
-					source:
-						credential?.type === 'oauth' && provider === 'openai-codex'
-							? 'ChatGPT subscription'
-							: (status.source ?? null)
-				};
+				const cred = this.authStorage.get(provider);
+				const source =
+					cred?.type === 'oauth' && provider === 'openai-codex'
+						? 'ChatGPT subscription'
+						: (status.source ?? null);
+				return { configured: status.configured, label, provider, source };
 			})
 		};
 	}
@@ -292,6 +252,24 @@ class BridgeRuntime {
 		}
 		this.authStorage.set('openai-codex', { type: 'oauth', ...credential });
 		this.disposeSessions();
+	}
+
+	async syncKiroSso() {
+		await syncKiroSso(this.agentDir, this.authStorage, () => this.disposeSessions());
+	}
+
+	async startKiroSsoLogin(payload) {
+		return startKiroSsoLogin(this.agentDir, payload);
+	}
+
+	async completeKiroSsoLogin() {
+		await completeKiroSsoLogin(this.agentDir, this.authStorage, () => this.disposeSessions());
+		return this.buildEnvironment();
+	}
+
+	async logoutKiro() {
+		await logoutKiro(this.agentDir, this.authStorage, () => this.disposeSessions());
+		return this.buildEnvironment();
 	}
 
 	createLoader(cwd, settingsManager) {
@@ -527,16 +505,7 @@ class BridgeRuntime {
 	}
 }
 
-function assistantMessageCount(session) {
-	const messages = Array.isArray(session?.messages) ? session.messages : [];
-	return messages.filter((message) => message?.role === 'assistant').length;
-}
-
-async function main() {
-	await runBridge(new BridgeRuntime());
-}
-
-main().catch((error) => {
+runBridge(new BridgeRuntime()).catch((error) => {
 	console.error(error);
 	process.exitCode = 1;
 });

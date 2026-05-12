@@ -8,6 +8,8 @@ import type {
 	AppSnapshot,
 	AppUpdate,
 	DiffAnalysis,
+	KiroSsoDeviceAuth,
+	KiroSsoLoginInput,
 	ProjectDiffSnapshot,
 	PromptMode,
 	SpecArtifactDocument,
@@ -432,6 +434,15 @@ function createSettingsActions(
 		},
 		async startCodexLogin() {
 			await runAndApplyUpdate(runCommand<AppUpdate>('start_codex_login'));
+		},
+		async startKiroSsoLogin(input: KiroSsoLoginInput): Promise<KiroSsoDeviceAuth> {
+			return runCommand<KiroSsoDeviceAuth>('start_kiro_sso_login', { input });
+		},
+		async completeKiroSsoLogin() {
+			await runAndApplyUpdate(runCommand<AppUpdate>('complete_kiro_sso_login'));
+		},
+		async logoutKiro() {
+			await runAndApplyUpdate(runCommand<AppUpdate>('logout_kiro'));
 		}
 	};
 }

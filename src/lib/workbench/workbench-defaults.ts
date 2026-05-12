@@ -11,6 +11,7 @@ const DEFAULT_APP_SETTINGS: AppSettings = {
 	features: DEFAULT_FEATURE_SETTINGS,
 	providers: [
 		{ configured: false, label: 'Anthropic', provider: 'anthropic', source: null },
+		{ configured: false, label: 'Kiro Enterprise', provider: 'kiro', source: null },
 		{ configured: false, label: 'ChatGPT Codex', provider: 'openai-codex', source: null },
 		{ configured: false, label: 'OpenAI', provider: 'openai', source: null },
 		{ configured: false, label: 'Google Gemini', provider: 'google', source: null },

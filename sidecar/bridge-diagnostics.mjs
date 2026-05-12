@@ -1,3 +1,5 @@
+import { createHash } from 'node:crypto';
+
 export function readFeatures(payload) {
 	return {
 		diagnosticLoggingEnabled: payload.diagnosticLoggingEnabled !== false,
@@ -42,4 +44,21 @@ export function logAgentEvent(features, threadId, event) {
 			type: event.type
 		});
 	}
+}
+
+export function hashDiagnosticText(value) {
+	if (typeof value !== 'string' || value.length === 0) {
+		return null;
+	}
+	return createHash('sha256').update(value).digest('hex').slice(0, 16);
+}
+
+export function formatBytes(bytes) {
+	if (bytes >= 1024 * 1024) {
+		return `${Math.round((bytes / (1024 * 1024)) * 10) / 10} MB`;
+	}
+	if (bytes >= 1024) {
+		return `${Math.round((bytes / 1024) * 10) / 10} KB`;
+	}
+	return `${bytes} bytes`;
 }
