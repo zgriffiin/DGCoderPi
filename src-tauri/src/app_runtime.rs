@@ -34,8 +34,9 @@ use crate::{
         MoveProjectInput, PersistedState, PromptMode, ProviderKeyInput, RemoveAttachmentInput,
         RemoveProjectInput, RemoveThreadInput, RenameProjectInput, RenameThreadInput,
         SelectIntentInput, SelectModelInput, SelectReasoningInput, SendPromptInput,
-        SetDiffAnalysisModelInput, SpecArtifactDocument, StageAttachmentDataInput,
-        StageAttachmentInput, ThreadIntent, ThreadRecord, ThreadStatus, ToggleFeatureInput,
+        SetCavemanLevelInput, SetDiffAnalysisModelInput, SpecArtifactDocument,
+        StageAttachmentDataInput, StageAttachmentInput, ThreadIntent, ThreadRecord, ThreadStatus,
+        ToggleFeatureInput,
     },
     pi_bridge::{
         attachment_status_from_bridge, BridgeActivity, BridgeCompactThreadRequest,
@@ -81,14 +82,34 @@ struct PreparedPrompt {
     thread_status: ThreadStatus,
 }
 
-fn compose_prompt_guidance(intent_guidance: Option<&str>, prompt_guidance: Option<&str>) -> String {
-    [intent_guidance, prompt_guidance]
+fn compose_prompt_guidance(intent_guidance: Option<&str>, prompt_guidance: Option<&str>, narration_guidance: Option<&str>) -> String {
+    [narration_guidance, intent_guidance, prompt_guidance]
         .into_iter()
         .flatten()
         .map(str::trim)
         .filter(|segment| !segment.is_empty())
         .collect::<Vec<_>>()
         .join("\n\n")
+}
+
+fn narration_instruction(caveman_level: &str) -> Option<&'static str> {
+    match caveman_level {
+        "off" => Some(
+            "Before making changes, briefly explain in plain language what you are about to do and why. \
+After completing a group of changes, summarize what was changed and what it accomplishes. \
+Write for someone who understands the product but may not know the codebase. \
+Use short sentences. Name the feature or behavior being affected, not just file names."
+        ),
+        "low" => Some(
+            "Before changes, state what you are doing and why in one sentence. \
+After changes, summarize the outcome in one sentence."
+        ),
+        "medium" | "high" | "max" => None,
+        _ => Some(
+            "Before making changes, briefly explain what you are about to do and why. \
+After changes, summarize what was changed."
+        ),
+    }
 }
 
 fn resolve_spec_artifact_path(project_path: &str, artifact: &str) -> Result<PathBuf, String> {
@@ -561,6 +582,20 @@ impl AppRuntime {
         self.with_serialized_mutation(|| {
             self.mutate_state(|state| {
                 state.settings.diff_analysis_model_key = input.model_key.clone();
+                Ok(())
+            })?;
+            self.persist_and_return(self.system_update()?)
+        })
+    }
+
+    pub fn set_caveman_level(&self, input: SetCavemanLevelInput) -> Result<AppUpdate, String> {
+        let valid_levels = ["off", "low", "medium", "high", "max"];
+        if !valid_levels.contains(&input.level.as_str()) {
+            return Err(format!("Invalid caveman level: {}", input.level));
+        }
+        self.with_serialized_mutation(|| {
+            self.mutate_state(|state| {
+                state.settings.features.caveman_level = input.level.clone();
                 Ok(())
             })?;
             self.persist_and_return(self.system_update()?)
@@ -1485,6 +1520,15 @@ impl AppRuntime {
             "off".to_string()
         };
 
+        let caveman_level = {
+            let state = self
+                .inner
+                .state
+                .lock()
+                .map_err(|_| "State lock was poisoned.".to_string())?;
+            state.settings.features.caveman_level.clone()
+        };
+
         Ok(PreparedPrompt {
             attachments,
             cwd: project_path,
@@ -1493,6 +1537,7 @@ impl AppRuntime {
                     .then(|| intent.guidance())
                     .filter(|guidance| !guidance.trim().is_empty()),
                 prompt_guidance,
+                narration_instruction(&caveman_level),
             ),
             messages,
             model_key,
@@ -2209,12 +2254,16 @@ mod tests {
     #[test]
     fn compose_prompt_guidance_joins_non_empty_segments() {
         assert_eq!(
-            compose_prompt_guidance(Some("Intent: Plan."), Some("Stage prompt.")),
+            compose_prompt_guidance(Some("Intent: Plan."), Some("Stage prompt."), None),
             "Intent: Plan.\n\nStage prompt."
         );
         assert_eq!(
-            compose_prompt_guidance(Some("Intent: Plan."), Some("   ")),
+            compose_prompt_guidance(Some("Intent: Plan."), Some("   "), None),
             "Intent: Plan."
+        );
+        assert_eq!(
+            compose_prompt_guidance(Some("Intent: Plan."), Some("Stage prompt."), Some("Narrate.")),
+            "Narrate.\n\nIntent: Plan.\n\nStage prompt."
         );
     }
 

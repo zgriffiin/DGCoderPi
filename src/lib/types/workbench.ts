@@ -57,6 +57,7 @@ export interface AppSettings {
 }
 
 export interface FeatureSettings {
+	cavemanLevel: string;
 	diagnosticLoggingEnabled: boolean;
 	docparserEnabled: boolean;
 }

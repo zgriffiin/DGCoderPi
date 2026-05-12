@@ -33,13 +33,46 @@
 			return [];
 		}
 
-		return thread.messages.filter(
-			(message) => message.role === 'assistant' || message.role === 'user'
-		);
+		return thread.messages.filter((message) => {
+			if (message.role === 'assistant' || message.role === 'user') return true;
+			if (message.role === 'system' && message.text.trim().length > 0) return true;
+			if (message.role === 'tool' && message.text.trim().length > 0) {
+				// Only show tool messages that are actionable summaries (writes, edits, errors)
+				// Hide raw file content dumps and directory listings
+				const text = message.text.trim();
+				if (
+					text.startsWith('Successfully') ||
+					text.includes('Command exited') ||
+					text.includes('Failed') ||
+					text.includes('Error') ||
+					text.includes('error:') ||
+					text.startsWith('[write:') ||
+					text.startsWith('[edit:')
+				) {
+					return true;
+				}
+				// Hide long tool outputs (file contents, directory listings, grep results)
+				if (text.split('\n').length > 5) {
+					return false;
+				}
+				return true;
+			}
+			return false;
+		});
 	}
 
 	function visibleTimelineActivities(thread: ThreadRecord | null) {
-		return (thread?.activities ?? []).filter((activity) => activity.kind === 'intent-switch');
+		return (thread?.activities ?? []).filter((activity) => {
+			// Hide generic wrappers
+			if (activity.title === 'Tool running' || activity.title === 'Tool finished') {
+				return false;
+			}
+			// Hide "completed successfully" — the result message is enough
+			if (activity.detail.includes('completed successfully')) {
+				return false;
+			}
+			return true;
+		});
 	}
 
 	function threadLabel(project: ProjectRecord | null, thread: ThreadRecord | null) {
@@ -364,9 +397,16 @@
 				{#if entry.type === 'message'}
 					<ThreadMessage message={entry.item} />
 				{:else}
-					<div class="activity-entry" data-kind={entry.item.kind} data-tone={entry.item.tone}>
-						<span>{entry.item.title}</span>
-						<p>{entry.item.detail}</p>
+					<div
+						class="activity-entry"
+						data-kind={entry.item.kind}
+						data-tone={entry.item.tone}
+						title={new Date(entry.item.timestampMs).toLocaleString()}
+					>
+						<span class="activity-entry__title">{entry.item.title}</span>
+						{#if entry.item.detail}
+							<p class="activity-entry__detail">{entry.item.detail}</p>
+						{/if}
 					</div>
 				{/if}
 			{/each}

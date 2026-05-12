@@ -4,7 +4,6 @@
 	import Code from 'carbon-icons-svelte/lib/Code.svelte';
 	import DocumentRequirements from 'carbon-icons-svelte/lib/DocumentRequirements.svelte';
 	import Settings from 'carbon-icons-svelte/lib/Settings.svelte';
-	import Task from 'carbon-icons-svelte/lib/Task.svelte';
 	import type { InspectorMode } from '$lib/types/workbench';
 
 	type Props = {
@@ -33,15 +32,6 @@
 	</div>
 
 	<div class="topbar__actions">
-		<Button
-			aria-pressed={inspectorMode === 'tasks'}
-			icon={Task}
-			kind={inspectorMode === 'tasks' ? 'primary' : 'ghost'}
-			size="small"
-			onclick={() => onToggleInspector('tasks')}
-		>
-			Tasks
-		</Button>
 		<Button
 			aria-pressed={inspectorMode === 'diff'}
 			icon={Code}

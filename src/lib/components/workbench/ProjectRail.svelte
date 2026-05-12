@@ -2,6 +2,7 @@
 	import { tick } from 'svelte';
 	import CaretDown from 'carbon-icons-svelte/lib/CaretDown.svelte';
 	import CaretRight from 'carbon-icons-svelte/lib/CaretRight.svelte';
+	import DocumentView from 'carbon-icons-svelte/lib/DocumentView.svelte';
 	import Draggable from 'carbon-icons-svelte/lib/Draggable.svelte';
 	import OverflowMenuHorizontal from 'carbon-icons-svelte/lib/OverflowMenuHorizontal.svelte';
 	import type { ProjectRecord } from '$lib/types/workbench';
@@ -20,6 +21,7 @@
 		onCreateThread: (projectId: string) => void;
 		onMoveProject: (projectId: string, targetIndex: number) => void;
 		onOpenDiff: (projectId: string, threadId?: string) => void;
+		onOpenFileExplorer: (projectId: string) => void;
 		onRefreshStatus: () => void;
 		onRemoveProject: (projectId: string) => void;
 		onRemoveThread: (threadId: string) => void;
@@ -44,6 +46,7 @@
 		onCreateThread,
 		onMoveProject,
 		onOpenDiff,
+		onOpenFileExplorer,
 		onRefreshStatus,
 		onRemoveProject,
 		onRemoveThread,
@@ -299,6 +302,15 @@
 							type="button"
 							onclick={() => onCreateThread(project.id)}>+</button
 						>
+						<button
+							aria-label={`Browse files in ${project.name}`}
+							class="rail-action-button"
+							title="Browse files"
+							type="button"
+							onclick={() => onOpenFileExplorer(project.id)}
+						>
+							<DocumentView size={16} />
+						</button>
 						<button
 							aria-label={`Drag to reorder ${project.name}`}
 							class="rail-action-button rail-drag-handle"

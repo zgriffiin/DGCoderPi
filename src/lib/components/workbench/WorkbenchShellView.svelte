@@ -78,6 +78,7 @@
 		handleModelChange: (modelKey: string) => void;
 		handleMoveProject: (projectId: string, targetIndex: number) => void;
 		handleOpenDiff: (projectId: string, threadId?: string) => void;
+		handleOpenFileExplorer: (projectId: string) => void;
 		handleProjectSelect: (projectId: string) => void;
 		handleProviderDraftChange: (provider: string, value: string) => void;
 		handleReasoningChange: (reasoningLevel: ThinkingLevel) => void;
@@ -100,6 +101,7 @@
 		handleThreadSelect: (projectId: string, threadId: string) => void;
 		handleToggleDiagnosticLogging: (enabled: boolean) => void;
 		handleToggleDocparser: (enabled: boolean) => void;
+		handleCavemanLevelChange: (level: string) => void;
 		setAddProjectOpen: (open: boolean) => void;
 		setInspectorMode: (mode: InspectorMode | null) => void;
 		setManualProjectPathOpen: (open: boolean) => void;
@@ -350,6 +352,7 @@
 	onNudgeComposerHeight={nudgeComposerHeight}
 	onNudgePaneWidth={nudgePaneWidth}
 	onOpenDiff={actions.handleOpenDiff}
+	onOpenFileExplorer={actions.handleOpenFileExplorer}
 	onRefreshStatus={actions.handleRefreshStatus}
 	onRemoveAttachment={actions.handleRemoveAttachment}
 	onRemoveProject={actions.handleRemoveProject}
@@ -387,6 +390,7 @@
 <WorkbenchDialogs
 	addProjectDraft={shellState.addProjectDraft}
 	addProjectOpen={shellState.addProjectOpen}
+	cavemanLevel={shellState.workbenchState.snapshot.settings.features.cavemanLevel}
 	codex={shellState.workbenchState.snapshot.integrations.codex}
 	diffAnalysisModelKey={shellState.workbenchState.snapshot.settings.diffAnalysisModelKey}
 	diagnosticLoggingEnabled={shellState.workbenchState.snapshot.settings.features
@@ -397,6 +401,7 @@
 	onAddProjectDraftChange={actions.handleAddProjectDraftChange}
 	onAddProjectSubmit={actions.handleAddProject}
 	onBrowseProject={actions.handleBrowseProjectFolder}
+	onCavemanLevelChange={actions.handleCavemanLevelChange}
 	onCloseAddProject={actions.closeAddProjectModal}
 	onCloseSettings={() => actions.setSettingsOpen(false)}
 	onDiffAnalysisModelChange={actions.handleDiffAnalysisModelChange}

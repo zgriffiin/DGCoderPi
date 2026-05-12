@@ -422,6 +422,9 @@ function createSettingsActions(
 				runCommand<AppUpdate>('set_feature_toggle', { input: { enabled, feature } })
 			);
 		},
+		async setCavemanLevel(level: string) {
+			await runAndApplyUpdate(runCommand<AppUpdate>('set_caveman_level', { input: { level } }));
+		},
 		async setProviderKey(provider: string, key: string) {
 			await runAndApplyUpdate(
 				runCommand<AppUpdate>('set_provider_key', { input: { key, provider } })

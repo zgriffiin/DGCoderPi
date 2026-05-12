@@ -11,6 +11,7 @@
 		shipReviewScopeMatches
 	} from '$lib/workbench/ship-review';
 	import type { SpecWorkflowStep } from '$lib/workbench/spec-workflow';
+	import FileExplorerOverlay from './file-explorer/FileExplorerOverlay.svelte';
 	import WorkbenchShellView from './WorkbenchShellView.svelte';
 	import { stageBrowserFiles } from './composer-attachments';
 	import {
@@ -34,6 +35,7 @@
 	let selectedProjectId = $state('');
 	let selectedThreadId = $state('');
 	let settingsOpen = $state(false);
+	let fileExplorerProjectPath = $state<string | null>(null);
 	let shipReviews = $state<ShipReviewScopeMap>({});
 	let shipReviewRequestIds = $state<Record<string, number>>({});
 
@@ -403,6 +405,12 @@
 		});
 	}
 
+	async function handleCavemanLevelChange(level: string) {
+		await runAction(async () => {
+			await controller.setCavemanLevel(level);
+		});
+	}
+
 	async function handleDiffAnalysisModelChange(modelKey: string | null) {
 		await runAction(async () => {
 			await controller.setDiffAnalysisModel(modelKey);
@@ -450,6 +458,17 @@
 		inspectorMode = 'diff';
 	}
 
+	function handleOpenFileExplorer(projectId: string) {
+		const project = snapshot.projects.find((entry) => entry.id === projectId);
+		if (project) {
+			fileExplorerProjectPath = project.path;
+		}
+	}
+
+	function handleCloseFileExplorer() {
+		fileExplorerProjectPath = null;
+	}
+
 	function toggleInspector(mode: InspectorMode) {
 		inspectorMode = inspectorMode === mode ? null : mode;
 	}
@@ -487,6 +506,7 @@
 			handleModelChange,
 			handleMoveProject,
 			handleOpenDiff,
+			handleOpenFileExplorer,
 			handleProjectSelect,
 			handleProviderDraftChange,
 			handleReasoningChange,
@@ -515,6 +535,7 @@
 			handleThreadSelect,
 			handleToggleDiagnosticLogging,
 			handleToggleDocparser,
+			handleCavemanLevelChange,
 			setAddProjectOpen,
 			setInspectorMode,
 			setManualProjectPathOpen,
@@ -526,3 +547,7 @@
 		{shellState}
 	/>
 </div>
+
+{#if fileExplorerProjectPath}
+	<FileExplorerOverlay onClose={handleCloseFileExplorer} projectPath={fileExplorerProjectPath} />
+{/if}

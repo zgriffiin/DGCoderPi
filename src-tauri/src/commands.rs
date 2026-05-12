@@ -8,8 +8,8 @@ use crate::{
         LoadSpecArtifactInput, MoveProjectInput, ProviderKeyInput, RemoveAttachmentInput,
         RemoveProjectInput, RemoveThreadInput, RenameProjectInput, RenameThreadInput,
         SelectIntentInput, SelectModelInput, SelectReasoningInput, SendPromptInput,
-        SetDiffAnalysisModelInput, SpecArtifactDocument, StageAttachmentDataInput,
-        StageAttachmentInput, ToggleFeatureInput,
+        SetCavemanLevelInput, SetDiffAnalysisModelInput, SpecArtifactDocument,
+        StageAttachmentDataInput, StageAttachmentInput, ToggleFeatureInput,
     },
 };
 
@@ -134,6 +134,14 @@ pub fn set_feature_toggle(
 }
 
 #[tauri::command]
+pub fn set_caveman_level(
+    input: SetCavemanLevelInput,
+    runtime: State<'_, AppRuntime>,
+) -> UpdateCommandResult {
+    runtime.set_caveman_level(input)
+}
+
+#[tauri::command]
 pub fn stage_attachment(
     input: StageAttachmentInput,
     runtime: State<'_, AppRuntime>,
@@ -225,4 +233,199 @@ pub fn set_diff_analysis_model(
     runtime: State<'_, AppRuntime>,
 ) -> UpdateCommandResult {
     runtime.set_diff_analysis_model(input)
+}
+
+// --- File Explorer Commands ---
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReadDirectoryInput {
+    pub path: String,
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DirectoryEntry {
+    pub name: String,
+    pub path: String,
+    pub is_directory: bool,
+    pub size: u64,
+}
+
+#[tauri::command]
+pub async fn read_directory(input: ReadDirectoryInput) -> Result<Vec<DirectoryEntry>, String> {
+    let path = std::path::Path::new(&input.path);
+    if !path.exists() {
+        return Err(format!("Path does not exist: {}", input.path));
+    }
+    if !path.is_dir() {
+        return Err(format!("Path is not a directory: {}", input.path));
+    }
+
+    let mut entries = Vec::new();
+    let read_dir = std::fs::read_dir(path).map_err(|e| e.to_string())?;
+
+    for entry in read_dir {
+        let entry = entry.map_err(|e| e.to_string())?;
+        let metadata = entry.metadata().map_err(|e| e.to_string())?;
+        let name = entry.file_name().to_string_lossy().to_string();
+        let entry_path = entry.path().to_string_lossy().to_string();
+
+        entries.push(DirectoryEntry {
+            name,
+            path: entry_path,
+            is_directory: metadata.is_dir(),
+            size: metadata.len(),
+        });
+    }
+
+    entries.sort_by(|a, b| {
+        if a.is_directory == b.is_directory {
+            a.name.to_lowercase().cmp(&b.name.to_lowercase())
+        } else if a.is_directory {
+            std::cmp::Ordering::Less
+        } else {
+            std::cmp::Ordering::Greater
+        }
+    });
+
+    Ok(entries)
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReadFileInput {
+    pub path: String,
+}
+
+#[tauri::command]
+pub async fn read_file_content(input: ReadFileInput) -> Result<String, String> {
+    let path = std::path::Path::new(&input.path);
+    if !path.exists() {
+        return Err(format!("File does not exist: {}", input.path));
+    }
+    if !path.is_file() {
+        return Err(format!("Path is not a file: {}", input.path));
+    }
+
+    std::fs::read_to_string(path).map_err(|e| e.to_string())
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WriteFileInput {
+    pub path: String,
+    pub content: String,
+}
+
+#[tauri::command]
+pub async fn write_file_content(input: WriteFileInput) -> Result<(), String> {
+    let path = std::path::Path::new(&input.path);
+
+    // Ensure parent directory exists
+    if let Some(parent) = path.parent() {
+        if !parent.exists() {
+            std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+        }
+    }
+
+    std::fs::write(path, &input.content).map_err(|e| e.to_string())
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CopyEntryInput {
+    pub source: String,
+    pub destination: String,
+}
+
+#[tauri::command]
+pub async fn copy_entry(input: CopyEntryInput) -> Result<(), String> {
+    let source = std::path::Path::new(&input.source);
+    if !source.exists() {
+        return Err(format!("Source does not exist: {}", input.source));
+    }
+
+    let dest = std::path::Path::new(&input.destination);
+    if dest.exists() {
+        return Err(format!("Destination already exists: {}", input.destination));
+    }
+
+    if source.is_dir() {
+        copy_dir_recursive(source, dest).map_err(|e| e.to_string())
+    } else {
+        std::fs::copy(source, dest).map(|_| ()).map_err(|e| e.to_string())
+    }
+}
+
+fn copy_dir_recursive(src: &std::path::Path, dst: &std::path::Path) -> std::io::Result<()> {
+    std::fs::create_dir_all(dst)?;
+    for entry in std::fs::read_dir(src)? {
+        let entry = entry?;
+        let src_path = entry.path();
+        let dst_path = dst.join(entry.file_name());
+        if src_path.is_dir() {
+            copy_dir_recursive(&src_path, &dst_path)?;
+        } else {
+            std::fs::copy(&src_path, &dst_path)?;
+        }
+    }
+    Ok(())
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RenameEntryInput {
+    pub source: String,
+    pub destination: String,
+}
+
+#[tauri::command]
+pub async fn rename_entry(input: RenameEntryInput) -> Result<(), String> {
+    let source = std::path::Path::new(&input.source);
+    if !source.exists() {
+        return Err(format!("Source does not exist: {}", input.source));
+    }
+
+    let dest = std::path::Path::new(&input.destination);
+    if dest.exists() {
+        return Err(format!("Destination already exists: {}", input.destination));
+    }
+
+    std::fs::rename(source, dest).map_err(|e| e.to_string())
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DeleteEntryInput {
+    pub path: String,
+}
+
+#[tauri::command]
+pub async fn delete_entry(input: DeleteEntryInput) -> Result<(), String> {
+    let path = std::path::Path::new(&input.path);
+    if !path.exists() {
+        return Err(format!("Path does not exist: {}", input.path));
+    }
+
+    if path.is_dir() {
+        std::fs::remove_dir_all(path).map_err(|e| e.to_string())
+    } else {
+        std::fs::remove_file(path).map_err(|e| e.to_string())
+    }
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateDirectoryInput {
+    pub path: String,
+}
+
+#[tauri::command]
+pub async fn create_directory(input: CreateDirectoryInput) -> Result<(), String> {
+    let path = std::path::Path::new(&input.path);
+    if path.exists() {
+        return Err(format!("Path already exists: {}", input.path));
+    }
+    std::fs::create_dir_all(path).map_err(|e| e.to_string())
 }

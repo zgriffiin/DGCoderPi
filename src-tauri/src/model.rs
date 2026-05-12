@@ -102,6 +102,8 @@ pub struct AppSettings {
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct FeatureSettings {
+    #[serde(default = "default_caveman_level")]
+    pub caveman_level: String,
     #[serde(default = "default_diagnostic_logging_enabled")]
     pub diagnostic_logging_enabled: bool,
     pub docparser_enabled: bool,
@@ -110,10 +112,15 @@ pub struct FeatureSettings {
 impl Default for FeatureSettings {
     fn default() -> Self {
         Self {
+            caveman_level: default_caveman_level(),
             diagnostic_logging_enabled: true,
             docparser_enabled: true,
         }
     }
+}
+
+fn default_caveman_level() -> String {
+    "off".to_string()
 }
 
 fn default_diagnostic_logging_enabled() -> bool {
@@ -474,6 +481,12 @@ pub struct ToggleFeatureInput {
 #[serde(rename_all = "camelCase")]
 pub struct SetDiffAnalysisModelInput {
     pub model_key: Option<String>,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SetCavemanLevelInput {
+    pub level: String,
 }
 
 #[derive(Clone, Debug, Deserialize)]

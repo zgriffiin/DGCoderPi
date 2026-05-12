@@ -1,5 +1,6 @@
 @import './lib/components/workbench/workbench-composer.css';
 @import './lib/components/workbench/diff/diff-inspector.css';
+@import './lib/components/workbench/file-explorer/file-explorer.css';
 
 :root {
 	color-scheme: light dark;
@@ -865,33 +866,88 @@ textarea {
 	justify-content: flex-start;
 }
 
-.activity-entry {
-	align-items: center;
-	color: var(--cds-text-secondary, #525252);
-	display: flex;
-	gap: 0.5rem;
-	justify-content: center;
-	padding: 0.25rem 0;
+.message-row[data-tone='tool'] {
+	justify-content: flex-start;
 }
 
-.activity-entry span {
+.message-row[data-tone='tool'] .message-row__bubble {
+	background: var(--cds-layer-accent, rgba(255, 255, 255, 0.04));
+	border: 1px solid var(--cds-border-subtle, #e0e0e0);
+	border-left: 3px solid var(--cds-support-info, #4589ff);
+	border-radius: 0.25rem;
+	max-width: 100%;
+}
+
+.message-row[data-tone='system'] {
+	justify-content: flex-start;
+}
+
+.message-row[data-tone='system'] .message-row__bubble {
+	background: transparent;
+	border: 0;
+	border-left: 2px solid var(--cds-support-warning, #f1c21b);
+	border-radius: 0;
+	max-width: 100%;
+	padding: 0.25rem 0.75rem;
+}
+
+.message-row__body--system {
+	color: var(--cds-text-secondary, #525252);
+	font-size: 0.75rem;
+	font-style: italic;
+	line-height: 1.4;
+	margin: 0;
+	white-space: pre-wrap;
+}
+
+.message-row__body--tool {
 	color: var(--cds-text-primary, #161616);
 	font-size: 0.75rem;
+	line-height: 1.4;
+	margin: 0;
+	max-height: 6rem;
+	overflow: auto;
+	white-space: pre-wrap;
+	word-break: break-word;
+}
+
+.activity-entry {
+	border-left: 2px solid var(--cds-border-subtle, #e0e0e0);
+	color: var(--cds-text-secondary, #525252);
+	display: flex;
+	flex-direction: column;
+	gap: 0.125rem;
+	margin: 0.25rem 0;
+	padding: 0.25rem 0.75rem;
+}
+
+.activity-entry__title {
+	color: var(--cds-text-secondary, #525252);
+	font-size: 0.6875rem;
 	font-weight: 500;
 }
 
-.activity-entry p {
-	font-size: 0.75rem;
-	line-height: 1.35;
-	margin: 0;
-}
-
-.activity-entry[data-tone='tool'] span {
-	color: var(--cds-support-info, #4589ff);
-}
-
-.activity-entry[data-tone='assistant'] span {
+.activity-entry__detail {
 	color: var(--cds-text-primary, #161616);
+	font-family: 'IBM Plex Mono', 'Menlo', 'Consolas', monospace;
+	font-size: 0.6875rem;
+	line-height: 1.4;
+	margin: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.activity-entry[data-tone='tool'] {
+	border-left-color: var(--cds-border-subtle, #e0e0e0);
+}
+
+.activity-entry[data-tone='system'] {
+	border-left-color: var(--cds-support-warning, #f1c21b);
+}
+
+.activity-entry[data-tone='assistant'] {
+	border-left-color: var(--cds-support-success, #42be65);
 }
 
 .message-row__bubble {
@@ -1481,13 +1537,23 @@ textarea {
 .settings-panel {
 	display: grid;
 	gap: 0.5rem;
+	overflow-y: auto;
+	min-height: 0;
+	align-content: start;
 }
 
 .settings-layout {
 	display: grid;
 	gap: 1rem;
 	grid-template-columns: 10rem minmax(0, 1fr);
-	min-height: 28rem;
+	height: 60vh;
+	max-height: 60vh;
+	min-height: 0;
+}
+
+.bx--modal-content:has(.settings-layout) {
+	overflow: hidden;
+	padding-right: 0;
 }
 
 .settings-nav {
@@ -1495,6 +1561,7 @@ textarea {
 	display: grid;
 	gap: 0.125rem;
 	padding-right: 0.75rem;
+	align-content: start;
 }
 
 .settings-nav__item {

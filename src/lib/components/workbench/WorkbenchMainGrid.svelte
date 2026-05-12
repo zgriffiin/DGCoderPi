@@ -46,6 +46,7 @@
 		onModelChange: (modelKey: string) => void;
 		onNudgePaneWidth: (pane: 'left' | 'right', delta: number) => void;
 		onOpenDiff: (projectId: string, threadId?: string) => void;
+		onOpenFileExplorer: (projectId: string) => void;
 		onNudgeComposerHeight: (delta: number) => void;
 		onRefreshStatus: () => void;
 		onRemoveAttachment: (attachmentId: string) => void;
@@ -107,6 +108,7 @@
 		onModelChange,
 		onNudgePaneWidth,
 		onOpenDiff,
+		onOpenFileExplorer,
 		onNudgeComposerHeight,
 		onRefreshStatus,
 		onRemoveAttachment,
@@ -195,6 +197,7 @@
 		{onCreateThread}
 		{onMoveProject}
 		{onOpenDiff}
+		{onOpenFileExplorer}
 		{onRefreshStatus}
 		{onRemoveProject}
 		{onRemoveThread}

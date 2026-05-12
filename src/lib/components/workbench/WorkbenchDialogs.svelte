@@ -6,6 +6,7 @@
 	type Props = {
 		addProjectDraft: string;
 		addProjectOpen: boolean;
+		cavemanLevel: string;
 		codex: CodexStatus;
 		diffAnalysisModelKey: string | null;
 		diagnosticLoggingEnabled: boolean;
@@ -15,6 +16,7 @@
 		onAddProjectDraftChange: (value: string) => void;
 		onAddProjectSubmit: () => void;
 		onBrowseProject: () => void;
+		onCavemanLevelChange: (level: string) => void;
 		onCloseAddProject: () => void;
 		onCloseSettings: VoidFunction;
 		onDiffAnalysisModelChange: (modelKey: string | null) => void;
@@ -35,6 +37,7 @@
 	let {
 		addProjectDraft,
 		addProjectOpen,
+		cavemanLevel,
 		codex,
 		diffAnalysisModelKey,
 		diagnosticLoggingEnabled,
@@ -44,6 +47,7 @@
 		onAddProjectDraftChange,
 		onAddProjectSubmit,
 		onBrowseProject,
+		onCavemanLevelChange,
 		onCloseAddProject,
 		onCloseSettings,
 		onDiffAnalysisModelChange,
@@ -75,11 +79,13 @@
 />
 
 <SettingsModal
+	{cavemanLevel}
 	{codex}
 	{diffAnalysisModelKey}
 	{diagnosticLoggingEnabled}
 	{docparserEnabled}
 	onClose={onCloseSettings}
+	{onCavemanLevelChange}
 	{onDiffAnalysisModelChange}
 	{onImportCodexOpenAiKey}
 	{onProviderDraftChange}

@@ -12,14 +12,16 @@
 	import { readEventValue } from '$lib/workbench/read-event-value';
 	import ThemeToggle from './ThemeToggle.svelte';
 
-	type SettingsSection = 'accounts' | 'appearance' | 'extensions' | 'providers';
+	type SettingsSection = 'accounts' | 'appearance' | 'behavior' | 'extensions' | 'providers';
 
 	type Props = {
+		cavemanLevel: string;
 		codex: CodexStatus;
 		diffAnalysisModelKey: string | null;
 		diagnosticLoggingEnabled: boolean;
 		docparserEnabled: boolean;
 		models: ModelOption[];
+		onCavemanLevelChange: (level: string) => void;
 		onClose: () => void;
 		onDiffAnalysisModelChange: (modelKey: string | null) => void;
 		onImportCodexOpenAiKey: () => void;
@@ -49,12 +51,31 @@
 		return configured === 0 ? 'No providers configured' : `${configured} providers configured`;
 	}
 
+	function cavemanLevelLabel(level: string) {
+		switch (level) {
+			case 'off':
+				return 'Off';
+			case 'low':
+				return 'Low — gentle nudges';
+			case 'medium':
+				return 'Medium — direct and blunt';
+			case 'high':
+				return 'High — no hand-holding';
+			case 'max':
+				return 'Max — full caveman';
+			default:
+				return level;
+		}
+	}
+
 	let {
+		cavemanLevel,
 		codex,
 		diffAnalysisModelKey,
 		diagnosticLoggingEnabled,
 		docparserEnabled,
 		models,
+		onCavemanLevelChange,
 		onClose,
 		onDiffAnalysisModelChange,
 		onImportCodexOpenAiKey,
@@ -105,6 +126,15 @@
 				onclick={() => (section = 'providers')}
 			>
 				Providers
+			</button>
+			<button
+				aria-pressed={section === 'behavior'}
+				class="settings-nav__item"
+				data-selected={section === 'behavior' ? 'true' : undefined}
+				type="button"
+				onclick={() => (section = 'behavior')}
+			>
+				Behavior
 			</button>
 			<button
 				aria-pressed={section === 'appearance'}
@@ -263,6 +293,41 @@
 								{/if}
 							</section>
 						{/each}
+					</div>
+				</section>
+			{:else if section === 'behavior'}
+				<section class="settings-section">
+					<header class="settings-section__header">
+						<div>
+							<h3>Behavior</h3>
+							<p>Agent personality and response style</p>
+						</div>
+					</header>
+
+					<div class="extension-row">
+						<div>
+							<h4>Caveman mode</h4>
+							<p>
+								Controls how terse and direct the agent responses are. Higher levels strip
+								pleasantries and filler, giving raw technical output.
+							</p>
+						</div>
+						<Select
+							id="caveman-level"
+							labelText="Caveman level"
+							size="sm"
+							value={cavemanLevel}
+							on:change={(event) => {
+								const value = readEventValue(event);
+								onCavemanLevelChange(value);
+							}}
+						>
+							<SelectItem text={cavemanLevelLabel('off')} value="off" />
+							<SelectItem text={cavemanLevelLabel('low')} value="low" />
+							<SelectItem text={cavemanLevelLabel('medium')} value="medium" />
+							<SelectItem text={cavemanLevelLabel('high')} value="high" />
+							<SelectItem text={cavemanLevelLabel('max')} value="max" />
+						</Select>
 					</div>
 				</section>
 			{:else if section === 'appearance'}

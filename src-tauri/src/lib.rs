@@ -105,11 +105,19 @@ pub fn run() {
             commands::send_prompt,
             commands::set_diff_analysis_model,
             commands::set_feature_toggle,
+            commands::set_caveman_level,
             commands::set_provider_key,
             commands::load_runtime_health,
             commands::start_codex_login,
             commands::stage_attachment,
             commands::stage_attachment_data,
+            commands::read_directory,
+            commands::read_file_content,
+            commands::write_file_content,
+            commands::copy_entry,
+            commands::rename_entry,
+            commands::delete_entry,
+            commands::create_directory,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
