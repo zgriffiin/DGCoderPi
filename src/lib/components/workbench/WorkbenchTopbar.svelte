@@ -20,23 +20,19 @@
 </script>
 
 <header class="topbar">
-	<div class="topbar__brand">
-		<div class="brand-mark">D</div>
-		<div class="topbar__title">
-			<h1>DGCoder</h1>
-		</div>
-	</div>
-
-	<div class="topbar__actions">
+	<div class="topbar__left">
 		<Button
 			disabled={!runtimeAvailable}
 			icon={Add}
-			kind="secondary"
+			kind="ghost"
 			size="small"
 			onclick={onAddProject}
 		>
 			Add project
 		</Button>
+	</div>
+
+	<div class="topbar__actions">
 		<Button
 			aria-pressed={inspectorMode === 'tasks'}
 			icon={Task}

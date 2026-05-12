@@ -16,10 +16,14 @@
 	type Props = {
 		attachments: AttachmentRecord[];
 		canSend: boolean;
+		contextLabel: string;
+		contextTitle: string;
+		contextTone: string;
 		draft: string;
 		hint: string;
 		models: ModelOption[];
 		onAttach: () => void;
+		onCompactThread: () => void;
 		onDraftChange: (value: string) => void;
 		onModelChange: (modelKey: string) => void;
 		onReasoningChange: (reasoningLevel: ThinkingLevel) => void;
@@ -177,10 +181,14 @@
 	let {
 		attachments,
 		canSend,
+		contextLabel,
+		contextTitle,
+		contextTone,
 		draft,
 		hint,
 		models,
 		onAttach,
+		onCompactThread,
 		onDraftChange,
 		onModelChange,
 		onReasoningChange,
@@ -223,7 +231,7 @@
 
 	const running = $derived(threadStatus === 'running');
 	const reviewingForShip = $derived(shipReviewStatus === 'reviewing');
-	const startLabel = $derived(running ? 'Queue' : 'Start');
+	const startLabel = $derived(running ? 'Follow-up' : 'Start');
 	let lastRequestedReasoningLevel = $state<ThinkingLevel | null>(null);
 
 	$effect(() => {
@@ -258,7 +266,6 @@
 			on:paste={handlePaste}
 		/>
 	</div>
-	<p class="composer-panel__support-note">Longer prompts supported.</p>
 
 	{#if attachments.length > 0}
 		<div class="attachment-strip">
@@ -328,12 +335,23 @@
 			<Button
 				disabled={!canSend || !draft.trim()}
 				icon={ArrowRight}
-				kind="primary"
+				kind={running ? 'tertiary' : 'primary'}
 				size="small"
 				on:click={() => onSend(running ? 'follow-up' : 'prompt')}
 			>
 				{startLabel}
 			</Button>
+			{#if running}
+				<Button
+					disabled={!canSend || !draft.trim()}
+					icon={ArrowRight}
+					kind="primary"
+					size="small"
+					on:click={() => onSend('steer')}
+				>
+					Steer
+				</Button>
+			{/if}
 
 			{#if modelItems.length > 0}
 				<div class="composer-select" title="Model">
@@ -382,6 +400,17 @@
 			>
 				Ship
 			</Button>
+			<button
+				class="context-usage-pill"
+				data-tone={contextTone}
+				disabled={running}
+				title={contextTitle}
+				type="button"
+				onclick={onCompactThread}
+			>
+				<span aria-hidden="true"></span>
+				{contextLabel}
+			</button>
 		</div>
 	</div>
 </section>

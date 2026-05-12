@@ -1,12 +1,11 @@
 <script lang="ts">
 	import { tick } from 'svelte';
-	import Code from 'carbon-icons-svelte/lib/Code.svelte';
-	import Edit from 'carbon-icons-svelte/lib/Edit.svelte';
+	import CaretDown from 'carbon-icons-svelte/lib/CaretDown.svelte';
+	import CaretRight from 'carbon-icons-svelte/lib/CaretRight.svelte';
+	import Draggable from 'carbon-icons-svelte/lib/Draggable.svelte';
 	import OverflowMenuHorizontal from 'carbon-icons-svelte/lib/OverflowMenuHorizontal.svelte';
-	import Renew from 'carbon-icons-svelte/lib/Renew.svelte';
-	import Stop from 'carbon-icons-svelte/lib/StopFilledAlt.svelte';
-	import TrashCan from 'carbon-icons-svelte/lib/TrashCan.svelte';
 	import type { ProjectRecord } from '$lib/types/workbench';
+	import ProjectRailMenu from './ProjectRailMenu.svelte';
 	import StatusTag from './StatusTag.svelte';
 
 	type MenuState =
@@ -35,9 +34,9 @@
 	};
 
 	let activeMenu = $state<MenuState | null>(null);
-	let confirmingRemoveProjectId = $state<string | null>(null);
-	let confirmingRemoveThreadId = $state<string | null>(null);
+	let collapsedProjectIds = $state<string[]>([]);
 	let draggedProjectId = $state<string | null>(null);
+	let dragTargetIndex = $state<number | null>(null);
 	let renameState = $state<RenameState | null>(null);
 	let renameInput = $state<HTMLInputElement | null>(null);
 
@@ -67,47 +66,92 @@
 		});
 	}
 
-	function handleDragStart(projectId: string) {
+	function handlePointerDrag(event: PointerEvent, projectId: string) {
+		event.preventDefault();
+		const target = event.currentTarget;
+		if (!(target instanceof HTMLElement)) return;
+		target.setPointerCapture(event.pointerId);
 		draggedProjectId = projectId;
-	}
+		dragTargetIndex = projects.findIndex((p) => p.id === projectId);
+		const listElement = target.closest('.project-list');
 
-	function handleDrop(projectId: string | null, targetIndex: number) {
-		if (!draggedProjectId || draggedProjectId === projectId) {
+		const handlePointerMove = (moveEvent: PointerEvent) => {
+			if (!listElement) return;
+			const sections = Array.from(listElement.querySelectorAll('.project-section'));
+			for (let i = 0; i < sections.length; i++) {
+				const rect = sections[i].getBoundingClientRect();
+				if (moveEvent.clientY < rect.top + rect.height / 2) {
+					dragTargetIndex = i;
+					return;
+				}
+			}
+			dragTargetIndex = sections.length;
+		};
+
+		const cleanup = () => {
+			if (target.hasPointerCapture(event.pointerId)) {
+				target.releasePointerCapture(event.pointerId);
+			}
+			window.removeEventListener('pointermove', handlePointerMove);
+			window.removeEventListener('pointerup', handlePointerUp);
+			target.removeEventListener('pointercancel', handleCancel);
+			target.removeEventListener('lostpointercapture', handleCancel);
 			draggedProjectId = null;
-			return;
-		}
+			dragTargetIndex = null;
+		};
 
-		onMoveProject(draggedProjectId, targetIndex);
-		draggedProjectId = null;
+		const handlePointerUp = () => {
+			const sourceIndex = projects.findIndex((p) => p.id === draggedProjectId);
+			if (
+				draggedProjectId &&
+				dragTargetIndex !== null &&
+				dragTargetIndex !== sourceIndex &&
+				dragTargetIndex !== sourceIndex + 1
+			) {
+				const finalIndex = dragTargetIndex > sourceIndex ? dragTargetIndex - 1 : dragTargetIndex;
+				onMoveProject(draggedProjectId, finalIndex);
+			}
+			cleanup();
+		};
+
+		const handleCancel = () => cleanup();
+
+		window.addEventListener('pointermove', handlePointerMove);
+		window.addEventListener('pointerup', handlePointerUp);
+		target.addEventListener('pointercancel', handleCancel);
+		target.addEventListener('lostpointercapture', handleCancel);
 	}
 
-	function openProjectMenu(event: MouseEvent | KeyboardEvent, projectId: string) {
-		event.preventDefault();
-		event.stopPropagation();
-		confirmingRemoveProjectId = null;
-		confirmingRemoveThreadId = null;
-		activeMenu = menuFromEvent(event, { id: projectId, kind: 'project' });
+	function isProjectCollapsed(projectId: string) {
+		return collapsedProjectIds.includes(projectId);
 	}
 
-	function openThreadMenu(event: MouseEvent | KeyboardEvent, projectId: string, threadId: string) {
-		event.preventDefault();
-		event.stopPropagation();
-		confirmingRemoveProjectId = null;
-		confirmingRemoveThreadId = null;
-		activeMenu = menuFromEvent(event, { id: threadId, kind: 'thread', projectId });
+	function toggleProjectCollapsed(projectId: string) {
+		collapsedProjectIds = isProjectCollapsed(projectId)
+			? collapsedProjectIds.filter((id) => id !== projectId)
+			: [...collapsedProjectIds, projectId];
 	}
 
-	function menuFromEvent<T extends Omit<MenuState, 'x' | 'y'>>(
+	function moveProjectBy(projectId: string, delta: number) {
+		const currentIndex = projects.findIndex((p) => p.id === projectId);
+		if (currentIndex === -1) return;
+		const targetIndex = Math.max(0, Math.min(projects.length - 1, currentIndex + delta));
+		if (targetIndex !== currentIndex) onMoveProject(projectId, targetIndex);
+	}
+
+	function openMenu(
 		event: MouseEvent | KeyboardEvent,
-		menu: T
+		partial: { id: string; kind: 'project' } | { id: string; kind: 'thread'; projectId: string }
 	) {
+		event.preventDefault();
+		event.stopPropagation();
 		const target = event.currentTarget instanceof HTMLElement ? event.currentTarget : null;
 		const box = target?.getBoundingClientRect();
-		return {
-			...menu,
+		activeMenu = {
+			...partial,
 			x: event instanceof MouseEvent && event.clientX > 0 ? event.clientX : (box?.right ?? 0),
 			y: event instanceof MouseEvent && event.clientY > 0 ? event.clientY : (box?.bottom ?? 0)
-		};
+		} as MenuState;
 	}
 
 	async function startRename(next: RenameState) {
@@ -119,16 +163,12 @@
 	}
 
 	function saveRename() {
-		if (!renameState) {
-			return;
-		}
-
+		if (!renameState) return;
 		const nextValue = renameState.value.trim();
 		if (!nextValue) {
 			renameState = null;
 			return;
 		}
-
 		if (renameState.kind === 'project') {
 			onRenameProject(renameState.id, nextValue);
 		} else {
@@ -162,69 +202,13 @@
 				void startRename({ id: target.threadId, kind: 'thread', value: target.title });
 			}
 		}
-
 		if (event.shiftKey && event.key === 'F10') {
-			if (target.kind === 'project') {
-				openProjectMenu(event, target.project.id);
-			} else {
-				openThreadMenu(event, target.projectId, target.threadId);
-			}
-		}
-	}
-
-	function removeProject(project: ProjectRecord) {
-		activeMenu = null;
-		confirmingRemoveProjectId = null;
-		onRemoveProject(project.id);
-	}
-
-	function removeThread(threadId: string) {
-		activeMenu = null;
-		confirmingRemoveThreadId = null;
-		onRemoveThread(threadId);
-	}
-
-	function findMenuProject() {
-		const menu = activeMenu;
-		return menu?.kind === 'project' ? projects.find((project) => project.id === menu.id) : null;
-	}
-
-	function findMenuThread() {
-		const menu = activeMenu;
-		if (menu?.kind !== 'thread') {
-			return null;
-		}
-		const project = projects.find((entry) => entry.id === menu.projectId);
-		const thread = project?.threads.find((entry) => entry.id === menu.id) ?? null;
-		return project && thread ? { project, thread } : null;
-	}
-
-	function createThreadFromMenu() {
-		const project = findMenuProject();
-		activeMenu = null;
-		if (project) {
-			onCreateThread(project.id);
-		}
-	}
-
-	function openDiffFromMenu() {
-		const record = findMenuThread();
-		activeMenu = null;
-		if (record) {
-			onOpenDiff(record.project.id, record.thread.id);
-		}
-	}
-
-	function refreshStatusFromMenu() {
-		activeMenu = null;
-		onRefreshStatus();
-	}
-
-	function stopThreadFromMenu() {
-		const record = findMenuThread();
-		activeMenu = null;
-		if (record) {
-			onStopThread(record.thread.id);
+			openMenu(
+				event,
+				target.kind === 'project'
+					? { id: target.project.id, kind: 'project' }
+					: { id: target.threadId, kind: 'thread', projectId: target.projectId }
+			);
 		}
 	}
 </script>
@@ -238,15 +222,15 @@
 			</div>
 		{:else}
 			{#each projects as project, index (project.id)}
+				{#if draggedProjectId && dragTargetIndex === index && draggedProjectId !== project.id}
+					<div class="project-drop-indicator" aria-hidden="true"></div>
+				{/if}
 				<section
 					class="project-section"
+					class:project-section--collapsed={isProjectCollapsed(project.id)}
+					class:project-section--dragging={draggedProjectId === project.id}
 					data-selected={project.id === selectedProjectId ? 'true' : undefined}
-					draggable="true"
 					role="listitem"
-					ondragstart={() => handleDragStart(project.id)}
-					ondragend={() => (draggedProjectId = null)}
-					ondragover={(event) => event.preventDefault()}
-					ondrop={() => handleDrop(project.id, index)}
 				>
 					<div class="project-section__header">
 						{#if renameState?.kind === 'project' && renameState.id === project.id}
@@ -258,11 +242,11 @@
 										class="rail-rename-input"
 										value={renameState.value}
 										onblur={saveRename}
-										oninput={(event) =>
+										oninput={(e) =>
 											(renameState = {
 												id: project.id,
 												kind: 'project',
-												value: event.currentTarget.value
+												value: e.currentTarget.value
 											})}
 										onkeydown={handleRenameKeydown}
 									/>
@@ -275,9 +259,33 @@
 								class="project-section__title"
 								type="button"
 								onclick={() => onSelectProject(project.id)}
-								oncontextmenu={(event) => openProjectMenu(event, project.id)}
-								onkeydown={(event) => handleRowKeydown(event, { kind: 'project', project })}
+								oncontextmenu={(e) => openMenu(e, { id: project.id, kind: 'project' })}
+								onkeydown={(e) => handleRowKeydown(e, { kind: 'project', project })}
 							>
+								<span
+									class="project-section__caret"
+									role="button"
+									tabindex="-1"
+									aria-label={`${isProjectCollapsed(project.id) ? 'Show' : 'Hide'} ${project.name} threads`}
+									aria-expanded={!isProjectCollapsed(project.id)}
+									onclick={(e) => {
+										e.stopPropagation();
+										toggleProjectCollapsed(project.id);
+									}}
+									onkeydown={(e) => {
+										if (e.key === 'Enter' || e.key === ' ') {
+											e.stopPropagation();
+											e.preventDefault();
+											toggleProjectCollapsed(project.id);
+										}
+									}}
+								>
+									{#if isProjectCollapsed(project.id)}
+										<CaretRight size={16} />
+									{:else}
+										<CaretDown size={16} />
+									{/if}
+								</span>
 								<div class="project-section__identity">
 									<h2>{project.name}</h2>
 									<p>{project.branch}</p>
@@ -285,195 +293,114 @@
 								<span>{project.threads.length}</span>
 							</button>
 						{/if}
-
 						<button
 							aria-label={`Create thread in ${project.name}`}
 							class="project-section__new-thread"
 							type="button"
-							onclick={() => onCreateThread(project.id)}
+							onclick={() => onCreateThread(project.id)}>+</button
 						>
-							+
+						<button
+							aria-label={`Drag to reorder ${project.name}`}
+							class="rail-action-button rail-drag-handle"
+							title="Drag to reorder"
+							type="button"
+							onpointerdown={(e) => handlePointerDrag(e, project.id)}
+						>
+							<Draggable size={16} />
 						</button>
 						<button
 							aria-label="Project actions"
 							class="rail-action-button"
 							type="button"
-							onclick={(event) => openProjectMenu(event, project.id)}
+							onclick={(e) => openMenu(e, { id: project.id, kind: 'project' })}
 						>
 							<OverflowMenuHorizontal size={16} />
 						</button>
 					</div>
 
-					<ul class="thread-list">
-						{#each sortedThreads(project) as thread (thread.id)}
-							<li>
-								<div
-									class="thread-row"
-									data-thread-id={thread.id}
-									data-selected={thread.id === selectedThreadId ? 'true' : undefined}
-								>
-									{#if renameState?.kind === 'thread' && renameState.id === thread.id}
-										<div class="thread-row__select thread-row__select--editing">
-											<StatusTag status={thread.status} />
-											<input
-												bind:this={renameInput}
-												aria-label={`Rename ${thread.title}`}
-												class="rail-rename-input"
-												value={renameState.value}
-												onblur={saveRename}
-												oninput={(event) =>
-													(renameState = {
-														id: thread.id,
-														kind: 'thread',
-														value: event.currentTarget.value
-													})}
-												onkeydown={handleRenameKeydown}
-											/>
-										</div>
-									{:else}
-										<button
-											class="thread-row__select"
-											title={new Date(thread.updatedAtMs).toLocaleString()}
-											type="button"
-											onclick={() => onSelectThread(project.id, thread.id)}
-											oncontextmenu={(event) => openThreadMenu(event, project.id, thread.id)}
-											onkeydown={(event) =>
-												handleRowKeydown(event, {
-													kind: 'thread',
-													projectId: project.id,
-													threadId: thread.id,
-													title: thread.title
-												})}
-										>
-											<StatusTag status={thread.status} />
-											<h3>{thread.title}</h3>
-										</button>
-									{/if}
-									<button
-										aria-label="Thread actions"
-										class="rail-action-button"
-										type="button"
-										onclick={(event) => openThreadMenu(event, project.id, thread.id)}
+					{#if !isProjectCollapsed(project.id)}
+						<ul class="thread-list">
+							{#each sortedThreads(project) as thread (thread.id)}
+								<li>
+									<div
+										class="thread-row"
+										data-thread-id={thread.id}
+										data-selected={thread.id === selectedThreadId ? 'true' : undefined}
 									>
-										<OverflowMenuHorizontal size={16} />
-									</button>
-								</div>
-							</li>
-						{/each}
-					</ul>
+										{#if renameState?.kind === 'thread' && renameState.id === thread.id}
+											<div class="thread-row__select thread-row__select--editing">
+												<StatusTag status={thread.status} />
+												<input
+													bind:this={renameInput}
+													aria-label={`Rename ${thread.title}`}
+													class="rail-rename-input"
+													value={renameState.value}
+													onblur={saveRename}
+													oninput={(e) =>
+														(renameState = {
+															id: thread.id,
+															kind: 'thread',
+															value: e.currentTarget.value
+														})}
+													onkeydown={handleRenameKeydown}
+												/>
+											</div>
+										{:else}
+											<button
+												class="thread-row__select"
+												title={new Date(thread.updatedAtMs).toLocaleString()}
+												type="button"
+												onclick={() => onSelectThread(project.id, thread.id)}
+												oncontextmenu={(e) =>
+													openMenu(e, { id: thread.id, kind: 'thread', projectId: project.id })}
+												onkeydown={(e) =>
+													handleRowKeydown(e, {
+														kind: 'thread',
+														projectId: project.id,
+														threadId: thread.id,
+														title: thread.title
+													})}
+											>
+												<StatusTag status={thread.status} />
+												<h3>{thread.title}</h3>
+											</button>
+										{/if}
+										<button
+											aria-label="Thread actions"
+											class="rail-action-button"
+											type="button"
+											onclick={(e) =>
+												openMenu(e, { id: thread.id, kind: 'thread', projectId: project.id })}
+										>
+											<OverflowMenuHorizontal size={16} />
+										</button>
+									</div>
+								</li>
+							{/each}
+						</ul>
+					{/if}
 				</section>
 			{/each}
-			<div
-				class="project-section project-section--drop-target"
-				aria-hidden="true"
-				role="presentation"
-				ondragover={(event) => event.preventDefault()}
-				ondrop={() => handleDrop(null, projects.length)}
-			></div>
+			{#if draggedProjectId && dragTargetIndex === projects.length}
+				<div class="project-drop-indicator" aria-hidden="true"></div>
+			{/if}
 		{/if}
 	</div>
 
 	{#if activeMenu}
-		<button
-			aria-label="Close actions menu"
-			class="rail-menu-backdrop"
-			type="button"
-			onclick={() => {
-				activeMenu = null;
-				confirmingRemoveProjectId = null;
-				confirmingRemoveThreadId = null;
-			}}
-			oncontextmenu={(event) => {
-				event.preventDefault();
-				activeMenu = null;
-				confirmingRemoveProjectId = null;
-				confirmingRemoveThreadId = null;
-			}}
-		></button>
-		<div
-			class="rail-menu"
-			role="menu"
-			style={`left: ${activeMenu.x}px; top: ${activeMenu.y}px;`}
-			tabindex="-1"
-			onkeydown={(event) => event.key === 'Escape' && (activeMenu = null)}
-		>
-			{#if activeMenu.kind === 'project' && findMenuProject()}
-				{@const project = findMenuProject()}
-				{#if project && confirmingRemoveProjectId === project.id}
-					<div class="rail-menu__confirm" role="group" aria-label={`Remove ${project.name}`}>
-						<p>Remove from project list?</p>
-						<span>Files on disk are not deleted.</span>
-					</div>
-					<button role="menuitem" type="button" onclick={() => removeProject(project)}>
-						<TrashCan size={16} /> Confirm remove
-					</button>
-					<button role="menuitem" type="button" onclick={() => (confirmingRemoveProjectId = null)}>
-						Cancel
-					</button>
-				{:else}
-					<button
-						role="menuitem"
-						type="button"
-						onclick={() =>
-							project && startRename({ id: project.id, kind: 'project', value: project.name })}
-					>
-						<Edit size={16} /> Rename
-					</button>
-					<button role="menuitem" type="button" onclick={createThreadFromMenu}>
-						+ New thread
-					</button>
-					<button role="menuitem" type="button" onclick={refreshStatusFromMenu}>
-						<Renew size={16} /> Refresh status
-					</button>
-					<button
-						role="menuitem"
-						type="button"
-						onclick={() => project && (confirmingRemoveProjectId = project.id)}
-					>
-						<TrashCan size={16} /> Remove project
-					</button>
-				{/if}
-			{:else if activeMenu.kind === 'thread' && findMenuThread()}
-				{@const record = findMenuThread()}
-				{#if record && confirmingRemoveThreadId === record.thread.id}
-					<div class="rail-menu__confirm" role="group" aria-label={`Delete ${record.thread.title}`}>
-						<p>Delete thread?</p>
-						<span>This removes the thread from the project list.</span>
-					</div>
-					<button role="menuitem" type="button" onclick={() => removeThread(record.thread.id)}>
-						<TrashCan size={16} /> Confirm delete
-					</button>
-					<button role="menuitem" type="button" onclick={() => (confirmingRemoveThreadId = null)}>
-						Cancel
-					</button>
-				{:else}
-					<button
-						role="menuitem"
-						type="button"
-						onclick={() =>
-							record &&
-							startRename({ id: record.thread.id, kind: 'thread', value: record.thread.title })}
-					>
-						<Edit size={16} /> Rename
-					</button>
-					<button role="menuitem" type="button" onclick={openDiffFromMenu}>
-						<Code size={16} /> Open diff
-					</button>
-					{#if record?.thread.status === 'running'}
-						<button role="menuitem" type="button" onclick={stopThreadFromMenu}>
-							<Stop size={16} /> Stop run
-						</button>
-					{:else if record}
-						<button
-							role="menuitem"
-							type="button"
-							onclick={() => (confirmingRemoveThreadId = record.thread.id)}
-						>
-							<TrashCan size={16} /> Delete thread
-						</button>
-					{/if}
-				{/if}
-			{/if}
-		</div>
+		<ProjectRailMenu
+			menu={activeMenu}
+			onClose={() => (activeMenu = null)}
+			{onCreateThread}
+			onMoveProject={moveProjectBy}
+			{onOpenDiff}
+			{onRefreshStatus}
+			{onRemoveProject}
+			{onRemoveThread}
+			onRenameProject={(id, name) => startRename({ id, kind: 'project', value: name })}
+			onRenameThread={(id, title) => startRename({ id, kind: 'thread', value: title })}
+			{onStopThread}
+			{projects}
+		/>
 	{/if}
 </aside>
