@@ -141,6 +141,47 @@
 		snapshot,
 		workbenchGridStyle
 	}: Props = $props();
+
+	function contextUsageLabel(thread: ThreadRecord | null) {
+		const usage = thread?.contextUsage;
+		if (!usage) {
+			return 'Context ?';
+		}
+		if (typeof usage.percent === 'number') {
+			return `Context ${Math.round(usage.percent)}%`;
+		}
+		return 'Context ?';
+	}
+
+	function contextUsageTitle(thread: ThreadRecord | null) {
+		const usage = thread?.contextUsage;
+		if (!usage) {
+			return 'Context usage is not available yet. Click to compact this thread.';
+		}
+		const tokenText =
+			usage.tokens === null
+				? 'Token usage is unknown until the next model response.'
+				: `${usage.tokens.toLocaleString()} of ${usage.contextWindow.toLocaleString()} context tokens used.`;
+		return `${tokenText} Click to compact this thread now.`;
+	}
+
+	function contextUsageTone(thread: ThreadRecord | null) {
+		const percent = thread?.contextUsage?.percent;
+		if (typeof percent !== 'number') {
+			return 'unknown';
+		}
+		if (percent >= 85) {
+			return 'high';
+		}
+		if (percent >= 65) {
+			return 'medium';
+		}
+		return 'low';
+	}
+
+	const contextLabel = $derived(contextUsageLabel(activeThread));
+	const contextTitle = $derived(contextUsageTitle(activeThread));
+	const contextTone = $derived(contextUsageTone(activeThread));
 </script>
 
 <div
@@ -180,12 +221,7 @@
 	{/if}
 
 	<div bind:this={centerColumnElement} class="center-column">
-		<ConversationPane
-			{onCompactThread}
-			project={activeProject}
-			{runtimeError}
-			thread={activeThread}
-		/>
+		<ConversationPane project={activeProject} {runtimeError} thread={activeThread} />
 		{#if canResizePanels}
 			<WorkbenchVerticalResizeHandle
 				label="Resize conversation and composer"
@@ -199,10 +235,14 @@
 		<ComposerPanel
 			{attachments}
 			canSend={Boolean(activeThread) && snapshot.models.length > 0}
+			{contextLabel}
+			{contextTitle}
+			{contextTone}
 			{draft}
 			hint={composerHint}
 			models={snapshot.models}
 			{onAttach}
+			onCompactThread={() => activeThread && onCompactThread(activeThread.id)}
 			{onDraftChange}
 			{onModelChange}
 			{onRemoveAttachment}

@@ -6,7 +6,6 @@
 	import ThreadMessage from './ThreadMessage.svelte';
 
 	type Props = {
-		onCompactThread: (threadId: string) => void;
 		project: ProjectRecord | null;
 		runtimeError: string | null;
 		thread: ThreadRecord | null;
@@ -181,46 +180,6 @@
 		return null;
 	}
 
-	function contextUsageLabel(thread: ThreadRecord | null) {
-		const usage = thread?.contextUsage;
-		if (!usage) {
-			return 'Context ?';
-		}
-
-		if (typeof usage.percent === 'number') {
-			return `Context ${Math.round(usage.percent)}%`;
-		}
-
-		return 'Context ?';
-	}
-
-	function contextUsageTitle(thread: ThreadRecord | null) {
-		const usage = thread?.contextUsage;
-		if (!usage) {
-			return 'Context usage is not available yet. Click to compact this thread.';
-		}
-
-		const tokenText =
-			usage.tokens === null
-				? 'Token usage is unknown until the next model response.'
-				: `${usage.tokens.toLocaleString()} of ${usage.contextWindow.toLocaleString()} context tokens used.`;
-		return `${tokenText} Click to compact this thread now.`;
-	}
-
-	function contextUsageTone(thread: ThreadRecord | null) {
-		const percent = thread?.contextUsage?.percent;
-		if (typeof percent !== 'number') {
-			return 'unknown';
-		}
-		if (percent >= 85) {
-			return 'high';
-		}
-		if (percent >= 65) {
-			return 'medium';
-		}
-		return 'low';
-	}
-
 	let nowMs = $state(Date.now());
 	let statusTimer: ReturnType<typeof setInterval> | null = null;
 	let activityListElement: HTMLDivElement | null = null;
@@ -229,7 +188,7 @@
 	let stickToBottom = $state(true);
 	let visibleMessageCount = $state(MESSAGE_PAGE_SIZE);
 
-	let { onCompactThread, project, runtimeError, thread }: Props = $props();
+	let { project, runtimeError, thread }: Props = $props();
 
 	const messages = $derived(visibleMessages(thread));
 	const timelineActivities = $derived(visibleTimelineActivities(thread));
@@ -256,9 +215,6 @@
 		hiddenMessageCount > 0 ? timeline.slice(-visibleMessageCount) : timeline
 	);
 	const runStatus = $derived(buildRunStatus(thread, nowMs));
-	const contextLabel = $derived(contextUsageLabel(thread));
-	const contextTitle = $derived(contextUsageTitle(thread));
-	const contextTone = $derived(contextUsageTone(thread));
 	const errorBanner = $derived(errorBannerFor(runtimeError, thread));
 	const showErrorBanner = $derived(Boolean(errorBanner && errorBanner.key !== dismissedErrorKey));
 	const scrollKey = $derived.by(() => {
@@ -282,14 +238,6 @@
 
 	function dismissErrorBanner() {
 		dismissedErrorKey = errorBanner?.key ?? null;
-	}
-
-	function compactThread() {
-		if (!thread || thread.status === 'running') {
-			return;
-		}
-
-		onCompactThread(thread.id);
 	}
 
 	async function scrollToBottom(force = false) {
@@ -381,19 +329,6 @@
 					{/if}
 				</p>
 			</div>
-		{/if}
-		{#if thread}
-			<button
-				class="context-usage-pill"
-				data-tone={contextTone}
-				disabled={thread.status === 'running'}
-				title={contextTitle}
-				type="button"
-				onclick={compactThread}
-			>
-				<span aria-hidden="true"></span>
-				{contextLabel}
-			</button>
 		{/if}
 	</header>
 
