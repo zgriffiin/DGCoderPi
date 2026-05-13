@@ -174,3 +174,8 @@ function toAgentMessage(message) {
 function nonEmptyString(value) {
 	return typeof value === 'string' && value.trim().length > 0 ? value : null;
 }
+
+export function assistantMessageCount(session) {
+	const messages = Array.isArray(session?.messages) ? session.messages : [];
+	return messages.filter((message) => message?.role === 'assistant').length;
+}

@@ -71,6 +71,17 @@ export interface CodexStatus {
 	displayStatus: string;
 }
 
+export interface KiroSsoLoginInput {
+	region: string;
+	startUrl: string;
+}
+
+export interface KiroSsoDeviceAuth {
+	userCode: string;
+	verificationUri: string;
+	verificationUriComplete: string;
+}
+
 export interface ProviderStatus {
 	configured: boolean;
 	label: string;

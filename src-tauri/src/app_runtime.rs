@@ -547,6 +547,38 @@ impl AppRuntime {
         })
     }
 
+    pub fn start_kiro_sso_login(
+        &self,
+        input: crate::model::KiroSsoLoginInput,
+    ) -> Result<crate::model::KiroSsoDeviceAuth, String> {
+        self.with_serialized_mutation(|| {
+            let bridge = self.bridge()?;
+            bridge.request(
+                "start-kiro-sso-login",
+                serde_json::json!({
+                    "startUrl": input.start_url,
+                    "region": input.region,
+                }),
+            )
+        })
+    }
+
+    pub fn complete_kiro_sso_login(&self) -> Result<AppUpdate, String> {
+        self.with_serialized_mutation(|| {
+            let environment: BridgeEnvironment =
+                self.bridge()?.request("complete-kiro-sso-login", serde_json::json!({}))?;
+            self.persist_and_return(self.sync_environment(environment)?)
+        })
+    }
+
+    pub fn logout_kiro(&self) -> Result<AppUpdate, String> {
+        self.with_serialized_mutation(|| {
+            let environment: BridgeEnvironment =
+                self.bridge()?.request("logout-kiro", serde_json::json!({}))?;
+            self.persist_and_return(self.sync_environment(environment)?)
+        })
+    }
+
     pub fn set_feature_toggle(&self, input: ToggleFeatureInput) -> Result<AppUpdate, String> {
         self.with_serialized_mutation(|| {
             let original_state = self.clone_state()?;

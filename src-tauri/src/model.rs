@@ -472,6 +472,21 @@ pub struct ProviderKeyInput {
 
 #[derive(Clone, Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct KiroSsoLoginInput {
+    pub region: String,
+    pub start_url: String,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct KiroSsoDeviceAuth {
+    pub user_code: String,
+    pub verification_uri: String,
+    pub verification_uri_complete: String,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ToggleFeatureInput {
     pub enabled: bool,
     pub feature: String,

@@ -250,7 +250,7 @@ impl PiBridge {
         Ok(())
     }
 
-    fn request<T>(&self, command_type: &str, payload: Value) -> Result<T, String>
+    pub fn request<T>(&self, command_type: &str, payload: Value) -> Result<T, String>
     where
         T: DeserializeOwned,
     {

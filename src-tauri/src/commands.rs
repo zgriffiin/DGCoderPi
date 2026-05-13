@@ -5,11 +5,11 @@ use crate::{
     diff_model::{DiffAnalysis, DiffAnalysisInput, LoadProjectDiffInput, ProjectDiffSnapshot},
     model::{
         AddProjectInput, AppHealth, AppSnapshot, AppUpdate, CompactThreadInput, CreateThreadInput,
-        LoadSpecArtifactInput, MoveProjectInput, ProviderKeyInput, RemoveAttachmentInput,
-        RemoveProjectInput, RemoveThreadInput, RenameProjectInput, RenameThreadInput,
-        SelectIntentInput, SelectModelInput, SelectReasoningInput, SendPromptInput,
-        SetCavemanLevelInput, SetDiffAnalysisModelInput, SpecArtifactDocument,
-        StageAttachmentDataInput, StageAttachmentInput, ToggleFeatureInput,
+        KiroSsoDeviceAuth, KiroSsoLoginInput, LoadSpecArtifactInput, MoveProjectInput,
+        ProviderKeyInput, RemoveAttachmentInput, RemoveProjectInput, RemoveThreadInput,
+        RenameProjectInput, RenameThreadInput, SelectIntentInput, SelectModelInput,
+        SelectReasoningInput, SendPromptInput, SetCavemanLevelInput, SetDiffAnalysisModelInput,
+        SpecArtifactDocument, StageAttachmentDataInput, StageAttachmentInput, ToggleFeatureInput,
     },
 };
 
@@ -123,6 +123,24 @@ pub fn import_codex_openai_key(runtime: State<'_, AppRuntime>) -> UpdateCommandR
 #[tauri::command]
 pub fn start_codex_login(runtime: State<'_, AppRuntime>) -> UpdateCommandResult {
     runtime.start_codex_login()
+}
+
+#[tauri::command]
+pub fn start_kiro_sso_login(
+    input: KiroSsoLoginInput,
+    runtime: State<'_, AppRuntime>,
+) -> Result<KiroSsoDeviceAuth, String> {
+    runtime.start_kiro_sso_login(input)
+}
+
+#[tauri::command]
+pub fn complete_kiro_sso_login(runtime: State<'_, AppRuntime>) -> UpdateCommandResult {
+    runtime.complete_kiro_sso_login()
+}
+
+#[tauri::command]
+pub fn logout_kiro(runtime: State<'_, AppRuntime>) -> UpdateCommandResult {
+    runtime.logout_kiro()
 }
 
 #[tauri::command]

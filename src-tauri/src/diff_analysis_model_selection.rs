@@ -47,6 +47,7 @@ fn diff_analysis_provider_rank(model: &ModelOption) -> u8 {
     match model.provider.as_str() {
         "openai" => 0,
         "anthropic" => 1,
+        "kiro" => 1,
         "google" => 2,
         "openrouter" => 3,
         "deepseek" => 4,

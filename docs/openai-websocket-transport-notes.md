@@ -48,13 +48,15 @@ That streaming improves UI responsiveness, but it is not the same optimization a
 
 Adding Kiro support does not make OpenAI WebSocket mode directly available.
 
-Kiro is a separate agentic IDE/workflow system with its own orchestration model, steering files, specs, hooks, and provider/runtime decisions. If DGCoder integrates with Kiro, the transport benefits depend on what Kiro exposes:
+Kiro is a separate agentic IDE/workflow system with its own orchestration model, steering files, specs, hooks, and provider/runtime decisions. DGCoder integrates with Kiro Enterprise as a model provider through AWS IAM Identity Center SSO, giving access to Claude Opus 4.6 and Sonnet 4.6 via Bedrock. This is a provider adapter, not a transport change.
 
-- If Kiro owns the model loop, DGCoder should not assume control over OpenAI WebSockets.
-- If Kiro exposes agent events, specs, hooks, or workspace context, DGCoder can integrate those surfaces without changing provider transport.
+The transport benefits of OpenAI WebSocket mode depend on what transport the provider exposes:
+
+- Kiro Enterprise models (Claude via Bedrock) use standard HTTP request/response, not WebSockets.
+- If Kiro later exposes agent events, specs, hooks, or workspace context, DGCoder can integrate those surfaces without changing provider transport.
 - If Kiro later exposes a direct provider transport setting or WebSocket-backed agent backend, DGCoder could evaluate it as a Kiro-specific adapter capability.
 
-In other words, OpenAI WebSocket mode is useful when this app owns direct OpenAI Responses calls. Kiro support would more likely be an additional orchestration/provider adapter, not a reason to bypass Kiro's own runtime.
+In other words, OpenAI WebSocket mode is useful when this app owns direct OpenAI Responses calls. Kiro support is an additional provider adapter that does not bypass Kiro's own runtime or change the transport architecture.
 
 ## Future Decision Point
 
