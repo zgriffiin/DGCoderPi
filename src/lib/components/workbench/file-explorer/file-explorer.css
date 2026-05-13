@@ -1,13 +1,10 @@
 /* File Explorer Overlay */
 .file-explorer-overlay {
 	background: var(--cds-background, #f4f4f4);
-	bottom: 0;
+	inset: 0;
 	display: flex;
 	flex-direction: column;
-	left: 0;
 	position: fixed;
-	right: 0;
-	top: 0;
 	z-index: 100;
 }
 
@@ -218,7 +215,7 @@
 	display: flex;
 	flex-direction: column;
 	flex-shrink: 0;
-	font-family: 'IBM Plex Mono', 'Menlo', 'Consolas', monospace;
+	font-family: 'IBM Plex Mono', Menlo, Consolas, monospace;
 	font-size: 0.75rem;
 	line-height: 1.5;
 	overflow: hidden;
@@ -238,7 +235,7 @@
 	border: 0;
 	color: var(--cds-text-primary, #161616);
 	flex: 1;
-	font-family: 'IBM Plex Mono', 'Menlo', 'Consolas', monospace;
+	font-family: 'IBM Plex Mono', Menlo, Consolas, monospace;
 	font-size: 0.75rem;
 	line-height: 1.5;
 	min-height: 0;
@@ -260,7 +257,7 @@
 	background: var(--cds-layer, #fff);
 	border: 1px solid var(--cds-border-subtle, #e0e0e0);
 	border-radius: 4px;
-	box-shadow: 0 4px 12px rgb(0 0 0 / 0.15);
+	box-shadow: 0 4px 12px rgb(0 0 0 / 15%);
 	display: flex;
 	flex-direction: column;
 	min-width: 200px;
@@ -307,14 +304,11 @@
 /* Rename Dialog */
 .file-explorer-rename-overlay {
 	align-items: center;
-	background: rgb(0 0 0 / 0.4);
-	bottom: 0;
+	background: rgb(0 0 0 / 40%);
+	inset: 0;
 	display: flex;
 	justify-content: center;
-	left: 0;
 	position: fixed;
-	right: 0;
-	top: 0;
 	z-index: 250;
 }
 
@@ -322,7 +316,7 @@
 	background: var(--cds-layer, #fff);
 	border: 1px solid var(--cds-border-subtle, #e0e0e0);
 	border-radius: 4px;
-	box-shadow: 0 4px 12px rgb(0 0 0 / 0.2);
+	box-shadow: 0 4px 12px rgb(0 0 0 / 20%);
 	display: flex;
 	flex-direction: column;
 	gap: 0.5rem;

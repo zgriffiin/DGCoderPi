@@ -255,11 +255,11 @@
 }
 
 .diff-hunk__row[data-kind='added'] {
-	background: rgba(36, 161, 72, 0.08);
+	background: rgb(36 161 72 / 8%);
 }
 
 .diff-hunk__row[data-kind='removed'] {
-	background: rgba(218, 30, 40, 0.08);
+	background: rgb(218 30 40 / 8%);
 }
 
 .diff-hunk__line-number,
@@ -319,7 +319,7 @@
 	}
 }
 
-@media (max-width: 900px) {
+@media (width <= 900px) {
 	.patch-file__header,
 	.diff-file-list__item {
 		grid-template-columns: 1fr;
