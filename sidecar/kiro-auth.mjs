@@ -244,7 +244,10 @@ export async function readKiroCredential(agentDir) {
  */
 async function writeKiroCredential(agentDir, credential) {
 	await mkdir(path.dirname(credentialPath(agentDir)), { recursive: true });
-	await writeFile(credentialPath(agentDir), JSON.stringify(credential, null, '\t'), 'utf8');
+	await writeFile(credentialPath(agentDir), JSON.stringify(credential, null, '\t'), {
+		encoding: 'utf8',
+		mode: 0o600
+	});
 }
 
 /**

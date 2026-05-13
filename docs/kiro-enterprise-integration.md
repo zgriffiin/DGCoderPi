@@ -47,7 +47,7 @@ These are the same Claude models available through Anthropic's API, accessed via
 
 ## Architecture
 
-```
+```text
 ┌─────────────┐     ┌──────────────┐     ┌─────────────────┐
 │  Tauri App  │────▶│  Node Bridge │────▶│  Pi Agent Lib   │
 │  (Rust)     │     │  (sidecar)   │     │  (Bedrock/SSO)  │

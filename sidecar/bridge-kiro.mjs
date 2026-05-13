@@ -5,12 +5,10 @@
  * of Kiro Enterprise via IAM Identity Center SSO.
  */
 
-import {
-	getValidKiroCredential,
-	readKiroCredential,
-	removeKiroCredential,
-	startKiroLogin
-} from './kiro-auth.mjs';
+import { getValidKiroCredential, removeKiroCredential, startKiroLogin } from './kiro-auth.mjs';
+
+/** @type {Map<string, { complete: () => Promise<unknown> }>} */
+const pendingLogins = new Map();
 
 /**
  * Sync the Kiro SSO credential into the auth storage.
@@ -26,7 +24,7 @@ export async function syncKiroSso(agentDir, authStorage, disposeSessions) {
 		}
 		return;
 	}
-	if (current?.accessToken === credential.accessToken) {
+	if (current?.key === credential.accessToken) {
 		return;
 	}
 	authStorage.set('kiro', {
@@ -41,6 +39,7 @@ export async function syncKiroSso(agentDir, authStorage, disposeSessions) {
 /**
  * Start the Kiro SSO device authorization flow.
  * Returns the verification URI and user code for the UI.
+ * Stores the pending login session so completeKiroSsoLogin can finalize it.
  */
 export async function startKiroSsoLogin(agentDir, payload) {
 	const { startUrl, region } = payload;
@@ -48,6 +47,7 @@ export async function startKiroSsoLogin(agentDir, payload) {
 		throw new Error('startUrl and region are required for Kiro SSO login.');
 	}
 	const loginSession = await startKiroLogin(agentDir, { startUrl, region });
+	pendingLogins.set(agentDir, loginSession);
 	return {
 		verificationUri: loginSession.verificationUri,
 		verificationUriComplete: loginSession.verificationUriComplete,
@@ -57,14 +57,19 @@ export async function startKiroSsoLogin(agentDir, payload) {
 
 /**
  * Complete the Kiro SSO login after the user has authorized in their browser.
+ * Calls the pending login session's complete() to poll for the token.
  */
 export async function completeKiroSsoLogin(agentDir, authStorage, disposeSessions) {
-	const credential = await readKiroCredential(agentDir);
-	if (!credential) {
+	const loginSession = pendingLogins.get(agentDir);
+	if (!loginSession) {
 		throw new Error('No pending Kiro login session found.');
 	}
+	try {
+		await loginSession.complete();
+	} finally {
+		pendingLogins.delete(agentDir);
+	}
 	await syncKiroSso(agentDir, authStorage, disposeSessions);
-	disposeSessions();
 }
 
 /**

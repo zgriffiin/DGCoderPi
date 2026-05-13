@@ -551,15 +551,16 @@ impl AppRuntime {
         &self,
         input: crate::model::KiroSsoLoginInput,
     ) -> Result<crate::model::KiroSsoDeviceAuth, String> {
-        let bridge = self.bridge()?;
-        let result: crate::model::KiroSsoDeviceAuth = bridge.request(
-            "start-kiro-sso-login",
-            serde_json::json!({
-                "startUrl": input.start_url,
-                "region": input.region,
-            }),
-        )?;
-        Ok(result)
+        self.with_serialized_mutation(|| {
+            let bridge = self.bridge()?;
+            bridge.request(
+                "start-kiro-sso-login",
+                serde_json::json!({
+                    "startUrl": input.start_url,
+                    "region": input.region,
+                }),
+            )
+        })
     }
 
     pub fn complete_kiro_sso_login(&self) -> Result<AppUpdate, String> {
