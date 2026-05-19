@@ -56,9 +56,11 @@ export function loadPanelWidths(storage: Storage): PanelWidths {
 
 	try {
 		const parsed = JSON.parse(savedWidths);
+		const left = typeof parsed?.left === 'number' ? parsed.left : DEFAULT_PANEL_WIDTHS.left;
+		const right = typeof parsed?.right === 'number' ? parsed.right : DEFAULT_PANEL_WIDTHS.right;
 		return {
-			left: typeof parsed?.left === 'number' ? parsed.left : DEFAULT_PANEL_WIDTHS.left,
-			right: typeof parsed?.right === 'number' ? parsed.right : DEFAULT_PANEL_WIDTHS.right
+			left: Math.max(left, MIN_PROJECT_RAIL_WIDTH),
+			right: Math.max(right, MIN_INSPECTOR_WIDTH)
 		};
 	} catch {
 		return DEFAULT_PANEL_WIDTHS;
