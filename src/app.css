@@ -312,7 +312,7 @@ textarea {
 	align-items: center;
 	display: grid;
 	gap: 0.25rem;
-	grid-template-columns: minmax(0, 1fr) repeat(3, 1.75rem);
+	grid-template-columns: minmax(0, 1fr) repeat(4, 1.75rem);
 	min-width: 0;
 	padding: 0 0.5rem 0.5rem;
 }
