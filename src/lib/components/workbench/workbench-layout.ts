@@ -15,7 +15,7 @@ type PanelWidths = {
 
 export const DEFAULT_PANEL_WIDTHS: PanelWidths = {
 	left: 288,
-	right: 304
+	right: 360
 };
 export const DEFAULT_COMPOSER_HEIGHT_PERCENT = 34;
 export const DEFAULT_INSPECTOR_DETAIL_HEIGHT_PERCENT = 28;
@@ -26,7 +26,7 @@ export const MIN_INSPECTOR_DETAIL_HEIGHT_PERCENT = 18;
 
 const HANDLE_WIDTH = 8;
 const MIN_CENTER_WIDTH = 300;
-export const MIN_INSPECTOR_WIDTH = 304;
+export const MIN_INSPECTOR_WIDTH = 320;
 export const MIN_PROJECT_RAIL_WIDTH = 224;
 export const RESIZE_BREAKPOINT = 1100;
 const WORKBENCH_LAYOUT_STORAGE_KEY = 'pi.workbench.layout.v1';
