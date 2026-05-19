@@ -126,7 +126,10 @@ fn resolve_spec_artifact_path(project_path: &str, artifact: &str) -> Result<Path
         return Err("Only markdown spec artifacts are supported.".to_string());
     }
 
-    Ok(PathBuf::from(project_path).join(artifact_path))
+    Ok(PathBuf::from(project_path)
+        .join("docs")
+        .join("spec")
+        .join(artifact_path))
 }
 
 impl AppRuntime {
@@ -339,6 +342,16 @@ impl AppRuntime {
 
     pub fn add_project(&self, input: AddProjectInput) -> Result<AppUpdate, String> {
         self.with_serialized_mutation(|| {
+            let spec_dir = PathBuf::from(&input.path).join("docs").join("spec");
+            if !spec_dir.exists() {
+                fs::create_dir_all(&spec_dir).map_err(|error| {
+                    format!(
+                        "Failed to create spec artifact directory `{}`: {error}",
+                        spec_dir.display()
+                    )
+                })?;
+            }
+
             let default_model = self.default_model_key();
             let project_id = self.mutate_state(|state| {
                 let mut project = new_project(&input.path);
@@ -2262,6 +2275,7 @@ mod tests {
         QueueMode, QueueStatus, ThreadIntent, ThreadRecord, ThreadStatus,
     };
     use std::collections::HashSet;
+    use std::path::PathBuf;
 
     #[test]
     fn move_project_index_handles_start() {
@@ -2312,7 +2326,10 @@ mod tests {
 
     #[test]
     fn resolve_spec_artifact_path_rejects_non_markdown_and_parent_segments() {
-        assert!(resolve_spec_artifact_path("C:/repo", "intent.md").is_ok());
+        assert_eq!(
+            resolve_spec_artifact_path("C:/repo", "intent.md").unwrap(),
+            PathBuf::from("C:/repo/docs/spec/intent.md")
+        );
         assert!(resolve_spec_artifact_path("C:/repo", "../intent.md").is_err());
         assert!(resolve_spec_artifact_path("C:/repo", "intent.txt").is_err());
     }

@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { Button, Tag } from 'carbon-components-svelte';
 	import type { DiffAnalysis, DiffEvidence, ProjectDiffSnapshot } from '$lib/types/workbench';
+	import { hasDiffReviewContent } from '$lib/workbench/diff-analysis-state';
 
 	type Props = {
 		analysis: DiffAnalysis | null;
@@ -27,14 +28,7 @@
 	}
 
 	function hasReviewContent() {
-		return Boolean(
-			analysis &&
-			(analysis.changeBrief.length > 0 ||
-				analysis.impact.length > 0 ||
-				analysis.risks.length > 0 ||
-				analysis.focusQueue.length > 0 ||
-				analysis.suggestedFollowUps.length > 0)
-		);
+		return hasDiffReviewContent(analysis);
 	}
 
 	function statusLabel() {
@@ -45,6 +39,10 @@
 	}
 
 	function progressLabel(analysis: DiffAnalysis) {
+		if (analysis.status === 'complete') {
+			return '100%';
+		}
+
 		if (analysis.progress > 0) {
 			return `${analysis.progress}%`;
 		}

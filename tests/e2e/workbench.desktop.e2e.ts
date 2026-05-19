@@ -37,7 +37,23 @@ async function isWorkbenchPage(page: import('@playwright/test').Page) {
 test.skip(process.platform !== 'win32', 'Desktop runtime verification is Windows-only.');
 
 async function getDesktopPage() {
-	const browser = await chromium.connectOverCDP(DESKTOP_DEBUG_URL);
+	let browser: Awaited<ReturnType<typeof chromium.connectOverCDP>> | null = null;
+	for (let attempt = 0; attempt < 60; attempt += 1) {
+		try {
+			browser = await chromium.connectOverCDP(DESKTOP_DEBUG_URL);
+			break;
+		} catch (error) {
+			if (attempt === 59) {
+				throw error;
+			}
+			await new Promise((resolve) => setTimeout(resolve, 500));
+		}
+	}
+
+	if (!browser) {
+		throw new Error('The Tauri debug endpoint did not become available.');
+	}
+
 	try {
 		for (let attempt = 0; attempt < 120; attempt += 1) {
 			for (const context of browser.contexts()) {
@@ -167,6 +183,15 @@ async function verifySettingsAndDiff(
 	const settingsDialog = page.getByRole('dialog', { name: 'Settings' });
 	await expect(settingsDialog).toBeVisible();
 	await expect(settingsDialog.getByRole('heading', { level: 3, name: 'Codex' })).toBeVisible();
+	await settingsDialog.getByRole('button', { name: 'Behavior' }).click();
+	await expect(settingsDialog.getByRole('heading', { level: 3, name: 'Behavior' })).toBeVisible();
+	await settingsDialog.getByLabel('Caveman level').selectOption('medium');
+	await settingsDialog.getByLabel('Close the modal').click();
+	await page.getByRole('button', { name: 'Settings' }).click();
+	await expect(settingsDialog).toBeVisible();
+	await settingsDialog.getByRole('button', { name: 'Behavior' }).click();
+	await expect(settingsDialog.getByLabel('Caveman level')).toHaveValue('medium');
+	await settingsDialog.getByLabel('Caveman level').selectOption('off');
 	await settingsDialog.getByRole('button', { name: 'Providers' }).click();
 	await expect(settingsDialog.getByRole('heading', { level: 3, name: 'Providers' })).toBeVisible();
 	await expect(settingsDialog.getByLabel('Diff review model')).toBeVisible();

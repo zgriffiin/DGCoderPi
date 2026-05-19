@@ -60,6 +60,7 @@ fn fit_main_window_to_primary_monitor(app: &tauri::App) -> tauri::Result<()> {
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_pty::init())
         .setup(|app| {
             fit_main_window_to_primary_monitor(app)?;
 

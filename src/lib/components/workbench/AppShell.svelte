@@ -7,6 +7,7 @@
 	import {
 		createIdleShipReview,
 		createReviewingShipReview,
+		projectHasRunningShipReview,
 		runShipReviewGate,
 		shipReviewScopeMatches
 	} from '$lib/workbench/ship-review';
@@ -60,6 +61,9 @@
 		shipReviewScopeKey(activeProject?.id ?? null, activeThread?.id ?? null)
 	);
 	const shipReview = $derived(shipReviews[activeShipReviewScopeKey] ?? createIdleShipReview());
+	const projectShipReviewRunning = $derived(
+		projectHasRunningShipReview(shipReviews, activeProject?.id ?? null)
+	);
 	const shellState = $derived({
 		activeProject,
 		activeThread,
@@ -77,6 +81,7 @@
 		selectedThreadId,
 		settingsOpen,
 		shipReview,
+		projectShipReviewRunning,
 		stagedAttachments,
 		workbenchState
 	});
@@ -288,6 +293,9 @@
 		if (!activeThread || !draft.trim()) {
 			return;
 		}
+		if (projectHasRunningShipReview(shipReviews, activeProject?.id ?? null)) {
+			return;
+		}
 
 		await runAction(async () => {
 			await controller.sendPrompt(activeThread.id, draft.trim(), mode);
@@ -350,6 +358,9 @@
 
 	async function handleSpecPromptSelect(step: SpecWorkflowStep) {
 		if (!activeThread) {
+			return;
+		}
+		if (projectHasRunningShipReview(shipReviews, activeProject?.id ?? null)) {
 			return;
 		}
 

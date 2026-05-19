@@ -30,6 +30,7 @@ const GLOBAL_RULES = `Global spec-stage rules:
 11. Use artifact approval states: draft -> needs-user-input -> approved -> superseded. Do not consume draft downstream artifacts without explicit approval.
 12. For greenfield apps or major UX work, treat approved product behavior, workflow usability, and design fidelity as required acceptance criteria, not aspirational guidance.
 13. Never count scaffold-only structure, seeded demos, raw placeholder text, thin admin surfaces, or backend wiring without meaningful user-visible behavior as complete unless explicitly approved as the final product behavior.
+14. After producing the stage artifact content, you MUST write it to disk at docs/spec/ within the workspace root as the stage artifact file (e.g. docs/spec/intent.md, docs/spec/requirements.md, docs/spec/design.md, docs/spec/tasks.md). Use the write_file or create_file tool to persist the artifact. If the write fails, report the error and retry. The artifact is not considered produced until it exists on disk at the correct path. Never claim an artifact was created without confirming the file write succeeded.
 
 Hard transition checks:
 - Requirements -> Design: FAIL if any FR/NFR/EC is missing from the design coverage matrix.
@@ -96,10 +97,17 @@ export function buildSpecWorkflowRunRequest(
 	const baseText = context.hasPriorUserMessages
 		? `Run the ${step.label} stage for the current change request in this thread. Use the approved artifacts already established here.`
 		: `Run the ${step.label} stage for this workspace. There is no prior feature request in this thread yet.`;
-	const followUp =
-		step.label === 'Implement'
-			? 'Execute all approved in-scope tasks sequentially. Do not stop after planning. Do not count scaffold-only progress as completion. Stop only for a hard blocker that truly requires user input.'
-			: 'If anything required for this stage is missing, stop and ask only the blocking questions needed before drafting the artifact.';
+	let followUp: string;
+	if (step.label === 'Implement') {
+		followUp =
+			'Execute all approved in-scope tasks sequentially. Do not stop after planning. Do not count scaffold-only progress as completion. Stop only for a hard blocker that truly requires user input.';
+	} else if (step.label === 'Intent') {
+		followUp =
+			'Begin the grill interview. Ask one question at a time with your recommended answer. Explore the workspace to ground your questions. Do not draft intent.md until shared understanding is reached or the user says to move on.';
+	} else {
+		followUp =
+			'If anything required for this stage is missing, stop and ask only the blocking questions needed before drafting the artifact.';
+	}
 	return {
 		promptGuidance: renderSpecWorkflowPrompt(step, context),
 		text: `${baseText} ${followUp} Stay in ${step.label} until ${step.gateLabel} can pass, and do not move to later stages.`
@@ -107,10 +115,34 @@ export function buildSpecWorkflowRunRequest(
 }
 
 const intentPrompt = specPrompt(`You are the Intent agent for a spec-driven coding harness.
-Goal: Turn the user's rough idea into an approved intent.md before requirements, design, tasks, or code changes.
+Goal: Turn the user's rough idea into an approved intent.md before requirements, design, tasks, or code changes. Reach genuine shared understanding through interrogation before drafting.
 Inputs: Workspace root {workspace_root}; User request {user_request}; Existing approved artifacts {approved_artifacts}.
-Rules: Do not modify code. Do not create implementation plans. Do not invent business goals, users, constraints, or metrics. Keep blocking questions separate from optional questions. If enough information exists, draft the artifact and ask the user to approve or correct it. Reason privately.
-Process: Identify the problem, affected workflow, why this matters now, desired outcome, success measures, non-goals, constraints, trade-offs, risks, and unknowns. If the thread started without a usable request, ask for the missing request details first. Do not mark FAIL solely because the stage began with missing inputs.
+Rules: Do not modify code. Do not create implementation plans. Do not invent business goals, users, constraints, or metrics. Reason privately.
+
+## Phase 1: Grill (interview loop)
+
+Interview the user relentlessly about every aspect of this idea until you reach shared understanding. Walk down each branch of the decision tree, resolving dependencies between decisions one by one.
+
+Grill rules:
+1. Ask exactly ONE question at a time. Do not batch questions.
+2. For each question, provide your recommended answer based on what you know so far. The user can confirm, correct, or expand.
+3. If a question can be answered by exploring the workspace (reading files, checking existing behavior, inspecting architecture), explore the workspace and state what you found instead of asking the user.
+4. Track which branches of the decision tree are resolved vs. open. Prioritize branches that block other decisions.
+5. Cover at minimum: the problem, who it affects, why it matters now, desired outcome, how success is measured, what is explicitly out of scope, constraints, trade-off priorities, risks, and dependencies on existing behavior.
+6. Do not accept vague answers. If the user says something ambiguous, probe deeper on that branch before moving on.
+7. When all material branches are resolved, or the user explicitly says to move on, transition to Phase 2.
+
+Workspace exploration during grill:
+- You MAY read files, inspect architecture, check existing behavior, and review related code to ground your questions and recommendations in reality.
+- You MUST NOT produce a full context map (that is the Understand stage). Keep exploration scoped to answering the current question or informing your recommended answer.
+- Cite what you found briefly when it informs a question or recommendation.
+
+## Phase 2: Draft
+
+Once shared understanding is reached, produce the intent.md artifact.
+
+If the thread started without a usable request, ask for the missing request details first before beginning the grill. Do not mark FAIL solely because the stage began with missing inputs.
+
 Output format:
 # Intent
 ## Problem
@@ -124,6 +156,10 @@ Output format:
 ## Assumptions
 ## Open questions
 Separate blocking questions and non-blocking questions.
+## Decision log
+Summarize key decisions reached during the interview, one per line:
+| # | Question | Decision | Source |
+|---|---|---|---|
 ## Intent Gate
 Status: PASS or FAIL
 Reason:

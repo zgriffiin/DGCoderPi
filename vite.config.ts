@@ -2,10 +2,15 @@ import { defineConfig } from 'vitest/config';
 import { playwright } from '@vitest/browser-playwright';
 import { sveltekit } from '@sveltejs/kit/vite';
 import { optimizeCss } from 'carbon-preprocess-svelte';
+import { readFileSync } from 'node:fs';
 
 const DEV_PORT = 5182;
+const pkg = JSON.parse(readFileSync('./package.json', 'utf-8'));
 
 export default defineConfig({
+	define: {
+		__APP_VERSION__: JSON.stringify(pkg.version)
+	},
 	plugins: [sveltekit(), optimizeCss()],
 	server: {
 		host: '127.0.0.1',
@@ -27,6 +32,8 @@ export default defineConfig({
 			'carbon-components-svelte/src/Modal/Modal.svelte',
 			'carbon-components-svelte/src/Notification/InlineNotification.svelte',
 			'carbon-components-svelte/src/Search/Search.svelte',
+			'carbon-components-svelte/src/Select/Select.svelte',
+			'carbon-components-svelte/src/Select/SelectItem.svelte',
 			'carbon-components-svelte/src/Tag/Tag.svelte',
 			'carbon-components-svelte/src/TextArea/TextArea.svelte',
 			'carbon-components-svelte/src/TextInput/TextInput.svelte',

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { DiffAnalysis } from '$lib/types/workbench';
-import { buildShipReviewFixPrompt } from './ship-review';
+import { buildShipReviewFixPrompt, projectHasRunningShipReview } from './ship-review';
 
 describe('buildShipReviewFixPrompt', () => {
 	it('grounds the fix request in every ship review risk', () => {
@@ -52,5 +52,41 @@ describe('buildShipReviewFixPrompt', () => {
 		expect(prompt).toContain('Small-screen users may lose access to workflow controls.');
 		expect(prompt).toContain('src/App.svelte (high): Stepper wiring changed core navigation.');
 		expect(prompt).toContain('Rerun the diff review or ship gate after fixes');
+	});
+});
+
+describe('projectHasRunningShipReview', () => {
+	it('detects an active ship review anywhere in the project', () => {
+		expect.assertions(3);
+
+		expect(
+			projectHasRunningShipReview(
+				{
+					'a::one': {
+						analysis: null,
+						error: null,
+						projectId: 'project-a',
+						status: 'reviewing',
+						threadId: 'one'
+					}
+				},
+				'project-a'
+			)
+		).toBe(true);
+		expect(
+			projectHasRunningShipReview(
+				{
+					'a::one': {
+						analysis: null,
+						error: null,
+						projectId: 'project-a',
+						status: 'needs-decision',
+						threadId: 'one'
+					}
+				},
+				'project-a'
+			)
+		).toBe(false);
+		expect(projectHasRunningShipReview({}, 'project-a')).toBe(false);
 	});
 });

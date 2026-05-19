@@ -1,7 +1,7 @@
 {
 	"name": "dgcoder-pi",
 	"private": true,
-	"version": "0.0.1",
+	"version": "0.1.0-alpha.1",
 	"type": "module",
 	"scripts": {
 		"dev": "vite dev",
@@ -36,7 +36,8 @@
 		"tauri:smoke": "tauri build --debug --no-bundle",
 		"tauri:package": "tauri build",
 		"tauri:build": "pnpm tauri:package",
-		"tauri:info": "tauri info"
+		"tauri:info": "tauri info",
+		"version:bump": "node scripts/bump-version.mjs"
 	},
 	"simple-git-hooks": {
 		"pre-commit": "pnpm commit:gate",
@@ -84,11 +85,14 @@
 		"@mariozechner/pi-coding-agent": "^0.70.2",
 		"@tauri-apps/api": "^2.10.1",
 		"@tauri-apps/plugin-dialog": "^2.7.0",
+		"@xterm/addon-fit": "0.10.0",
+		"@xterm/xterm": "5.5.0",
 		"carbon-components-svelte": "^0.106.2",
 		"carbon-icons-svelte": "^13.10.0",
 		"isomorphic-dompurify": "^2.29.0",
 		"marked": "^18.0.2",
-		"pi-docparser": "^1.1.1"
+		"pi-docparser": "^1.1.1",
+		"tauri-pty": "0.2.1"
 	},
 	"engines": {
 		"node": ">=24.0.0",
