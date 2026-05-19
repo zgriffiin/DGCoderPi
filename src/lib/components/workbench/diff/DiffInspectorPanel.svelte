@@ -28,6 +28,10 @@
 		ThreadRecord
 	} from '$lib/types/workbench';
 	import type { WorkbenchController } from '$lib/workbench/controller';
+	import {
+		createInProgressAnalysis,
+		mergeVisibleDiffAnalysis
+	} from '$lib/workbench/diff-analysis-state';
 
 	type Props = {
 		controller: WorkbenchController;
@@ -73,24 +77,6 @@
 
 		reviewModeByScope[nextScopeKey] = 'ai-review';
 		reviewMode = 'ai-review';
-	}
-
-	function inProgressAnalysis(snapshot: ProjectDiffSnapshot): DiffAnalysis {
-		return {
-			changeBrief: [],
-			continuationToken: null,
-			error: null,
-			fingerprint: snapshot.fingerprint,
-			focusQueue: [],
-			impact: [],
-			modelKey: '',
-			partial: false,
-			progress: 0,
-			risks: [],
-			status: 'in-progress',
-			suggestedFollowUps: [],
-			updatedAtMs: Date.now()
-		};
 	}
 
 	async function loadDiffSnapshot(
@@ -200,7 +186,7 @@
 					) {
 						return;
 					}
-					diffAnalysis = nextAnalysis;
+					diffAnalysis = mergeVisibleDiffAnalysis(diffAnalysis, nextAnalysis);
 				})
 				.catch((error) => {
 					if (
@@ -257,7 +243,7 @@
 			return;
 		}
 		diffAnalysisError = null;
-		diffAnalysis = inProgressAnalysis(request.snapshot);
+		diffAnalysis = createInProgressAnalysis(request.snapshot, diffAnalysis);
 		try {
 			const nextAnalysis = await controller.refreshDiffAnalysis(
 				request.projectId,
@@ -267,7 +253,7 @@
 			if (!isCurrentRequest(request)) {
 				return;
 			}
-			diffAnalysis = nextAnalysis;
+			diffAnalysis = mergeVisibleDiffAnalysis(diffAnalysis, nextAnalysis);
 		} catch (error) {
 			if (!isCurrentRequest(request)) {
 				return;

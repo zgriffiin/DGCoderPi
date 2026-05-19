@@ -18,7 +18,7 @@ type MessageStatus = 'failed' | 'ready' | 'streaming';
 
 export type ThinkingLevel = 'high' | 'low' | 'medium' | 'minimal' | 'off' | 'xhigh';
 
-export type InspectorMode = 'diff' | 'spec' | 'tasks';
+export type InspectorMode = 'diff' | 'spec' | 'tasks' | 'terminal';
 
 export type PromptMode = 'follow-up' | 'prompt' | 'steer';
 

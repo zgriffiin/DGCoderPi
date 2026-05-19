@@ -9,13 +9,12 @@
 		artifact: string | null;
 		document: SpecArtifactDocument | null;
 		error: string | null;
-		fallbackText: string | null;
 		loading: boolean;
 	};
 
-	let { artifact, document, error, fallbackText, loading }: Props = $props();
+	let { artifact, document, error, loading }: Props = $props();
 	const renderedBody = $derived.by(() => {
-		const sourceText = document?.text ?? fallbackText;
+		const sourceText = document?.text ?? null;
 		return sourceText ? renderMarkdown(sourceText, marked, DOMPurify) : null;
 	});
 </script>
@@ -39,17 +38,10 @@
 			{/if}
 			<!-- eslint-disable-next-line svelte/no-at-html-tags -->
 			<div class="spec-artifact-viewer__body message-row__body--markdown">{@html renderedBody}</div>
-		{:else if artifact && fallbackText}
-			{#if document?.path}
-				<p>{document.path}</p>
-			{/if}
-			<p>Showing the latest stage output from this thread because no workspace file exists yet.</p>
-			<!-- eslint-disable-next-line svelte/no-at-html-tags -->
-			<div class="spec-artifact-viewer__body message-row__body--markdown">{@html renderedBody}</div>
 		{:else if artifact && !document?.exists}
-			<p>No file found yet for this stage.</p>
+			<p>Artifact file not found. The agent must write {artifact} to the project root.</p>
 			{#if document?.path}
-				<p>{document.path}</p>
+				<p>Expected at: {document.path}</p>
 			{/if}
 		{:else}
 			<p>Select a spec artifact to view it here.</p>

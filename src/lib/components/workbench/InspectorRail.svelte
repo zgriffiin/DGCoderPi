@@ -11,7 +11,7 @@
 	} from '$lib/types/workbench';
 	import type { WorkbenchController } from '$lib/workbench/controller';
 	import type { SpecWorkflowStep } from '$lib/workbench/spec-workflow';
-	import { latestSpecArtifactFallbackText } from '$lib/workbench/spec-workflow-artifacts';
+
 	import {
 		DEFAULT_INSPECTOR_DETAIL_HEIGHT_PERCENT,
 		MAX_INSPECTOR_DETAIL_HEIGHT_PERCENT,
@@ -45,39 +45,6 @@
 		return 'Spec';
 	}
 
-	function attachmentStatusType(parseStatus: ThreadRecord['attachments'][number]['parseStatus']) {
-		if (parseStatus === 'ready') {
-			return 'green';
-		}
-
-		if (parseStatus === 'failed') {
-			return 'red';
-		}
-
-		return 'cool-gray';
-	}
-
-	function attachmentDisplayState(attachment: ThreadRecord['attachments'][number]) {
-		if (attachment.parseStatus === 'failed') {
-			return {
-				label: 'failed',
-				type: 'red'
-			} as const;
-		}
-
-		if (attachment.warnings.length > 0) {
-			return {
-				label: 'limited',
-				type: 'warm-gray'
-			} as const;
-		}
-
-		return {
-			label: attachment.parseStatus,
-			type: attachmentStatusType(attachment.parseStatus)
-		} as const;
-	}
-
 	let { controller, mode, onClose, onSpecPromptSelect, project, thread }: Props = $props();
 	let artifactDocument = $state<SpecArtifactDocument | null>(null);
 	let artifactError = $state<string | null>(null);
@@ -95,9 +62,6 @@
 	} | null>(null);
 	let artifactRequestKey = 0;
 	let lastArtifactScopeKey = '';
-	const artifactFallbackText = $derived(
-		selectedStep ? latestSpecArtifactFallbackText(thread, selectedStep) : null
-	);
 	const specInspectorStyle = $derived(
 		`--workbench-inspector-detail-height:${detailHeightPercent}%;`
 	);
@@ -314,35 +278,10 @@
 					artifact={selectedArtifact}
 					document={artifactDocument}
 					error={artifactError}
-					fallbackText={artifactFallbackText}
 					loading={artifactLoading}
 				/>
 
-				{#if thread?.attachments?.length}
-					<ul class="inspector-list">
-						{#each thread.attachments as attachment (attachment.id)}
-							{@const displayState = attachmentDisplayState(attachment)}
-							<li>
-								<div class="inspector-block">
-									<div class="inspector-item">
-										<div class="inspector-item__header">
-											<p>{attachment.name}</p>
-											<Tag type={displayState.type}>{displayState.label}</Tag>
-										</div>
-										{#if attachment.warnings.length > 0}
-											<p>{attachment.warnings[0]}</p>
-										{/if}
-										{#if attachment.previewText}
-											<p>{attachment.previewText}</p>
-										{:else}
-											<p>{attachment.mimeType}</p>
-										{/if}
-									</div>
-								</div>
-							</li>
-						{/each}
-					</ul>
-				{:else if !selectedArtifact}
+				{#if !selectedArtifact}
 					<div class="empty-panel">
 						<p>No spec context yet</p>
 					</div>

@@ -58,6 +58,26 @@ import { buildActivity, buildThreadSnapshot } from './thread-snapshot.mjs';
 const COMPACTION_SETTINGS = { enabled: true, keepRecentTokens: 20_000, reserveTokens: 16_384 };
 const MAX_IMAGE_ATTACHMENT_BYTES = 5 * 1024 * 1024;
 
+/**
+ * Strip known guidance prefixes from user messages in a thread snapshot so that
+ * system-injected instructions are not visible to the user in the chat UI.
+ * @param {Array<{role: string, text: string}>} messages
+ * @param {Set<string>} prefixes
+ */
+function stripGuidancePrefixes(messages, prefixes) {
+	for (const message of messages) {
+		if (message.role !== 'user' || typeof message.text !== 'string') {
+			continue;
+		}
+		for (const prefix of prefixes) {
+			if (message.text.startsWith(prefix)) {
+				message.text = message.text.slice(prefix.length).replace(/^\n+/, '');
+				break;
+			}
+		}
+	}
+}
+
 class BridgeRuntime {
 	constructor() {
 		this.agentDir = '';
@@ -134,6 +154,13 @@ class BridgeRuntime {
 		touchSession(sessionEntry);
 		const images = await this.collectImages(payload.attachments, sessionEntry.model);
 		const prompt = this.formatPrompt(payload.text, payload.attachments, payload.intentGuidance);
+		if (payload.intentGuidance) {
+			const guidancePrefix = payload.intentGuidance.trim();
+			if (!sessionEntry.guidancePrefixes) {
+				sessionEntry.guidancePrefixes = new Set();
+			}
+			sessionEntry.guidancePrefixes.add(guidancePrefix);
+		}
 		logDiagnostic(this.features, 'prompt-timing', {
 			commandReadyAt: new Date().toISOString(),
 			threadId: payload.threadId
@@ -337,7 +364,9 @@ class BridgeRuntime {
 		const unsubscribe = session.subscribe((event) => {
 			noteRunEvent(this.runStates, payload.threadId, event);
 			logAgentEvent(this.features, payload.threadId, event);
-			this.emitThreadUpdate(payload.threadId, session, buildActivity(event));
+			this.emitThreadUpdate(payload.threadId, session, buildActivity(event), {
+				terminalEventType: event.type === 'agent_end' ? event.type : null
+			});
 		});
 
 		const entry = {
@@ -488,9 +517,12 @@ class BridgeRuntime {
 		return images;
 	}
 
-	emitThreadUpdate(threadId, session, activity) {
+	emitThreadUpdate(threadId, session, activity, options = {}) {
 		const sessionEntry = this.sessions.get(threadId);
-		const snapshot = buildThreadSnapshot(session, sessionEntry?.sessionManager);
+		const snapshot = buildThreadSnapshot(session, sessionEntry?.sessionManager, options);
+		if (sessionEntry?.guidancePrefixes?.size > 0) {
+			stripGuidancePrefixes(snapshot.messages, sessionEntry.guidancePrefixes);
+		}
 		const signature = JSON.stringify(snapshot);
 		if (!activity && this.lastThreadUpdateSignatures.get(threadId) === signature) {
 			return;

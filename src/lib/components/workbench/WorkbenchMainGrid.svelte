@@ -17,6 +17,7 @@
 	import ConversationPane from './ConversationPane.svelte';
 	import InspectorRail from './InspectorRail.svelte';
 	import ProjectRail from './ProjectRail.svelte';
+	import TerminalPanel from './terminal/TerminalPanel.svelte';
 	import WorkbenchResizeHandle from './WorkbenchResizeHandle.svelte';
 	import WorkbenchVerticalResizeHandle from './WorkbenchVerticalResizeHandle.svelte';
 
@@ -78,6 +79,7 @@
 		shipReviewIssueCount: number;
 		shipReviewMaxRiskLevel: string | null;
 		shipReviewStatus: ShipReviewStatus;
+		projectShipReviewRunning: boolean;
 		snapshot: AppSnapshot;
 		workbenchGridStyle: string;
 	};
@@ -140,6 +142,7 @@
 		shipReviewIssueCount,
 		shipReviewMaxRiskLevel,
 		shipReviewStatus,
+		projectShipReviewRunning,
 		snapshot,
 		workbenchGridStyle
 	}: Props = $props();
@@ -237,7 +240,7 @@
 		{/if}
 		<ComposerPanel
 			{attachments}
-			canSend={Boolean(activeThread) && snapshot.models.length > 0}
+			canSend={Boolean(activeThread) && snapshot.models.length > 0 && !projectShipReviewRunning}
 			{contextLabel}
 			{contextTitle}
 			{contextTone}
@@ -281,13 +284,20 @@
 			/>
 		{/if}
 
-		<InspectorRail
-			{controller}
-			mode={inspectorMode}
-			onClose={() => onToggleInspector(null)}
-			{onSpecPromptSelect}
-			project={activeProject}
-			thread={activeThread}
-		/>
+		{#if inspectorMode === 'terminal'}
+			<TerminalPanel
+				onClose={() => onToggleInspector(null)}
+				projectPath={activeProject?.path ?? ''}
+			/>
+		{:else}
+			<InspectorRail
+				{controller}
+				mode={inspectorMode}
+				onClose={() => onToggleInspector(null)}
+				{onSpecPromptSelect}
+				project={activeProject}
+				thread={activeThread}
+			/>
+		{/if}
 	{/if}
 </div>

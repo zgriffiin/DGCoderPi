@@ -56,6 +56,7 @@
 		selectedThreadId: string;
 		settingsOpen: boolean;
 		shipReview: ShipReviewState;
+		projectShipReviewRunning: boolean;
 		stagedAttachments: AttachmentRecord[];
 		workbenchState: {
 			error: string | null;
@@ -383,6 +384,7 @@
 	shipReviewIssueCount={shellState.shipReview.analysis?.risks.length ?? 0}
 	shipReviewMaxRiskLevel={shipReviewMaxRiskLevel(shellState.shipReview)}
 	shipReviewStatus={shellState.shipReview.status}
+	projectShipReviewRunning={shellState.projectShipReviewRunning}
 	snapshot={shellState.workbenchState.snapshot}
 	{workbenchGridStyle}
 />

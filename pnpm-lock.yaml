@@ -17,6 +17,12 @@ importers:
       '@tauri-apps/plugin-dialog':
         specifier: ^2.7.0
         version: 2.7.0
+      '@xterm/addon-fit':
+        specifier: 0.10.0
+        version: 0.10.0(@xterm/xterm@5.5.0)
+      '@xterm/xterm':
+        specifier: 5.5.0
+        version: 5.5.0
       carbon-components-svelte:
         specifier: ^0.106.2
         version: 0.106.2
@@ -32,6 +38,9 @@ importers:
       pi-docparser:
         specifier: ^1.1.1
         version: 1.1.1(@mariozechner/pi-ai@0.70.2(ws@8.20.0)(zod@4.3.6))(@mariozechner/pi-coding-agent@0.70.2(ws@8.20.0)(zod@4.3.6))
+      tauri-pty:
+        specifier: 0.2.1
+        version: 0.2.1
     devDependencies:
       '@chromatic-com/storybook':
         specifier: ^5.1.2
@@ -1736,6 +1745,14 @@ packages:
   '@webcontainer/env@1.1.1':
     resolution: {integrity: sha512-6aN99yL695Hi9SuIk1oC88l9o0gmxL1nGWWQ/kNy81HigJ0FoaoTXpytCj6ItzgyCEwA9kF1wixsTuv5cjsgng==}
 
+  '@xterm/addon-fit@0.10.0':
+    resolution: {integrity: sha512-UFYkDm4HUahf2lnEyHvio51TNGiLK66mqP2JoATy7hRZeXaGMRDr00JiSF7m63vR5WKATF605yEggJKsw0JpMQ==}
+    peerDependencies:
+      '@xterm/xterm': ^5.0.0
+
+  '@xterm/xterm@5.5.0':
+    resolution: {integrity: sha512-hqJHYaQb5OptNunnyAnkHyM8aCjZ1MEIDTQu1iIbbTD/xops91NB5yq1ZK/dC2JDbVWtF23zUtl9JE2NqwT87A==}
+
   acorn-jsx@5.3.2:
     resolution: {integrity: sha512-rq9s+JNhf0IChjtDXxllJ7g41oZk5SlXtp0LHwyA5cejwn7vKmKp4pPri6YEePv2PU65sAsegbXtIinmDFDXgQ==}
     peerDependencies:
@@ -3417,6 +3434,9 @@ packages:
   table@6.9.0:
     resolution: {integrity: sha512-9kY+CygyYM6j02t5YFHbNz2FN5QmYGv9zAjVp4lCDjlCw7amdckXlEt/bjMhUIfj4ThGRE4gCUH5+yGnNuPo5A==}
     engines: {node: '>=10.0.0'}
+
+  tauri-pty@0.2.1:
+    resolution: {integrity: sha512-h2/uBWkgzO1fpdTS4hDz5LcDYjgmPdy2Renj9m2bukht1rxmHKmt/ciUo9wenK3uPrGBHrr2/QKGYrEmyAYwcw==}
 
   tesseract.js-core@7.0.0:
     resolution: {integrity: sha512-WnNH518NzmbSq9zgTPeoF8c+xmilS8rFIl1YKbk/ptuuc7p6cLNELNuPAzcmsYw450ca6bLa8j3t0VAtq435Vw==}
@@ -5738,6 +5758,12 @@ snapshots:
 
   '@webcontainer/env@1.1.1': {}
 
+  '@xterm/addon-fit@0.10.0(@xterm/xterm@5.5.0)':
+    dependencies:
+      '@xterm/xterm': 5.5.0
+
+  '@xterm/xterm@5.5.0': {}
+
   acorn-jsx@5.3.2(acorn@8.16.0):
     dependencies:
       acorn: 8.16.0
@@ -7462,6 +7488,10 @@ snapshots:
       slice-ansi: 4.0.0
       string-width: 4.2.3
       strip-ansi: 6.0.1
+
+  tauri-pty@0.2.1:
+    dependencies:
+      '@tauri-apps/api': 2.10.1
 
   tesseract.js-core@7.0.0: {}
 

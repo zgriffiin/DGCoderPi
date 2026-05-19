@@ -11,6 +11,8 @@ export type ShipReviewState = {
 	threadId: string | null;
 };
 
+export type ShipReviewScopeMap = Record<string, ShipReviewState>;
+
 const SHIP_REVIEW_POLL_INTERVAL_MS = 1500;
 const SHIP_REVIEW_TIMEOUT_MS = 10 * 60 * 1000;
 
@@ -101,6 +103,15 @@ export function shipReviewScopeMatches(
 	threadId: string | null
 ) {
 	return shipReview.projectId === projectId && shipReview.threadId === threadId;
+}
+
+export function projectHasRunningShipReview(
+	shipReviews: ShipReviewScopeMap,
+	projectId: string | null
+) {
+	return Object.values(shipReviews).some(
+		(review) => review.projectId === projectId && review.status === 'reviewing'
+	);
 }
 
 async function waitForShipReview(

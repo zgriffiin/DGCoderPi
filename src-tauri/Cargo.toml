@@ -1,6 +1,6 @@
 [package]
 name = "dgcoder-pi"
-version = "0.1.0"
+version = "0.1.0-alpha.1"
 description = "Desktop coding workbench for coding-agent repository tasks"
 authors = ["DGCoder"]
 license = ""
@@ -27,4 +27,5 @@ sha2 = "0.11"
 tauri = { version = "2.10.3", features = [] }
 tauri-plugin-dialog = "2.7.0"
 tauri-plugin-log = "2"
+tauri-plugin-pty = "0.2"
 uuid = { version = "1.18.1", features = ["v4"] }

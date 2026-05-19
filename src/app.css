@@ -1,6 +1,7 @@
 @import './lib/components/workbench/workbench-composer.css';
 @import './lib/components/workbench/diff/diff-inspector.css';
 @import './lib/components/workbench/file-explorer/file-explorer.css';
+@import '@xterm/xterm/css/xterm.css';
 
 :root {
 	color-scheme: light dark;

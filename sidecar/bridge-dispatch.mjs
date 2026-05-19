@@ -4,24 +4,32 @@ export function writeMessage(message) {
 	process.stdout.write(`${JSON.stringify(message)}\n`);
 }
 
-export async function runBridge(runtime) {
-	const rl = readline.createInterface({ input: process.stdin, crlfDelay: Infinity });
+export async function runBridge(runtime, input = process.stdin) {
+	const rl = readline.createInterface({ input, crlfDelay: Infinity });
 
 	for await (const line of rl) {
 		if (!line.trim()) {
 			continue;
 		}
 
-		try {
-			await dispatch(runtime, line);
-		} catch (error) {
-			const command = safeParse(line);
-			writeMessage({
-				error: error instanceof Error ? error.message : String(error),
-				id: command?.id ?? '',
-				ok: false
-			});
+		if (isBackgroundCommand(line)) {
+			void dispatchSafely(runtime, line);
+		} else {
+			await dispatchSafely(runtime, line);
 		}
+	}
+}
+
+async function dispatchSafely(runtime, line) {
+	try {
+		await dispatch(runtime, line);
+	} catch (error) {
+		const command = safeParse(line);
+		writeMessage({
+			error: error instanceof Error ? error.message : String(error),
+			id: command?.id ?? '',
+			ok: false
+		});
 	}
 }
 
@@ -59,4 +67,8 @@ function safeParse(text) {
 	} catch {
 		return null;
 	}
+}
+
+function isBackgroundCommand(line) {
+	return safeParse(line)?.type === 'analyze-diff';
 }

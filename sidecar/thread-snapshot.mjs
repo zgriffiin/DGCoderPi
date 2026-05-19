@@ -77,7 +77,7 @@ function buildCompactionEndActivity(event) {
 	};
 }
 
-export function buildThreadSnapshot(session, sessionManager) {
+export function buildThreadSnapshot(session, sessionManager, options = {}) {
 	const snapshotTimestamp = Date.now();
 	const sessionError = readSessionErrorMessage(session);
 	const liveMessages = Array.isArray(session?.messages) ? session.messages : [];
@@ -90,7 +90,7 @@ export function buildThreadSnapshot(session, sessionManager) {
 			...serializeQueue(session.getSteeringMessages(), 'steer'),
 			...serializeQueue(session.getFollowUpMessages(), 'follow-up')
 		],
-		status: sessionStatus(session, sessionError, messages.length)
+		status: sessionStatus(session, sessionError, messages.length, options.terminalEventType)
 	};
 }
 
@@ -280,12 +280,9 @@ function lastAssistantError(messages) {
 function sessionStatus(
 	session,
 	sessionError = readSessionErrorMessage(session),
-	messageCount = Array.isArray(session?.messages) ? session.messages.length : 0
+	messageCount = Array.isArray(session?.messages) ? session.messages.length : 0,
+	terminalEventType = null
 ) {
-	if (session.isStreaming) {
-		return 'running';
-	}
-
 	const lastAssistant = [...session.messages]
 		.reverse()
 		.find((message) => message && message.role === 'assistant');
@@ -295,6 +292,14 @@ function sessionStatus(
 		hasFatalAssistantStop(lastAssistant)
 	) {
 		return 'failed';
+	}
+
+	if (terminalEventType === 'agent_end') {
+		return messageCount === 0 ? 'idle' : 'completed';
+	}
+
+	if (session.isStreaming) {
+		return 'running';
 	}
 
 	return messageCount === 0 ? 'idle' : 'completed';

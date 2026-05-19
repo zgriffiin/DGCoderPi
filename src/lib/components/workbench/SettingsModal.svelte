@@ -12,7 +12,13 @@
 	import { readEventValue } from '$lib/workbench/read-event-value';
 	import ThemeToggle from './ThemeToggle.svelte';
 
-	type SettingsSection = 'accounts' | 'appearance' | 'behavior' | 'extensions' | 'providers';
+	type SettingsSection =
+		| 'accounts'
+		| 'appearance'
+		| 'behavior'
+		| 'extensions'
+		| 'providers'
+		| 'about';
 
 	type Props = {
 		cavemanLevel: string;
@@ -154,6 +160,15 @@
 			>
 				Extensions
 			</button>
+			<button
+				aria-pressed={section === 'about'}
+				class="settings-nav__item"
+				data-selected={section === 'about' ? 'true' : undefined}
+				type="button"
+				onclick={() => (section = 'about')}
+			>
+				About
+			</button>
 		</nav>
 
 		<div class="settings-panel">
@@ -233,7 +248,7 @@
 									id="diff-analysis-model"
 									labelText="Diff review model"
 									size="sm"
-									value={selectedDiffAnalysisModelKey ?? ''}
+									selected={selectedDiffAnalysisModelKey ?? ''}
 									on:change={(event) => {
 										const value = readEventValue(event);
 										const trimmed = value.trim();
@@ -316,7 +331,7 @@
 							id="caveman-level"
 							labelText="Caveman level"
 							size="sm"
-							value={cavemanLevel}
+							selected={cavemanLevel}
 							on:change={(event) => {
 								const value = readEventValue(event);
 								onCavemanLevelChange(value);
@@ -347,7 +362,7 @@
 						<ThemeToggle />
 					</div>
 				</section>
-			{:else}
+			{:else if section === 'extensions'}
 				<section class="settings-section">
 					<header class="settings-section__header">
 						<div>
@@ -387,6 +402,30 @@
 							on:toggle={handleDiagnosticLoggingToggle}
 						/>
 					</div>
+				</section>
+			{:else}
+				<section class="settings-section">
+					<header class="settings-section__header">
+						<div>
+							<h3>About</h3>
+							<p>DGCoder desktop workbench</p>
+						</div>
+					</header>
+
+					<dl class="settings-detail-list">
+						<div>
+							<dt>Version</dt>
+							<dd>{__APP_VERSION__}</dd>
+						</div>
+						<div>
+							<dt>Product</dt>
+							<dd>DGCoder</dd>
+						</div>
+						<div>
+							<dt>Runtime</dt>
+							<dd>Tauri 2 + SvelteKit</dd>
+						</div>
+					</dl>
 				</section>
 			{/if}
 		</div>

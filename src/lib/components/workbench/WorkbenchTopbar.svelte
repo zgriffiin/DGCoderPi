@@ -4,6 +4,7 @@
 	import Code from 'carbon-icons-svelte/lib/Code.svelte';
 	import DocumentRequirements from 'carbon-icons-svelte/lib/DocumentRequirements.svelte';
 	import Settings from 'carbon-icons-svelte/lib/Settings.svelte';
+	import Terminal from 'carbon-icons-svelte/lib/Terminal.svelte';
 	import type { InspectorMode } from '$lib/types/workbench';
 
 	type Props = {
@@ -49,6 +50,15 @@
 			onclick={() => onToggleInspector('spec')}
 		>
 			Spec
+		</Button>
+		<Button
+			aria-pressed={inspectorMode === 'terminal'}
+			icon={Terminal}
+			kind={inspectorMode === 'terminal' ? 'primary' : 'ghost'}
+			size="small"
+			onclick={() => onToggleInspector('terminal')}
+		>
+			Terminal
 		</Button>
 		<Button icon={Settings} kind="ghost" size="small" onclick={onOpenSettings}>Settings</Button>
 	</div>
