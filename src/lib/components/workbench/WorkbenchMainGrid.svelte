@@ -69,6 +69,7 @@
 		onStopThread: (threadId: string) => void;
 		onToggleInspector: (mode: InspectorMode | null) => void;
 		panelWidths: { left: number; right: number };
+		projectRailVisible: boolean;
 		selectedModel: ModelOption | null;
 		selectedModelKey: string;
 		selectedProjectId: string;
@@ -132,6 +133,7 @@
 		onStopThread,
 		onToggleInspector,
 		panelWidths,
+		projectRailVisible,
 		selectedModel,
 		selectedModelKey,
 		selectedProjectId,
@@ -193,28 +195,31 @@
 	bind:this={gridElement}
 	class="workbench-grid"
 	data-has-inspector={inspectorMode ? 'true' : 'false'}
+	data-has-project-rail={projectRailVisible ? 'true' : 'false'}
 	data-can-resize={canResizePanels ? 'true' : 'false'}
 	style={workbenchGridStyle}
 >
-	<ProjectRail
-		{onCreateThread}
-		{onMoveProject}
-		{onOpenDiff}
-		{onOpenFileExplorer}
-		{onRefreshStatus}
-		{onRemoveProject}
-		{onRemoveThread}
-		{onRenameProject}
-		{onRenameThread}
-		{onSelectProject}
-		{onSelectThread}
-		{onStopThread}
-		projects={snapshot.projects}
-		{selectedProjectId}
-		{selectedThreadId}
-	/>
+	{#if projectRailVisible}
+		<ProjectRail
+			{onCreateThread}
+			{onMoveProject}
+			{onOpenDiff}
+			{onOpenFileExplorer}
+			{onRefreshStatus}
+			{onRemoveProject}
+			{onRemoveThread}
+			{onRenameProject}
+			{onRenameThread}
+			{onSelectProject}
+			{onSelectThread}
+			{onStopThread}
+			projects={snapshot.projects}
+			{selectedProjectId}
+			{selectedThreadId}
+		/>
+	{/if}
 
-	{#if canResizePanels}
+	{#if projectRailVisible && canResizePanels}
 		<WorkbenchResizeHandle
 			label="Resize project rail"
 			max={maxLeftWidth()}

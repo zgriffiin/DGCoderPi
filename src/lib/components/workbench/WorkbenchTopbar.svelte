@@ -3,6 +3,7 @@
 	import Add from 'carbon-icons-svelte/lib/Add.svelte';
 	import Code from 'carbon-icons-svelte/lib/Code.svelte';
 	import DocumentRequirements from 'carbon-icons-svelte/lib/DocumentRequirements.svelte';
+	import SidePanelOpen from 'carbon-icons-svelte/lib/SidePanelOpen.svelte';
 	import Settings from 'carbon-icons-svelte/lib/Settings.svelte';
 	import Terminal from 'carbon-icons-svelte/lib/Terminal.svelte';
 	import type { InspectorMode } from '$lib/types/workbench';
@@ -12,15 +13,32 @@
 		onAddProject: () => void;
 		onOpenSettings: () => void;
 		onToggleInspector: (mode: InspectorMode) => void;
+		onToggleProjectRail: () => void;
+		projectRailVisible: boolean;
 		runtimeAvailable: boolean;
 	};
 
-	let { inspectorMode, onAddProject, onOpenSettings, onToggleInspector, runtimeAvailable }: Props =
-		$props();
+	let {
+		inspectorMode,
+		onAddProject,
+		onOpenSettings,
+		onToggleInspector,
+		onToggleProjectRail,
+		projectRailVisible,
+		runtimeAvailable
+	}: Props = $props();
 </script>
 
 <header class="topbar">
 	<div class="topbar__left">
+		<Button
+			aria-label={projectRailVisible ? 'Hide project panel' : 'Show project panel'}
+			aria-pressed={projectRailVisible}
+			icon={SidePanelOpen}
+			kind={projectRailVisible ? 'ghost' : 'primary'}
+			size="small"
+			onclick={onToggleProjectRail}
+		/>
 		<Button
 			disabled={!runtimeAvailable}
 			icon={Add}
