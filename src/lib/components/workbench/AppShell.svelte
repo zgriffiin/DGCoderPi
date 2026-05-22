@@ -422,6 +422,12 @@
 		});
 	}
 
+	async function handleMaxContextPercentChange(percent: number) {
+		await runAction(async () => {
+			await controller.setMaxContextPercent(percent);
+		});
+	}
+
 	async function handleDiffAnalysisModelChange(modelKey: string | null) {
 		await runAction(async () => {
 			await controller.setDiffAnalysisModel(modelKey);
@@ -547,6 +553,7 @@
 			handleToggleDiagnosticLogging,
 			handleToggleDocparser,
 			handleCavemanLevelChange,
+			handleMaxContextPercentChange,
 			setAddProjectOpen,
 			setInspectorMode,
 			setManualProjectPathOpen,

@@ -427,6 +427,11 @@ function createSettingsActions(
 		async setCavemanLevel(level: string) {
 			await runAndApplyUpdate(runCommand<AppUpdate>('set_caveman_level', { input: { level } }));
 		},
+		async setMaxContextPercent(percent: number) {
+			await runAndApplyUpdate(
+				runCommand<AppUpdate>('set_max_context_percent', { input: { percent } })
+			);
+		},
 		async setProviderKey(provider: string, key: string) {
 			await runAndApplyUpdate(
 				runCommand<AppUpdate>('set_provider_key', { input: { key, provider } })

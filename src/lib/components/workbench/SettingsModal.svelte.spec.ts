@@ -21,6 +21,7 @@ function mountSettingsModal() {
 			diffAnalysisModelKey: 'openai::gpt-5.4',
 			diagnosticLoggingEnabled: true,
 			docparserEnabled: true,
+			maxContextPercent: 80,
 			models: [
 				{
 					availableThinkingLevels: ['off', 'low', 'medium', 'high'],
@@ -37,6 +38,7 @@ function mountSettingsModal() {
 			onClose: vi.fn(),
 			onDiffAnalysisModelChange: vi.fn(),
 			onImportCodexOpenAiKey: vi.fn(),
+			onMaxContextPercentChange: vi.fn(),
 			onProviderDraftChange: vi.fn(),
 			onRefreshStatus: vi.fn(),
 			onSaveProvider: vi.fn(),

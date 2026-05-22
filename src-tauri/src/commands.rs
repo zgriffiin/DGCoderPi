@@ -9,6 +9,7 @@ use crate::{
         ProviderKeyInput, RemoveAttachmentInput, RemoveProjectInput, RemoveThreadInput,
         RenameProjectInput, RenameThreadInput, SelectIntentInput, SelectModelInput,
         SelectReasoningInput, SendPromptInput, SetCavemanLevelInput, SetDiffAnalysisModelInput,
+        SetMaxContextPercentInput,
         SpecArtifactDocument, StageAttachmentDataInput, StageAttachmentInput, ToggleFeatureInput,
     },
 };
@@ -157,6 +158,14 @@ pub fn set_caveman_level(
     runtime: State<'_, AppRuntime>,
 ) -> UpdateCommandResult {
     runtime.set_caveman_level(input)
+}
+
+#[tauri::command]
+pub fn set_max_context_percent(
+    input: SetMaxContextPercentInput,
+    runtime: State<'_, AppRuntime>,
+) -> UpdateCommandResult {
+    runtime.set_max_context_percent(input)
 }
 
 #[tauri::command]

@@ -109,6 +109,7 @@ pub fn run() {
             commands::set_diff_analysis_model,
             commands::set_feature_toggle,
             commands::set_caveman_level,
+            commands::set_max_context_percent,
             commands::set_provider_key,
             commands::load_runtime_health,
             commands::start_codex_login,
