@@ -18,8 +18,28 @@
 			return 0;
 		}
 
-		const index = SPEC_WORKFLOW_STEPS.findIndex((step) => step.intent === thread.intent);
-		return index >= 0 ? index : 0;
+		const firstMatch = SPEC_WORKFLOW_STEPS.findIndex((step) => step.intent === thread.intent);
+		if (firstMatch < 0) {
+			return 0;
+		}
+
+		// Within the intent group, advance past steps whose gate has already passed.
+		let active = firstMatch;
+		for (let i = firstMatch; i < SPEC_WORKFLOW_STEPS.length; i++) {
+			const step = SPEC_WORKFLOW_STEPS[i];
+			if (step.intent !== thread.intent) {
+				break;
+			}
+			const status = specWorkflowStageStatus(thread, step);
+			if (status.coverage.tone === 'green') {
+				// This step's gate passed — the active step is the next one.
+				active = i + 1;
+			} else {
+				break;
+			}
+		}
+
+		return Math.min(active, SPEC_WORKFLOW_STEPS.length - 1);
 	}
 
 	let { onUsePrompt, onViewArtifact, project, thread }: Props = $props();
