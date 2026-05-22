@@ -278,7 +278,10 @@
 							<button
 								class="project-section__title"
 								type="button"
-								onclick={() => onSelectProject(project.id)}
+								onclick={() => {
+									onSelectProject(project.id);
+									toggleProjectCollapsed(project.id);
+								}}
 								oncontextmenu={(e) => openMenu(e, { id: project.id, kind: 'project' })}
 								onkeydown={(e) => handleRowKeydown(e, { kind: 'project', project })}
 							>
