@@ -518,6 +518,11 @@ textarea {
 	padding: 0;
 }
 
+.thread-list {
+	max-height: 7.5rem;
+	overflow-y: auto;
+}
+
 .thread-row {
 	align-items: center;
 	background: transparent;
