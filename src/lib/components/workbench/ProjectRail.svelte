@@ -35,12 +35,29 @@
 		selectedThreadId: string;
 	};
 
+	const COLLAPSED_STORAGE_KEY = 'pi.workbench.collapsed-projects.v1';
+
+	function loadCollapsedIds(): string[] {
+		try {
+			const saved = localStorage.getItem(COLLAPSED_STORAGE_KEY);
+			if (!saved) return [];
+			const parsed = JSON.parse(saved);
+			return Array.isArray(parsed) ? parsed.filter((id: unknown) => typeof id === 'string') : [];
+		} catch {
+			return [];
+		}
+	}
+
 	let activeMenu = $state<MenuState | null>(null);
-	let collapsedProjectIds = $state<string[]>([]);
+	let collapsedProjectIds = $state<string[]>(loadCollapsedIds());
 	let draggedProjectId = $state<string | null>(null);
 	let dragTargetIndex = $state<number | null>(null);
 	let renameState = $state<RenameState | null>(null);
 	let renameInput = $state<HTMLInputElement | null>(null);
+
+	$effect(() => {
+		localStorage.setItem(COLLAPSED_STORAGE_KEY, JSON.stringify(collapsedProjectIds));
+	});
 
 	let {
 		onCreateThread,
