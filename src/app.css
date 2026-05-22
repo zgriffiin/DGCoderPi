@@ -306,12 +306,12 @@ textarea {
 .project-section {
 	min-width: 0;
 	overflow: hidden;
-	padding: 0.5rem 0;
+	padding: 0.25rem 0 0.5rem;
 	width: 100%;
 }
 
 .project-section--collapsed {
-	padding-bottom: 0;
+	padding-bottom: 0.25rem;
 }
 
 .project-section--dragging {
@@ -331,7 +331,7 @@ textarea {
 	gap: 0.25rem;
 	grid-template-columns: minmax(0, 1fr) repeat(4, 1.75rem);
 	min-width: 0;
-	padding: 0 0.5rem 0.5rem;
+	padding: 0 0.5rem 0.375rem;
 }
 
 .project-section--collapsed .project-section__header {
