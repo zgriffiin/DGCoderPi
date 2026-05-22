@@ -34,7 +34,7 @@ use crate::{
         MoveProjectInput, PersistedState, PromptMode, ProviderKeyInput, RemoveAttachmentInput,
         RemoveProjectInput, RemoveThreadInput, RenameProjectInput, RenameThreadInput,
         SelectIntentInput, SelectModelInput, SelectReasoningInput, SendPromptInput,
-        SetCavemanLevelInput, SetDiffAnalysisModelInput, SpecArtifactDocument,
+        SetCavemanLevelInput, SetDiffAnalysisModelInput, SetMaxContextPercentInput, SpecArtifactDocument,
         StageAttachmentDataInput, StageAttachmentInput, ThreadIntent, ThreadRecord, ThreadStatus,
         ToggleFeatureInput,
     },
@@ -641,6 +641,19 @@ impl AppRuntime {
         self.with_serialized_mutation(|| {
             self.mutate_state(|state| {
                 state.settings.features.caveman_level = input.level.clone();
+                Ok(())
+            })?;
+            self.persist_and_return(self.system_update()?)
+        })
+    }
+
+    pub fn set_max_context_percent(&self, input: SetMaxContextPercentInput) -> Result<AppUpdate, String> {
+        if input.percent < 50 || input.percent > 95 {
+            return Err(format!("Invalid max context percent: {}. Must be between 50 and 95.", input.percent));
+        }
+        self.with_serialized_mutation(|| {
+            self.mutate_state(|state| {
+                state.settings.features.max_context_percent = input.percent;
                 Ok(())
             })?;
             self.persist_and_return(self.system_update()?)

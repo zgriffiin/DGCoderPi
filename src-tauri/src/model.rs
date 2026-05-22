@@ -107,6 +107,8 @@ pub struct FeatureSettings {
     #[serde(default = "default_diagnostic_logging_enabled")]
     pub diagnostic_logging_enabled: bool,
     pub docparser_enabled: bool,
+    #[serde(default = "default_max_context_percent")]
+    pub max_context_percent: u8,
 }
 
 impl Default for FeatureSettings {
@@ -115,6 +117,7 @@ impl Default for FeatureSettings {
             caveman_level: default_caveman_level(),
             diagnostic_logging_enabled: true,
             docparser_enabled: true,
+            max_context_percent: default_max_context_percent(),
         }
     }
 }
@@ -125,6 +128,10 @@ fn default_caveman_level() -> String {
 
 fn default_diagnostic_logging_enabled() -> bool {
     true
+}
+
+fn default_max_context_percent() -> u8 {
+    80
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
@@ -502,6 +509,12 @@ pub struct SetDiffAnalysisModelInput {
 #[serde(rename_all = "camelCase")]
 pub struct SetCavemanLevelInput {
     pub level: String,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SetMaxContextPercentInput {
+    pub percent: u8,
 }
 
 #[derive(Clone, Debug, Deserialize)]

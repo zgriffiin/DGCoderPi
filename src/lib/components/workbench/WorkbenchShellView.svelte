@@ -103,6 +103,7 @@
 		handleToggleDiagnosticLogging: (enabled: boolean) => void;
 		handleToggleDocparser: (enabled: boolean) => void;
 		handleCavemanLevelChange: (level: string) => void;
+		handleMaxContextPercentChange: (percent: number) => void;
 		setAddProjectOpen: (open: boolean) => void;
 		setInspectorMode: (mode: InspectorMode | null) => void;
 		setManualProjectPathOpen: (open: boolean) => void;
@@ -414,6 +415,7 @@
 		.diagnosticLoggingEnabled}
 	docparserEnabled={shellState.workbenchState.snapshot.settings.features.docparserEnabled}
 	manualProjectPathOpen={shellState.manualProjectPathOpen}
+	maxContextPercent={shellState.workbenchState.snapshot.settings.features.maxContextPercent}
 	models={shellState.workbenchState.snapshot.models}
 	onAddProjectDraftChange={actions.handleAddProjectDraftChange}
 	onAddProjectSubmit={actions.handleAddProject}
@@ -423,6 +425,7 @@
 	onCloseSettings={() => actions.setSettingsOpen(false)}
 	onDiffAnalysisModelChange={actions.handleDiffAnalysisModelChange}
 	onImportCodexOpenAiKey={actions.handleImportCodexOpenAiKey}
+	onMaxContextPercentChange={actions.handleMaxContextPercentChange}
 	onProviderDraftChange={actions.handleProviderDraftChange}
 	onRefreshStatus={actions.handleRefreshStatus}
 	onSaveProvider={actions.handleSaveProvider}

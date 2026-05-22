@@ -700,7 +700,7 @@ dependencies = [
 
 [[package]]
 name = "dgcoder-pi"
-version = "0.1.0"
+version = "0.1.0-alpha.1"
 dependencies = [
  "log",
  "mime_guess",

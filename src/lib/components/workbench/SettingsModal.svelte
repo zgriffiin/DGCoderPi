@@ -26,11 +26,13 @@
 		diffAnalysisModelKey: string | null;
 		diagnosticLoggingEnabled: boolean;
 		docparserEnabled: boolean;
+		maxContextPercent: number;
 		models: ModelOption[];
 		onCavemanLevelChange: (level: string) => void;
 		onClose: () => void;
 		onDiffAnalysisModelChange: (modelKey: string | null) => void;
 		onImportCodexOpenAiKey: () => void;
+		onMaxContextPercentChange: (percent: number) => void;
 		onProviderDraftChange: (provider: string, value: string) => void;
 		onRefreshStatus: () => void;
 		onSaveProvider: (provider: string) => void;
@@ -43,6 +45,7 @@
 	};
 
 	let section = $state<SettingsSection>('accounts');
+	let wasOpen = $state(false);
 
 	function handleDocparserToggle(event: CustomEvent<{ toggled: boolean }>) {
 		onToggleDocparser(event.detail.toggled);
@@ -80,11 +83,13 @@
 		diffAnalysisModelKey,
 		diagnosticLoggingEnabled,
 		docparserEnabled,
+		maxContextPercent,
 		models,
 		onCavemanLevelChange,
 		onClose,
 		onDiffAnalysisModelChange,
 		onImportCodexOpenAiKey,
+		onMaxContextPercentChange,
 		onProviderDraftChange,
 		onRefreshStatus,
 		onSaveProvider,
@@ -106,9 +111,10 @@
 	);
 
 	$effect(() => {
-		if (open) {
+		if (open && !wasOpen) {
 			section = 'accounts';
 		}
+		wasOpen = open;
 	});
 </script>
 
@@ -342,6 +348,35 @@
 							<SelectItem text={cavemanLevelLabel('medium')} value="medium" />
 							<SelectItem text={cavemanLevelLabel('high')} value="high" />
 							<SelectItem text={cavemanLevelLabel('max')} value="max" />
+						</Select>
+					</div>
+
+					<div class="extension-row">
+						<div>
+							<h4>Context window limit</h4>
+							<p>
+								Percentage of the model's context window to use before compaction triggers. Lower
+								values compact earlier, keeping responses reliable. Higher values use more context
+								but risk degraded output quality near the limit.
+							</p>
+						</div>
+						<Select
+							id="max-context-percent"
+							labelText="Context limit"
+							size="sm"
+							selected={String(maxContextPercent)}
+							on:change={(event) => {
+								const value = Number(readEventValue(event));
+								if (value >= 50 && value <= 95) {
+									onMaxContextPercentChange(value);
+								}
+							}}
+						>
+							<SelectItem text="60% — Conservative (best reliability)" value="60" />
+							<SelectItem text="70% — Moderate" value="70" />
+							<SelectItem text="80% — Balanced (default)" value="80" />
+							<SelectItem text="85% — Extended" value="85" />
+							<SelectItem text="90% — Maximum usable" value="90" />
 						</Select>
 					</div>
 				</section>

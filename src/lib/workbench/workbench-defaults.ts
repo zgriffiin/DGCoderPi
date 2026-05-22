@@ -3,7 +3,8 @@ import type { AppSettings, AppSnapshot, FeatureSettings } from '$lib/types/workb
 const DEFAULT_FEATURE_SETTINGS: FeatureSettings = {
 	cavemanLevel: 'off',
 	diagnosticLoggingEnabled: true,
-	docparserEnabled: true
+	docparserEnabled: true,
+	maxContextPercent: 80
 };
 
 const DEFAULT_APP_SETTINGS: AppSettings = {

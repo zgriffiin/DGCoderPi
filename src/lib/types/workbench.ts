@@ -60,6 +60,7 @@ export interface FeatureSettings {
 	cavemanLevel: string;
 	diagnosticLoggingEnabled: boolean;
 	docparserEnabled: boolean;
+	maxContextPercent: number;
 }
 
 export interface CodexStatus {

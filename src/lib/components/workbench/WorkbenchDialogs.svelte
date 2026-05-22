@@ -12,6 +12,7 @@
 		diagnosticLoggingEnabled: boolean;
 		docparserEnabled: boolean;
 		manualProjectPathOpen: boolean;
+		maxContextPercent: number;
 		models: ModelOption[];
 		onAddProjectDraftChange: (value: string) => void;
 		onAddProjectSubmit: () => void;
@@ -21,6 +22,7 @@
 		onCloseSettings: VoidFunction;
 		onDiffAnalysisModelChange: (modelKey: string | null) => void;
 		onImportCodexOpenAiKey: VoidFunction;
+		onMaxContextPercentChange: (percent: number) => void;
 		onProviderDraftChange: (provider: string, value: string) => void;
 		onRefreshStatus: VoidFunction;
 		onSaveProvider: (provider: string) => void;
@@ -43,6 +45,7 @@
 		diagnosticLoggingEnabled,
 		docparserEnabled,
 		manualProjectPathOpen,
+		maxContextPercent,
 		models,
 		onAddProjectDraftChange,
 		onAddProjectSubmit,
@@ -52,6 +55,7 @@
 		onCloseSettings,
 		onDiffAnalysisModelChange,
 		onImportCodexOpenAiKey,
+		onMaxContextPercentChange,
 		onProviderDraftChange,
 		onRefreshStatus,
 		onSaveProvider,
@@ -84,10 +88,12 @@
 	{diffAnalysisModelKey}
 	{diagnosticLoggingEnabled}
 	{docparserEnabled}
+	{maxContextPercent}
 	onClose={onCloseSettings}
 	{onCavemanLevelChange}
 	{onDiffAnalysisModelChange}
 	{onImportCodexOpenAiKey}
+	{onMaxContextPercentChange}
 	{onProviderDraftChange}
 	{onRefreshStatus}
 	{onSaveProvider}
