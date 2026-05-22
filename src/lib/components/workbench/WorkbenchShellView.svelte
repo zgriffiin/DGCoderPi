@@ -136,10 +136,17 @@
 	const canResizePanels = $derived(viewportWidth > RESIZE_BREAKPOINT);
 	const workbenchGridStyle = $derived(formatWorkbenchGridStyle(panelWidths, composerHeightPercent));
 
+	const PROJECT_RAIL_VISIBLE_KEY = 'pi.workbench.project-rail-visible.v1';
+	let projectRailVisible = $state(true);
+
 	onMount(() => {
 		viewportWidth = window.innerWidth;
 		composerHeightPercent = loadComposerHeightPercent(window.localStorage);
 		panelWidths = loadPanelWidths(window.localStorage);
+		const savedVisible = window.localStorage.getItem(PROJECT_RAIL_VISIBLE_KEY);
+		if (savedVisible === 'false') {
+			projectRailVisible = false;
+		}
 
 		const handleResize = () => {
 			viewportWidth = window.innerWidth;
@@ -147,6 +154,11 @@
 		window.addEventListener('resize', handleResize);
 		return () => window.removeEventListener('resize', handleResize);
 	});
+
+	function toggleProjectRail() {
+		projectRailVisible = !projectRailVisible;
+		window.localStorage.setItem(PROJECT_RAIL_VISIBLE_KEY, String(projectRailVisible));
+	}
 
 	function maxLeftWidth() {
 		const totalWidth = workbenchGrid?.clientWidth ?? viewportWidth;
@@ -323,6 +335,8 @@
 	onAddProject={() => actions.setAddProjectOpen(true)}
 	onOpenSettings={() => actions.setSettingsOpen(true)}
 	onToggleInspector={actions.toggleInspector}
+	onToggleProjectRail={toggleProjectRail}
+	{projectRailVisible}
 	runtimeAvailable={shellState.workbenchState.runtimeAvailable}
 />
 
@@ -374,6 +388,7 @@
 	onStopThread={actions.handleStopThread}
 	onToggleInspector={actions.setInspectorMode}
 	{panelWidths}
+	{projectRailVisible}
 	selectedModel={shellState.selectedModel}
 	selectedModelKey={shellState.selectedModelKey}
 	selectedProjectId={shellState.selectedProjectId}

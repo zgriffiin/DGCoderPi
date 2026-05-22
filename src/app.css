@@ -124,6 +124,23 @@ textarea {
 		var(--workbench-inspector-width, 22.5rem);
 }
 
+.workbench-grid[data-has-project-rail='false'] {
+	grid-template-columns: minmax(0, 1fr);
+}
+
+.workbench-grid[data-has-project-rail='false'][data-has-inspector='true'] {
+	grid-template-columns:
+		minmax(0, 1fr)
+		var(--workbench-inspector-width, 22.5rem);
+}
+
+.workbench-grid[data-has-project-rail='false'][data-can-resize='true'][data-has-inspector='true'] {
+	grid-template-columns:
+		minmax(0, 1fr)
+		var(--workbench-resize-handle-width)
+		var(--workbench-inspector-width, 22.5rem);
+}
+
 .project-rail,
 .conversation-pane,
 .composer-panel,
