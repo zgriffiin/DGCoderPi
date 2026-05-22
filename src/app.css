@@ -523,6 +523,10 @@ textarea {
 	overflow-y: auto;
 }
 
+.thread-list li:last-child .thread-row {
+	border-bottom: 0;
+}
+
 .thread-row {
 	align-items: center;
 	background: transparent;
