@@ -928,8 +928,6 @@ textarea {
 	font-size: 0.75rem;
 	line-height: 1.4;
 	margin: 0;
-	max-height: 6rem;
-	overflow: auto;
 	overflow-wrap: break-word;
 	white-space: pre-wrap;
 }
@@ -1120,6 +1118,33 @@ textarea {
 .message-row__body--markdown hr {
 	border: 0;
 	border-top: 1px solid var(--cds-border-subtle, #525252);
+}
+
+.message-row__collapsible {
+	min-height: 0;
+}
+
+.message-row__collapsible--collapsed {
+	max-height: 120px;
+	mask-image: linear-gradient(to bottom, #000 60%, transparent 100%);
+	overflow: hidden;
+}
+
+.message-row__collapse-toggle {
+	align-items: center;
+	background: none;
+	border: 0;
+	color: var(--cds-link-primary, #78a9ff);
+	cursor: pointer;
+	display: inline-flex;
+	font-size: 0.6875rem;
+	gap: 0.25rem;
+	margin: 0;
+	padding: 0.125rem 0;
+}
+
+.message-row__collapse-toggle:hover {
+	text-decoration: underline;
 }
 
 .message-row__meta {
@@ -1644,6 +1669,19 @@ textarea {
 
 .provider-row__controls {
 	align-items: flex-end;
+}
+
+.model-visibility-row {
+	align-items: center;
+	display: flex;
+	gap: 1rem;
+	justify-content: space-between;
+	width: 100%;
+}
+
+.model-visibility-row p {
+	color: var(--cds-text-secondary, #525252);
+	margin: 0.125rem 0 0;
 }
 
 .theme-toggle__label {
