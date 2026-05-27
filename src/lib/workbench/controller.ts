@@ -24,12 +24,8 @@ import {
 } from '$lib/workbench/controller-state';
 import { EMPTY_SNAPSHOT } from '$lib/workbench/workbench-defaults';
 const UPDATE_EVENT = 'app://update';
-function applySelection(
-	snapshot: AppSnapshot,
-	selectedProjectId: string | null,
-	selectedThreadId: string | null
-) {
-	Object.assign(snapshot, { selectedProjectId, selectedThreadId });
+function applySelection(s: AppSnapshot, pid: string | null, tid: string | null) {
+	Object.assign(s, { selectedProjectId: pid, selectedThreadId: tid });
 }
 function upsertProject(snapshot: AppSnapshot, project: AppSnapshot['projects'][number]) {
 	const index = snapshot.projects.findIndex((entry) => entry.id === project.id);
@@ -68,10 +64,6 @@ function reorderProjects(snapshot: AppSnapshot, projectIds: string[]) {
 		.filter((project): project is NonNullable<typeof project> => Boolean(project));
 	const remainingProjects = snapshot.projects.filter((project) => !projectIds.includes(project.id));
 	snapshot.projects = [...orderedProjects, ...remainingProjects];
-}
-
-function removeProject(snapshot: AppSnapshot, projectId: string) {
-	snapshot.projects = snapshot.projects.filter((project) => project.id !== projectId);
 }
 function applyUpdateToSnapshot(snapshot: AppSnapshot, update: AppUpdate) {
 	for (const event of update.events) {
@@ -113,7 +105,7 @@ function applyEventToSnapshot(snapshot: AppSnapshot, event: AppEvent) {
 	}
 
 	if (event.type === 'project-removed') {
-		removeProject(snapshot, event.projectId);
+		snapshot.projects = snapshot.projects.filter((project) => project.id !== event.projectId);
 		applySelection(snapshot, event.selectedProjectId, event.selectedThreadId);
 		return;
 	}

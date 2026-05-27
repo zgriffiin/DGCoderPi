@@ -434,24 +434,6 @@
 		});
 	}
 
-	async function handleImportCodexOpenAiKey() {
-		await runAction(async () => {
-			await controller.importCodexOpenAiKey();
-		});
-	}
-
-	async function handleStartCodexLogin() {
-		await runAction(async () => {
-			await controller.startCodexLogin();
-		});
-	}
-
-	async function handleRefreshStatus() {
-		await runAction(async () => {
-			await controller.refreshState();
-		});
-	}
-
 	async function handleReasoningChange(reasoningLevel: ThinkingLevel) {
 		if (!activeThread) {
 			return;
@@ -490,17 +472,15 @@
 		inspectorMode = inspectorMode === mode ? null : mode;
 	}
 
-	function setAddProjectOpen(open: boolean) {
+	const setAddProjectOpen = (open: boolean) => {
 		addProjectOpen = open;
-	}
-
-	function setInspectorMode(mode: InspectorMode | null) {
+	};
+	const setInspectorMode = (mode: InspectorMode | null) => {
 		inspectorMode = mode;
-	}
-
-	function setManualProjectPathOpen(open: boolean) {
+	};
+	const setManualProjectPathOpen = (open: boolean) => {
 		manualProjectPathOpen = open;
-	}
+	};
 
 	function setSettingsOpen(open: boolean) {
 		settingsOpen = open;
@@ -519,7 +499,7 @@
 			handleCreateThreadForProject,
 			handleDiffAnalysisModelChange,
 			handleDraftChange,
-			handleImportCodexOpenAiKey,
+			handleImportCodexOpenAiKey: () => runAction(() => controller.importCodexOpenAiKey()),
 			handleModelChange,
 			handleMoveProject,
 			handleOpenDiff,
@@ -527,7 +507,7 @@
 			handleProjectSelect,
 			handleProviderDraftChange,
 			handleReasoningChange,
-			handleRefreshStatus,
+			handleRefreshStatus: () => runAction(() => controller.refreshState()),
 			handleRemoveAttachment,
 			handleRemoveProject,
 			handleRemoveThread: (threadId) =>
@@ -543,7 +523,7 @@
 			handleShipSlice,
 			handleSpecPromptSelect,
 			handleStageComposerFiles,
-			handleStartCodexLogin,
+			handleStartCodexLogin: () => runAction(() => controller.startCodexLogin()),
 			handleStop,
 			handleStopThread: (threadId) =>
 				runAction(async () => {

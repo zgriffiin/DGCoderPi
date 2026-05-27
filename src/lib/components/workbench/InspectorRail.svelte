@@ -50,7 +50,6 @@
 	let artifactError = $state<string | null>(null);
 	let artifactLoading = $state(false);
 	let selectedArtifact = $state<string | null>(null);
-	let selectedStep = $state<SpecWorkflowStep | null>(null);
 	let detailContent = $state<HTMLDivElement | null>(null);
 	let detailHeightPercent = $state(DEFAULT_INSPECTOR_DETAIL_HEIGHT_PERCENT);
 	let detailSection = $state<HTMLDivElement | null>(null);
@@ -104,7 +103,6 @@
 			return;
 		}
 
-		selectedStep = step;
 		selectedArtifact = step.artifact;
 		artifactDocument = null;
 		artifactLoading = true;
@@ -142,7 +140,6 @@
 
 		lastArtifactScopeKey = scopeKey;
 		selectedArtifact = null;
-		selectedStep = null;
 		artifactDocument = null;
 		artifactError = null;
 		artifactLoading = false;

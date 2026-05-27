@@ -37,16 +37,12 @@
 	const toolText = $derived(formatToolText(message));
 
 	const collapsible = $derived(shouldDefaultCollapsed(message));
-	let collapsed = $derived.by(() => {
-		// If the user has explicitly toggled this message, respect that choice.
+	const collapsed = $derived.by(() => {
 		if (userExpandedIds.has(message.id)) return false;
-		return true;
+		return collapsible;
 	});
-	let userCollapsed = $state<boolean | null>(null);
 	let bodyElement: HTMLElement | null = $state(null);
 	let overflows = $state(false);
-
-	const isCollapsed = $derived(userCollapsed ?? collapsed);
 
 	$effect(() => {
 		const el = bodyElement;
@@ -67,12 +63,10 @@
 	});
 
 	function toggleCollapsed() {
-		const next = !isCollapsed;
-		userCollapsed = next;
-		if (next) {
-			userExpandedIds.delete(message.id);
-		} else {
+		if (collapsed) {
 			userExpandedIds.add(message.id);
+		} else {
+			userExpandedIds.delete(message.id);
 		}
 	}
 
@@ -109,7 +103,7 @@
 		<div
 			bind:this={bodyElement}
 			class="message-row__collapsible"
-			class:message-row__collapsible--collapsed={collapsible && overflows && isCollapsed}
+			class:message-row__collapsible--collapsed={collapsible && overflows && collapsed}
 		>
 			{#if message.role === 'assistant' && !isToolCallMessage(message)}
 				<!-- eslint-disable-next-line svelte/no-at-html-tags -->
@@ -126,11 +120,11 @@
 			<button
 				class="message-row__collapse-toggle"
 				type="button"
-				aria-expanded={!isCollapsed}
-				aria-label={isCollapsed ? 'Expand message' : 'Collapse message'}
+				aria-expanded={!collapsed}
+				aria-label={collapsed ? 'Expand message' : 'Collapse message'}
 				onclick={toggleCollapsed}
 			>
-				{#if isCollapsed}
+				{#if collapsed}
 					<ChevronDown size={14} />
 					<span>Show more</span>
 				{:else}
