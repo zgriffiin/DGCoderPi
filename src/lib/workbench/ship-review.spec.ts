@@ -4,7 +4,7 @@ import { buildShipReviewFixPrompt, projectHasRunningShipReview } from './ship-re
 
 describe('buildShipReviewFixPrompt', () => {
 	it('grounds the fix request in every ship review risk', () => {
-		expect.assertions(7);
+		expect.assertions(9);
 
 		const prompt = buildShipReviewFixPrompt({
 			changeBrief: [],
@@ -52,6 +52,8 @@ describe('buildShipReviewFixPrompt', () => {
 		expect(prompt).toContain('Small-screen users may lose access to workflow controls.');
 		expect(prompt).toContain('src/App.svelte (high): Stepper wiring changed core navigation.');
 		expect(prompt).toContain('Rerun the diff review or ship gate after fixes');
+		expect(prompt).toContain('continue the full Ship workflow');
+		expect(prompt).toContain('merge/close the PR, and clean up the local branch');
 	});
 });
 

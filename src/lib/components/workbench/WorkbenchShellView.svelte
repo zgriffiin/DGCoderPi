@@ -4,6 +4,7 @@
 		AppSnapshot,
 		AttachmentRecord,
 		InspectorMode,
+		KiroSsoDeviceAuth,
 		ModelOption,
 		ProjectRecord,
 		PromptMode,
@@ -11,6 +12,7 @@
 		ThreadRecord
 	} from '$lib/types/workbench';
 	import type { WorkbenchController } from '$lib/workbench/controller';
+	import { trackWindowPointerDrag } from '$lib/workbench/pointer-drag';
 	import type { ShipReviewState } from '$lib/workbench/ship-review';
 	import {
 		buildShipReviewFixPrompt,
@@ -47,6 +49,11 @@
 		composerHint: string;
 		draft: string;
 		inspectorMode: InspectorMode | null;
+		kiroBusy: boolean;
+		kiroDeviceAuth: KiroSsoDeviceAuth | null;
+		kiroError: string | null;
+		kiroRegionDraft: string;
+		kiroStartUrlDraft: string;
 		manualProjectPathOpen: boolean;
 		providerDrafts: Record<string, string>;
 		selectedModel: ModelOption | null;
@@ -76,10 +83,16 @@
 		handleAddProjectDraftChange: (value: string) => void;
 		handleDraftChange: (value: string) => void;
 		handleImportCodexOpenAiKey: () => void;
+		handleKiroCompleteSso: () => void;
+		handleKiroLogout: () => void;
+		handleKiroRegionChange: (value: string) => void;
+		handleKiroStartSso: () => void;
+		handleKiroStartUrlChange: (value: string) => void;
 		handleModelChange: (modelKey: string) => void;
 		handleMoveProject: (projectId: string, targetIndex: number) => void;
 		handleOpenDiff: (projectId: string, threadId?: string) => void;
 		handleOpenFileExplorer: (projectId: string) => void;
+		handlePromoteQueuedMessage: (queueId: string, text: string) => void;
 		handleProjectSelect: (projectId: string) => void;
 		handleProviderDraftChange: (provider: string, value: string) => void;
 		handleReasoningChange: (reasoningLevel: ThinkingLevel) => void;
@@ -233,12 +246,6 @@
 		setComposerHeight(composerHeightPercent + delta);
 	}
 
-	function releaseDragCapture(drag: { captureTarget: HTMLElement; pointerId: number }) {
-		if (drag.captureTarget.hasPointerCapture(drag.pointerId)) {
-			drag.captureTarget.releasePointerCapture(drag.pointerId);
-		}
-	}
-
 	$effect(() => {
 		const leftWidth = clampWidth(panelWidths.left, minProjectRailWidth, maxLeftWidth());
 		const rightWidth = clampWidth(panelWidths.right, MIN_INSPECTOR_WIDTH, maxRightWidth());
@@ -269,25 +276,18 @@
 		}
 		const drag = activeDrag;
 
-		const handlePointerMove = (event: PointerEvent) => {
-			const delta = event.clientX - drag.startX;
-			setPaneWidth(
-				drag.pane,
-				drag.pane === 'left' ? drag.startWidth + delta : drag.startWidth - delta
-			);
-		};
-		const handlePointerUp = () => {
-			releaseDragCapture(drag);
-			activeDrag = null;
-		};
-
-		window.addEventListener('pointermove', handlePointerMove);
-		window.addEventListener('pointerup', handlePointerUp);
-		return () => {
-			releaseDragCapture(drag);
-			window.removeEventListener('pointermove', handlePointerMove);
-			window.removeEventListener('pointerup', handlePointerUp);
-		};
+		return trackWindowPointerDrag(drag, {
+			onMove(event) {
+				const delta = event.clientX - drag.startX;
+				setPaneWidth(
+					drag.pane,
+					drag.pane === 'left' ? drag.startWidth + delta : drag.startWidth - delta
+				);
+			},
+			onEnd() {
+				activeDrag = null;
+			}
+		});
 	});
 
 	$effect(() => {
@@ -296,26 +296,19 @@
 		}
 		const drag = activeComposerDrag;
 
-		const handlePointerMove = (event: PointerEvent) => {
-			const centerHeight = centerColumn?.clientHeight ?? window.innerHeight;
-			if (centerHeight <= 0) {
-				return;
+		return trackWindowPointerDrag(drag, {
+			onMove(event) {
+				const centerHeight = centerColumn?.clientHeight ?? window.innerHeight;
+				if (centerHeight <= 0) {
+					return;
+				}
+				const deltaPercent = ((event.clientY - drag.startY) / centerHeight) * 100;
+				setComposerHeight(drag.startComposerHeightPercent - deltaPercent);
+			},
+			onEnd() {
+				activeComposerDrag = null;
 			}
-			const deltaPercent = ((event.clientY - drag.startY) / centerHeight) * 100;
-			setComposerHeight(drag.startComposerHeightPercent - deltaPercent);
-		};
-		const handlePointerUp = () => {
-			releaseDragCapture(drag);
-			activeComposerDrag = null;
-		};
-
-		window.addEventListener('pointermove', handlePointerMove);
-		window.addEventListener('pointerup', handlePointerUp);
-		return () => {
-			releaseDragCapture(drag);
-			window.removeEventListener('pointermove', handlePointerMove);
-			window.removeEventListener('pointerup', handlePointerUp);
-		};
+		});
 	});
 
 	async function handleShipReviewFixIssues() {
@@ -369,6 +362,7 @@
 	onNudgePaneWidth={nudgePaneWidth}
 	onOpenDiff={actions.handleOpenDiff}
 	onOpenFileExplorer={actions.handleOpenFileExplorer}
+	onPromoteQueuedMessage={actions.handlePromoteQueuedMessage}
 	onRefreshStatus={actions.handleRefreshStatus}
 	onRemoveAttachment={actions.handleRemoveAttachment}
 	onRemoveProject={actions.handleRemoveProject}
@@ -414,6 +408,11 @@
 	diagnosticLoggingEnabled={shellState.workbenchState.snapshot.settings.features
 		.diagnosticLoggingEnabled}
 	docparserEnabled={shellState.workbenchState.snapshot.settings.features.docparserEnabled}
+	kiroBusy={shellState.kiroBusy}
+	kiroDeviceAuth={shellState.kiroDeviceAuth}
+	kiroError={shellState.kiroError}
+	kiroRegionDraft={shellState.kiroRegionDraft}
+	kiroStartUrlDraft={shellState.kiroStartUrlDraft}
 	manualProjectPathOpen={shellState.manualProjectPathOpen}
 	maxContextPercent={shellState.workbenchState.snapshot.settings.features.maxContextPercent}
 	models={shellState.workbenchState.snapshot.models}
@@ -425,6 +424,11 @@
 	onCloseSettings={() => actions.setSettingsOpen(false)}
 	onDiffAnalysisModelChange={actions.handleDiffAnalysisModelChange}
 	onImportCodexOpenAiKey={actions.handleImportCodexOpenAiKey}
+	onKiroCompleteSso={actions.handleKiroCompleteSso}
+	onKiroLogout={actions.handleKiroLogout}
+	onKiroRegionChange={actions.handleKiroRegionChange}
+	onKiroStartSso={actions.handleKiroStartSso}
+	onKiroStartUrlChange={actions.handleKiroStartUrlChange}
 	onMaxContextPercentChange={actions.handleMaxContextPercentChange}
 	onProviderDraftChange={actions.handleProviderDraftChange}
 	onRefreshStatus={actions.handleRefreshStatus}

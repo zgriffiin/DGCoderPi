@@ -34,6 +34,7 @@ const ACTIVITY_BUILDERS = {
 	}),
 	queue_update: (event) => ({
 		detail: `${event.steering.length} steer and ${event.followUp.length} follow-up items pending.`,
+		kind: 'queue-update',
 		title: 'Queue updated',
 		tone: 'system'
 	}),
@@ -90,7 +91,9 @@ export function buildThreadSnapshot(session, sessionManager, options = {}) {
 			...serializeQueue(session.getSteeringMessages(), 'steer'),
 			...serializeQueue(session.getFollowUpMessages(), 'follow-up')
 		],
-		status: sessionStatus(session, sessionError, messages.length, options.terminalEventType)
+		status:
+			options.statusOverride ??
+			sessionStatus(session, sessionError, messages.length, options.terminalEventType)
 	};
 }
 

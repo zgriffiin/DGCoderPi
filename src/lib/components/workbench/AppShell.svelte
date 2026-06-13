@@ -1,20 +1,14 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import type { InspectorMode, ThinkingLevel } from '$lib/types/workbench';
-	import { buildShipSlicePrompt } from '$lib/workbench/preset-prompts';
 	import { createWorkbenchController } from '$lib/workbench/controller';
 	import { buildSpecWorkflowRunRequest } from '$lib/workbench/spec-workflow';
-	import {
-		createIdleShipReview,
-		createReviewingShipReview,
-		projectHasRunningShipReview,
-		runShipReviewGate,
-		shipReviewScopeMatches
-	} from '$lib/workbench/ship-review';
 	import type { SpecWorkflowStep } from '$lib/workbench/spec-workflow';
 	import FileExplorerOverlay from './file-explorer/FileExplorerOverlay.svelte';
 	import WorkbenchShellView from './WorkbenchShellView.svelte';
 	import { stageBrowserFiles } from './composer-attachments';
+	import { createKiroSsoState } from './kiro-sso-state.svelte';
+	import { createShipReviewState } from './ship-review-state.svelte';
 	import {
 		buildComposerHint,
 		findActiveProject,
@@ -25,8 +19,6 @@
 	} from './workbench-selection';
 	import { MIN_PROJECT_RAIL_WIDTH } from './workbench-layout';
 	const controller = createWorkbenchController();
-	type ShipReviewScopeMap = Record<string, ReturnType<typeof createIdleShipReview>>;
-
 	let addProjectDraft = $state('');
 	let addProjectOpen = $state(false);
 	let draft = $state('');
@@ -37,8 +29,14 @@
 	let selectedThreadId = $state('');
 	let settingsOpen = $state(false);
 	let fileExplorerProjectPath = $state<string | null>(null);
-	let shipReviews = $state<ShipReviewScopeMap>({});
-	let shipReviewRequestIds = $state<Record<string, number>>({});
+	const kiroSso = createKiroSsoState(controller);
+	const shipReviewState = createShipReviewState(
+		controller,
+		() => activeProject,
+		() => activeThread,
+		() => (inspectorMode = 'diff'),
+		runAction
+	);
 
 	const workbenchState = $derived($controller);
 	const snapshot = $derived(workbenchState.snapshot);
@@ -57,13 +55,8 @@
 		activeThread?.attachments.filter((attachment) => attachment.stage === 'staged') ?? []
 	);
 	const composerHint = $derived(buildComposerHint(snapshot, activeThread));
-	const activeShipReviewScopeKey = $derived(
-		shipReviewScopeKey(activeProject?.id ?? null, activeThread?.id ?? null)
-	);
-	const shipReview = $derived(shipReviews[activeShipReviewScopeKey] ?? createIdleShipReview());
-	const projectShipReviewRunning = $derived(
-		projectHasRunningShipReview(shipReviews, activeProject?.id ?? null)
-	);
+	const shipReview = $derived(shipReviewState.review);
+	const projectShipReviewRunning = $derived(shipReviewState.projectRunning);
 	const shellState = $derived({
 		activeProject,
 		activeThread,
@@ -72,6 +65,11 @@
 		composerHint,
 		draft,
 		inspectorMode,
+		kiroBusy: kiroSso.busy,
+		kiroDeviceAuth: kiroSso.deviceAuth,
+		kiroError: kiroSso.error,
+		kiroRegionDraft: kiroSso.regionDraft,
+		kiroStartUrlDraft: kiroSso.startUrlDraft,
 		manualProjectPathOpen,
 		providerDrafts,
 		selectedModel,
@@ -98,36 +96,6 @@
 		selectedThreadId = resolveThreadSelection(snapshot, activeProject, selectedThreadId);
 	});
 
-	function shipReviewScopeKey(projectId: string | null, threadId: string | null) {
-		return `${projectId ?? ''}::${threadId ?? ''}`;
-	}
-
-	function scopedShipReview(projectId: string | null, threadId: string | null) {
-		return shipReviews[shipReviewScopeKey(projectId, threadId)] ?? createIdleShipReview();
-	}
-
-	function setScopedShipReview(
-		projectId: string | null,
-		threadId: string | null,
-		nextReview: ReturnType<typeof createIdleShipReview>
-	) {
-		shipReviews = {
-			...shipReviews,
-			[shipReviewScopeKey(projectId, threadId)]: nextReview
-		};
-	}
-
-	function nextShipReviewRequestId(projectId: string | null, threadId: string | null) {
-		const scopeKey = shipReviewScopeKey(projectId, threadId);
-		const nextRequestId = (shipReviewRequestIds[scopeKey] ?? 0) + 1;
-		shipReviewRequestIds = { ...shipReviewRequestIds, [scopeKey]: nextRequestId };
-		return nextRequestId;
-	}
-
-	function currentShipReviewRequestId(projectId: string | null, threadId: string | null) {
-		return shipReviewRequestIds[shipReviewScopeKey(projectId, threadId)] ?? 0;
-	}
-
 	function closeAddProjectModal() {
 		addProjectOpen = false;
 		manualProjectPathOpen = false;
@@ -139,20 +107,6 @@
 
 	function handleDraftChange(value: string) {
 		draft = value;
-	}
-
-	async function sendShipPrompt(
-		projectId: string,
-		threadId: string,
-		status: 'completed' | 'failed' | 'idle' | 'running'
-	) {
-		if (!shipReviewScopeMatches(scopedShipReview(projectId, threadId), projectId, threadId)) {
-			return;
-		}
-
-		const mode = status === 'running' ? 'follow-up' : 'prompt';
-		await controller.sendPrompt(threadId, buildShipSlicePrompt(), mode);
-		setScopedShipReview(projectId, threadId, createIdleShipReview());
 	}
 
 	function handleProjectSelect(projectId: string) {
@@ -283,6 +237,16 @@
 		});
 	}
 
+	async function handlePromoteQueuedMessage(queueId: string, text: string) {
+		if (!activeThread) {
+			return;
+		}
+
+		await runAction(async () => {
+			await controller.promoteQueuedMessage(activeThread.id, queueId, text);
+		});
+	}
+
 	async function handleRenameThread(threadId: string, title: string) {
 		await runAction(async () => {
 			await controller.renameThread(threadId, title);
@@ -293,7 +257,7 @@
 		if (!activeThread || !draft.trim()) {
 			return;
 		}
-		if (projectHasRunningShipReview(shipReviews, activeProject?.id ?? null)) {
+		if (shipReviewState.hasRunningProject(activeProject?.id ?? null)) {
 			return;
 		}
 
@@ -303,64 +267,11 @@
 		});
 	}
 
-	async function handleShipSlice() {
-		if (!activeProject || !activeThread || shipReview.status === 'reviewing') {
-			return;
-		}
-
-		await runAction(async () => {
-			const projectId = activeProject.id;
-			const threadId = activeThread.id;
-			const threadStatus = activeThread.status;
-			const requestId = nextShipReviewRequestId(projectId, threadId);
-			setScopedShipReview(projectId, threadId, createReviewingShipReview(projectId, threadId));
-			const result = await runShipReviewGate(
-				controller,
-				projectId,
-				threadId,
-				() => currentShipReviewRequestId(projectId, threadId) === requestId
-			);
-			if (currentShipReviewRequestId(projectId, threadId) !== requestId) {
-				return;
-			}
-			if (!result) {
-				await sendShipPrompt(projectId, threadId, threadStatus);
-				return;
-			}
-			setScopedShipReview(projectId, threadId, result);
-			if (result.status === 'needs-decision') {
-				inspectorMode = 'diff';
-			}
-		});
-	}
-
-	async function handleShipReviewContinue() {
-		const thread = activeThread;
-		const projectId = activeProject?.id ?? null;
-		if (!thread || !projectId) {
-			return;
-		}
-		if (!shipReviewScopeMatches(scopedShipReview(projectId, thread.id), projectId, thread.id)) {
-			setScopedShipReview(projectId, thread.id, createIdleShipReview());
-			return;
-		}
-
-		await runAction(async () => sendShipPrompt(projectId, thread.id, thread.status));
-	}
-
-	async function handleShipReviewDismiss() {
-		if (!activeProject || !activeThread) {
-			return;
-		}
-		nextShipReviewRequestId(activeProject.id, activeThread.id);
-		setScopedShipReview(activeProject.id, activeThread.id, createIdleShipReview());
-	}
-
 	async function handleSpecPromptSelect(step: SpecWorkflowStep) {
 		if (!activeThread) {
 			return;
 		}
-		if (projectHasRunningShipReview(shipReviews, activeProject?.id ?? null)) {
+		if (shipReviewState.hasRunningProject(activeProject?.id ?? null)) {
 			return;
 		}
 
@@ -500,10 +411,16 @@
 			handleDiffAnalysisModelChange,
 			handleDraftChange,
 			handleImportCodexOpenAiKey: () => runAction(() => controller.importCodexOpenAiKey()),
+			handleKiroCompleteSso: kiroSso.complete,
+			handleKiroLogout: kiroSso.logout,
+			handleKiroRegionChange: kiroSso.setRegion,
+			handleKiroStartSso: kiroSso.start,
+			handleKiroStartUrlChange: kiroSso.setStartUrl,
 			handleModelChange,
 			handleMoveProject,
 			handleOpenDiff,
 			handleOpenFileExplorer,
+			handlePromoteQueuedMessage,
 			handleProjectSelect,
 			handleProviderDraftChange,
 			handleReasoningChange,
@@ -518,9 +435,9 @@
 			handleRenameThread,
 			handleSaveProvider,
 			handleSend,
-			handleShipReviewContinue,
-			handleShipReviewDismiss,
-			handleShipSlice,
+			handleShipReviewContinue: shipReviewState.continue,
+			handleShipReviewDismiss: shipReviewState.dismiss,
+			handleShipSlice: shipReviewState.slice,
 			handleSpecPromptSelect,
 			handleStageComposerFiles,
 			handleStartCodexLogin: () => runAction(() => controller.startCodexLogin()),

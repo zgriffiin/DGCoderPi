@@ -10,6 +10,7 @@
 		ThreadRecord
 	} from '$lib/types/workbench';
 	import type { WorkbenchController } from '$lib/workbench/controller';
+	import { trackWindowPointerDrag } from '$lib/workbench/pointer-drag';
 	import type { SpecWorkflowStep } from '$lib/workbench/spec-workflow';
 
 	import {
@@ -92,12 +93,6 @@
 		setDetailHeight(detailHeightPercent - delta);
 	}
 
-	function releaseDragCapture(drag: { captureTarget: HTMLElement; pointerId: number }) {
-		if (drag.captureTarget.hasPointerCapture(drag.pointerId)) {
-			drag.captureTarget.releasePointerCapture(drag.pointerId);
-		}
-	}
-
 	async function handleViewArtifact(step: SpecWorkflowStep) {
 		if (!project) {
 			return;
@@ -164,26 +159,19 @@
 		}
 		const drag = activeDetailDrag;
 
-		const handlePointerMove = (event: PointerEvent) => {
-			const detailHeight = detailSection?.clientHeight ?? window.innerHeight;
-			if (detailHeight <= 0) {
-				return;
+		return trackWindowPointerDrag(drag, {
+			onMove(event) {
+				const detailHeight = detailSection?.clientHeight ?? window.innerHeight;
+				if (detailHeight <= 0) {
+					return;
+				}
+				const deltaPercent = ((event.clientY - drag.startY) / detailHeight) * 100;
+				setDetailHeight(drag.startDetailHeightPercent - deltaPercent);
+			},
+			onEnd() {
+				activeDetailDrag = null;
 			}
-			const deltaPercent = ((event.clientY - drag.startY) / detailHeight) * 100;
-			setDetailHeight(drag.startDetailHeightPercent - deltaPercent);
-		};
-		const handlePointerUp = () => {
-			releaseDragCapture(drag);
-			activeDetailDrag = null;
-		};
-
-		window.addEventListener('pointermove', handlePointerMove);
-		window.addEventListener('pointerup', handlePointerUp);
-		return () => {
-			releaseDragCapture(drag);
-			window.removeEventListener('pointermove', handlePointerMove);
-			window.removeEventListener('pointerup', handlePointerUp);
-		};
+		});
 	});
 </script>
 

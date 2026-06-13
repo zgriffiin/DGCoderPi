@@ -11,7 +11,7 @@ export type ShipReviewState = {
 	threadId: string | null;
 };
 
-export type ShipReviewScopeMap = Record<string, ShipReviewState>;
+type ShipReviewScopeMap = Record<string, ShipReviewState>;
 
 const SHIP_REVIEW_POLL_INTERVAL_MS = 1500;
 const SHIP_REVIEW_TIMEOUT_MS = 10 * 60 * 1000;
@@ -88,6 +88,8 @@ export function buildShipReviewFixPrompt(analysis: DiffAnalysis) {
 		'- If a finding is a false positive, explain why with file-level evidence.',
 		'- Validate user-visible fixes through the real app UI with Playwright where applicable.',
 		'- Rerun the diff review or ship gate after fixes and report remaining findings.',
+		'- After the review findings are fixed or proven false, continue the full Ship workflow: validate, commit, push, create or update the PR, resolve PR feedback, merge/close the PR, and clean up the local branch.',
+		'- This is explicit authorization to complete the Ship workflow after fixing the cited issues; do not stop at fix-and-validate if merge and cleanup are still possible.',
 		'',
 		'Ship review issues:',
 		...issueLines,

@@ -48,6 +48,7 @@
 		onNudgePaneWidth: (pane: 'left' | 'right', delta: number) => void;
 		onOpenDiff: (projectId: string, threadId?: string) => void;
 		onOpenFileExplorer: (projectId: string) => void;
+		onPromoteQueuedMessage: (queueId: string, text: string) => void;
 		onNudgeComposerHeight: (delta: number) => void;
 		onRefreshStatus: () => void;
 		onRemoveAttachment: (attachmentId: string) => void;
@@ -112,6 +113,7 @@
 		onNudgePaneWidth,
 		onOpenDiff,
 		onOpenFileExplorer,
+		onPromoteQueuedMessage,
 		onNudgeComposerHeight,
 		onRefreshStatus,
 		onRemoveAttachment,
@@ -256,6 +258,7 @@
 			onCompactThread={() => activeThread && onCompactThread(activeThread.id)}
 			{onDraftChange}
 			{onModelChange}
+			{onPromoteQueuedMessage}
 			{onRemoveAttachment}
 			{onReasoningChange}
 			{onSend}
@@ -268,6 +271,7 @@
 			{selectedModel}
 			{selectedModelKey}
 			{selectedReasoningLevel}
+			queue={activeThread?.queue ?? []}
 			{shipReviewDetail}
 			{shipReviewIssueCount}
 			{shipReviewMaxRiskLevel}
