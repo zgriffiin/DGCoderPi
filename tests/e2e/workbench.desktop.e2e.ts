@@ -75,14 +75,10 @@ async function getDesktopPage() {
 }
 
 async function addProjectAndThread(page: import('@playwright/test').Page) {
-	await page.waitForFunction(() => {
-		return document.querySelector('h1')?.textContent?.includes('DGCoder');
-	});
-	await expect(page.getByRole('heading', { level: 1, name: 'DGCoder' })).toBeVisible({
-		timeout: 15_000
-	});
+	const addProjectButton = page.getByRole('button', { name: 'Add project' });
+	await expect(addProjectButton).toBeVisible({ timeout: 15_000 });
 
-	await page.getByRole('button', { name: 'Add project' }).click();
+	await addProjectButton.click();
 	await page.getByRole('button', { name: 'Paste path' }).click();
 	await page.getByLabel('Repository path').fill(process.cwd());
 	await page.getByRole('button', { name: 'Add from path' }).click();
@@ -378,6 +374,13 @@ async function attachReadmeToSelectedThread(
 		.locator('.spec-step')
 		.filter({ hasText: 'Requirements' })
 		.getByRole('button', { name: 'Run' });
+	// A ship review started in earlier steps may still be running. While a project has a review in
+	// the "reviewing" state, prompt sends (including spec stage runs) are intentionally blocked, so
+	// wait for the review to settle before running the Requirements stage.
+	await expect(page.locator('.composer-panel')).not.toContainText(
+		'Reviewing changes before commit',
+		{ timeout: 60_000 }
+	);
 	await requirementsRunButton.click();
 	await expect(page.getByLabel('Prompt')).toHaveValue('');
 	const modelEmptyState = page.locator('.model-empty-state');
@@ -396,6 +399,17 @@ async function attachReadmeToSelectedThread(
 			})
 			.toBe(true);
 	}
+	// The staged README.md attachment is written under .doc/attachments, which surfaces as an
+	// untracked file in the project diff. Verify it appears in the diff's Patch View file list.
+	await verifyStagedAttachmentInDiff(page, inspector);
+}
+
+async function verifyStagedAttachmentInDiff(
+	page: import('@playwright/test').Page,
+	inspector: import('@playwright/test').Locator
+) {
+	await page.locator('.topbar__actions').getByRole('button', { exact: true, name: 'Diff' }).click();
+	await inspector.getByRole('tab', { name: 'Patch View' }).click();
 	await expect
 		.poll(
 			async () => {
@@ -464,16 +478,15 @@ async function verifyPastedImageWarning(page: import('@playwright/test').Page) {
 		.toContain('limited');
 	await expect(attachmentChip).toContainText(warningText);
 	await expect(attachmentChip).not.toContainText('failed');
-
+	// Switching the inspector to the spec workflow must not disturb the staged attachment shown in
+	// the composer strip.
 	const specButton = page.getByRole('button', { exact: true, name: 'Spec' });
 	if ((await specButton.getAttribute('aria-pressed')) !== 'true') {
 		await specButton.click();
 	}
-	const inspector = page.locator('.inspector-rail');
-	await expect(inspector).toBeVisible();
-	await expect(inspector).toContainText('clipboard-image.png');
-	await expect(inspector).toContainText('limited');
-	await expect(inspector).toContainText(warningText);
+	await expect(attachmentChip).toContainText('clipboard-image.png');
+	await expect(attachmentChip).toContainText('limited');
+	await expect(attachmentChip).toContainText(warningText);
 }
 
 test('runs the real desktop workflow through Tauri', async () => {

@@ -1,5 +1,10 @@
 <script lang="ts">
-	import type { CodexStatus, ModelOption, ProviderStatus } from '$lib/types/workbench';
+	import type {
+		CodexStatus,
+		KiroSsoDeviceAuth,
+		ModelOption,
+		ProviderStatus
+	} from '$lib/types/workbench';
 	import AddProjectModal from './AddProjectModal.svelte';
 	import SettingsModal from './SettingsModal.svelte';
 
@@ -11,6 +16,11 @@
 		diffAnalysisModelKey: string | null;
 		diagnosticLoggingEnabled: boolean;
 		docparserEnabled: boolean;
+		kiroBusy: boolean;
+		kiroDeviceAuth: KiroSsoDeviceAuth | null;
+		kiroError: string | null;
+		kiroRegionDraft: string;
+		kiroStartUrlDraft: string;
 		manualProjectPathOpen: boolean;
 		maxContextPercent: number;
 		models: ModelOption[];
@@ -22,6 +32,11 @@
 		onCloseSettings: VoidFunction;
 		onDiffAnalysisModelChange: (modelKey: string | null) => void;
 		onImportCodexOpenAiKey: VoidFunction;
+		onKiroCompleteSso: VoidFunction;
+		onKiroLogout: VoidFunction;
+		onKiroRegionChange: (value: string) => void;
+		onKiroStartSso: VoidFunction;
+		onKiroStartUrlChange: (value: string) => void;
 		onMaxContextPercentChange: (percent: number) => void;
 		onProviderDraftChange: (provider: string, value: string) => void;
 		onRefreshStatus: VoidFunction;
@@ -44,6 +59,11 @@
 		diffAnalysisModelKey,
 		diagnosticLoggingEnabled,
 		docparserEnabled,
+		kiroBusy,
+		kiroDeviceAuth,
+		kiroError,
+		kiroRegionDraft,
+		kiroStartUrlDraft,
 		manualProjectPathOpen,
 		maxContextPercent,
 		models,
@@ -55,6 +75,11 @@
 		onCloseSettings,
 		onDiffAnalysisModelChange,
 		onImportCodexOpenAiKey,
+		onKiroCompleteSso,
+		onKiroLogout,
+		onKiroRegionChange,
+		onKiroStartSso,
+		onKiroStartUrlChange,
 		onMaxContextPercentChange,
 		onProviderDraftChange,
 		onRefreshStatus,
@@ -88,11 +113,21 @@
 	{diffAnalysisModelKey}
 	{diagnosticLoggingEnabled}
 	{docparserEnabled}
+	{kiroBusy}
+	{kiroDeviceAuth}
+	{kiroError}
+	{kiroRegionDraft}
+	{kiroStartUrlDraft}
 	{maxContextPercent}
 	onClose={onCloseSettings}
 	{onCavemanLevelChange}
 	{onDiffAnalysisModelChange}
 	{onImportCodexOpenAiKey}
+	{onKiroCompleteSso}
+	{onKiroLogout}
+	{onKiroRegionChange}
+	{onKiroStartSso}
+	{onKiroStartUrlChange}
 	{onMaxContextPercentChange}
 	{onProviderDraftChange}
 	{onRefreshStatus}

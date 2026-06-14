@@ -18,17 +18,18 @@ export async function syncKiroSso(agentDir, authStorage, disposeSessions) {
 	const credential = await getValidKiroCredential(agentDir);
 	const current = authStorage.get('kiro');
 	if (!credential) {
+		delete process.env.AWS_BEARER_TOKEN_BEDROCK;
 		if (current) {
 			authStorage.remove('kiro');
 			disposeSessions();
 		}
 		return;
 	}
-	if (current?.key === credential.accessToken) {
+	if (current?.type === 'api_key' && current?.key === credential.accessToken) {
 		return;
 	}
 	authStorage.set('kiro', {
-		type: 'bearer',
+		type: 'api_key',
 		key: credential.accessToken,
 		region: credential.region,
 		startUrl: credential.startUrl

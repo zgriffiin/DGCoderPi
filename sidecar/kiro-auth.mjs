@@ -307,6 +307,9 @@ export async function refreshKiroCredential(agentDir, credential) {
 		return refreshed;
 	} catch (error) {
 		console.warn('[kiro-auth] Token refresh failed:', error.message);
+		if (String(error.message).includes('invalid_grant')) {
+			await removeKiroCredential(agentDir);
+		}
 		return null;
 	}
 }

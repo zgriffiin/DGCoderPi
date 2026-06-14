@@ -31,12 +31,12 @@ use crate::{
         ActivityRecord, AddProjectInput, AppEvent, AppHealth, AppIntegrations, AppSnapshot,
         AppUpdate, AttachmentParseStatus, AttachmentStage, CompactThreadInput, CreateThreadInput,
         LoadSpecArtifactInput, MessageRecord, MessageRole, MessageStatus, ModelOption,
-        MoveProjectInput, PersistedState, PromptMode, ProviderKeyInput, RemoveAttachmentInput,
-        RemoveProjectInput, RemoveThreadInput, RenameProjectInput, RenameThreadInput,
-        SelectIntentInput, SelectModelInput, SelectReasoningInput, SendPromptInput,
-        SetCavemanLevelInput, SetDiffAnalysisModelInput, SetMaxContextPercentInput, SpecArtifactDocument,
-        StageAttachmentDataInput, StageAttachmentInput, ThreadIntent, ThreadRecord, ThreadStatus,
-        ToggleFeatureInput,
+        MoveProjectInput, PersistedState, PromoteQueuedMessageInput, PromptMode, ProviderKeyInput,
+        RemoveAttachmentInput, RemoveProjectInput, RemoveThreadInput, RenameProjectInput,
+        RenameThreadInput, SelectIntentInput, SelectModelInput, SelectReasoningInput,
+        SendPromptInput, SetCavemanLevelInput, SetDiffAnalysisModelInput,
+        SetMaxContextPercentInput, SpecArtifactDocument, StageAttachmentDataInput,
+        StageAttachmentInput, ThreadIntent, ThreadRecord, ThreadStatus, ToggleFeatureInput,
     },
     pi_bridge::{
         attachment_status_from_bridge, BridgeActivity, BridgeCompactThreadRequest,
@@ -82,7 +82,11 @@ struct PreparedPrompt {
     thread_status: ThreadStatus,
 }
 
-fn compose_prompt_guidance(intent_guidance: Option<&str>, prompt_guidance: Option<&str>, narration_guidance: Option<&str>) -> String {
+fn compose_prompt_guidance(
+    intent_guidance: Option<&str>,
+    prompt_guidance: Option<&str>,
+    narration_guidance: Option<&str>,
+) -> String {
     [narration_guidance, intent_guidance, prompt_guidance]
         .into_iter()
         .flatten()
@@ -578,16 +582,18 @@ impl AppRuntime {
 
     pub fn complete_kiro_sso_login(&self) -> Result<AppUpdate, String> {
         self.with_serialized_mutation(|| {
-            let environment: BridgeEnvironment =
-                self.bridge()?.request("complete-kiro-sso-login", serde_json::json!({}))?;
+            let environment: BridgeEnvironment = self
+                .bridge()?
+                .request("complete-kiro-sso-login", serde_json::json!({}))?;
             self.persist_and_return(self.sync_environment(environment)?)
         })
     }
 
     pub fn logout_kiro(&self) -> Result<AppUpdate, String> {
         self.with_serialized_mutation(|| {
-            let environment: BridgeEnvironment =
-                self.bridge()?.request("logout-kiro", serde_json::json!({}))?;
+            let environment: BridgeEnvironment = self
+                .bridge()?
+                .request("logout-kiro", serde_json::json!({}))?;
             self.persist_and_return(self.sync_environment(environment)?)
         })
     }
@@ -647,9 +653,15 @@ impl AppRuntime {
         })
     }
 
-    pub fn set_max_context_percent(&self, input: SetMaxContextPercentInput) -> Result<AppUpdate, String> {
+    pub fn set_max_context_percent(
+        &self,
+        input: SetMaxContextPercentInput,
+    ) -> Result<AppUpdate, String> {
         if input.percent < 50 || input.percent > 95 {
-            return Err(format!("Invalid max context percent: {}. Must be between 50 and 95.", input.percent));
+            return Err(format!(
+                "Invalid max context percent: {}. Must be between 50 and 95.",
+                input.percent
+            ));
         }
         self.with_serialized_mutation(|| {
             self.mutate_state(|state| {
@@ -924,11 +936,99 @@ impl AppRuntime {
         Ok(update)
     }
 
+    pub fn promote_queued_message(
+        &self,
+        input: PromoteQueuedMessageInput,
+    ) -> Result<AppUpdate, String> {
+        let requested_text = input
+            .text
+            .as_deref()
+            .map(str::trim)
+            .filter(|text| !text.is_empty());
+        let (rollback, text, update) = self.with_serialized_mutation(|| {
+            let mut rollback = None;
+            let mut promoted_text = requested_text.map(str::to_string);
+            let update = self.mutate_thread(&input.thread_id, |thread| {
+                let entry_index = thread
+                    .queue
+                    .iter()
+                    .position(|entry| entry.id == input.queue_id)
+                    .or_else(|| {
+                        requested_text.and_then(|text| {
+                            thread
+                                .queue
+                                .iter()
+                                .position(|entry| entry.text.trim() == text)
+                        })
+                    });
+                let Some(entry_index) = entry_index else {
+                    if let Some(text) = requested_text {
+                        if user_message_exists(&thread.messages, text) {
+                            promoted_text = None;
+                        }
+                        return Ok(());
+                    }
+                    return Err("Queued message was not found.".to_string());
+                };
+
+                let thread_status = thread.status.clone();
+                let entry = &mut thread.queue[entry_index];
+                rollback = Some((entry.id.clone(), entry.mode.clone(), thread_status));
+                promoted_text = Some(entry.text.clone());
+                entry.mode = crate::model::QueueMode::Steer;
+                thread.status = ThreadStatus::Running;
+                thread.last_error = None;
+                Ok(())
+            })?;
+            self.persist_update(&update)?;
+            Ok((rollback, promoted_text, update))
+        })?;
+
+        let Some(text) = text else {
+            return Ok(update);
+        };
+
+        if let Err(error) = self
+            .bridge()?
+            .promote_queued_message(&input.thread_id, &text)
+        {
+            let bridge_error = error.clone();
+            if let Err(rollback_error) = self.with_serialized_mutation(|| {
+                let update = self.mutate_thread(&input.thread_id, |thread| {
+                    if let Some((entry_id, original_mode, original_status)) = &rollback {
+                        if let Some(entry) = thread
+                            .queue
+                            .iter_mut()
+                            .find(|entry| entry.id == entry_id.as_str())
+                        {
+                            entry.mode = original_mode.clone();
+                        }
+                        thread.status = original_status.clone();
+                    }
+                    thread.last_error = Some(error.clone());
+                    Ok(())
+                })?;
+                self.persist_update(&update)?;
+                self.emit_update(&update)
+            }) {
+                eprintln!(
+                    "Failed to roll back queued message promotion after bridge error `{bridge_error}`: {rollback_error}"
+                );
+            }
+            return Err(bridge_error);
+        }
+
+        Ok(update)
+    }
+
     pub fn abort_thread(&self, thread_id: &str) -> Result<AppUpdate, String> {
-        self.bridge()?.abort(thread_id)?;
-        self.with_serialized_mutation(|| {
+        // Acquire the bridge before mutating local state so a bridge failure does not leave the
+        // thread marked Idle while the sidecar run keeps going.
+        let bridge = self.bridge()?;
+        let update = self.with_serialized_mutation(|| {
             let update = self.mutate_thread(thread_id, |thread| {
                 thread.status = ThreadStatus::Idle;
+                thread.queue.clear();
                 append_activity(
                     thread,
                     "Run stopped",
@@ -938,7 +1038,15 @@ impl AppRuntime {
                 Ok(())
             })?;
             self.persist_and_return(update)
-        })
+        })?;
+
+        let thread_id = thread_id.to_string();
+        tauri::async_runtime::spawn_blocking(move || {
+            if let Err(error) = bridge.abort(&thread_id) {
+                eprintln!("Failed to abort thread `{thread_id}` in bridge: {error}");
+            }
+        });
+        Ok(update)
     }
 
     fn snapshot(&self) -> Result<AppSnapshot, String> {
@@ -1828,22 +1936,18 @@ impl AppRuntime {
 
                     thread.context_usage = snapshot.context_usage.clone();
                     thread.last_error = snapshot.last_error;
-                    thread.messages = merge_thread_messages(
-                        &thread.messages,
-                        snapshot
-                            .messages
-                            .into_iter()
-                            .map(|message| MessageRecord {
-                                id: message.id,
-                                role: message.role,
-                                status: message.status,
-                                text: message.text,
-                                timestamp_ms: message.timestamp_ms,
-                            })
-                            .collect(),
-                        thread.last_user_message_at_ms,
-                    );
-                    thread.queue = snapshot
+                    let snapshot_messages = snapshot
+                        .messages
+                        .into_iter()
+                        .map(|message| MessageRecord {
+                            id: message.id,
+                            role: message.role,
+                            status: message.status,
+                            text: message.text,
+                            timestamp_ms: message.timestamp_ms,
+                        })
+                        .collect::<Vec<_>>();
+                    let snapshot_queue = snapshot
                         .queue
                         .into_iter()
                         .map(|entry| crate::model::QueueEntry {
@@ -1852,7 +1956,18 @@ impl AppRuntime {
                             status: entry.status,
                             text: entry.text,
                         })
-                        .collect();
+                        .collect::<Vec<_>>();
+                    thread.queue = merge_thread_queue(
+                        &thread.queue,
+                        &snapshot_queue,
+                        &snapshot_messages,
+                        is_authoritative_queue_activity(activity.as_ref()),
+                    );
+                    thread.messages = merge_thread_messages(
+                        &thread.messages,
+                        snapshot_messages,
+                        thread.last_user_message_at_ms,
+                    );
                     thread.status = snapshot.status;
                     thread.last_user_message_at_ms = latest_user_message_timestamp(
                         thread.messages.iter(),
@@ -1948,6 +2063,12 @@ fn snapshot_queue_matches(thread: &ThreadRecord, snapshot: &BridgeThreadSnapshot
             })
 }
 
+fn is_authoritative_queue_activity(activity: Option<&BridgeActivity>) -> bool {
+    activity
+        .and_then(|detail| detail.kind.as_deref())
+        .is_some_and(|kind| kind == "queue-update")
+}
+
 fn merge_thread_messages(
     existing_messages: &[MessageRecord],
     mut snapshot_messages: Vec<MessageRecord>,
@@ -1977,6 +2098,48 @@ fn merge_thread_messages(
 
     snapshot_messages.sort_by_key(|message| message.timestamp_ms);
     snapshot_messages
+}
+
+fn merge_thread_queue(
+    existing_queue: &[crate::model::QueueEntry],
+    snapshot_queue: &[crate::model::QueueEntry],
+    snapshot_messages: &[MessageRecord],
+    authoritative_snapshot: bool,
+) -> Vec<crate::model::QueueEntry> {
+    if authoritative_snapshot {
+        return snapshot_queue.to_vec();
+    }
+
+    let mut merged = snapshot_queue.to_vec();
+    // Track which snapshot entries have already absorbed a matching local entry so identical local
+    // entries are preserved as a multiset rather than collapsed to a single occurrence.
+    let mut consumed = vec![false; snapshot_queue.len()];
+    for entry in existing_queue {
+        if user_message_exists(snapshot_messages, &entry.text) {
+            continue;
+        }
+        let matched = snapshot_queue
+            .iter()
+            .enumerate()
+            .position(|(index, candidate)| {
+                !consumed[index]
+                    && candidate.mode == entry.mode
+                    && candidate.status == entry.status
+                    && candidate.text == entry.text
+            });
+        if let Some(index) = matched {
+            consumed[index] = true;
+            continue;
+        }
+        merged.push(entry.clone());
+    }
+    merged
+}
+
+fn user_message_exists(messages: &[MessageRecord], text: &str) -> bool {
+    messages
+        .iter()
+        .any(|message| matches!(message.role, MessageRole::User) && message.text == text)
 }
 
 fn validated_name(value: &str, label: &str) -> Result<String, String> {
@@ -2280,7 +2443,7 @@ fn launch_codex_login() -> Result<(), String> {
 mod tests {
     use super::{
         append_intent_switch_activity, compose_prompt_guidance, latest_user_message_timestamp,
-        normalize_state, project_insert_index, resolve_spec_artifact_path,
+        merge_thread_queue, normalize_state, project_insert_index, resolve_spec_artifact_path,
         sync_thread_model_selection, validate_prompt_length,
     };
     use crate::model::{
@@ -2321,7 +2484,11 @@ mod tests {
             "Intent: Plan."
         );
         assert_eq!(
-            compose_prompt_guidance(Some("Intent: Plan."), Some("Stage prompt."), Some("Narrate.")),
+            compose_prompt_guidance(
+                Some("Intent: Plan."),
+                Some("Stage prompt."),
+                Some("Narrate.")
+            ),
             "Narrate.\n\nIntent: Plan.\n\nStage prompt."
         );
     }
@@ -2335,6 +2502,49 @@ mod tests {
             Err("Prompt is too large. Limit is 200000 characters.".to_string())
         );
         assert!(validate_prompt_length("ok").is_ok());
+    }
+
+    #[test]
+    fn merge_thread_queue_preserves_local_entry_missing_from_snapshot() {
+        let existing = vec![QueueEntry {
+            id: "local-queued".to_string(),
+            mode: QueueMode::FollowUp,
+            status: QueueStatus::Pending,
+            text: "wait for this".to_string(),
+        }];
+
+        assert_eq!(merge_thread_queue(&existing, &[], &[], false), existing);
+    }
+
+    #[test]
+    fn merge_thread_queue_honors_authoritative_empty_snapshot() {
+        let existing = vec![QueueEntry {
+            id: "local-queued".to_string(),
+            mode: QueueMode::Steer,
+            status: QueueStatus::Pending,
+            text: "already consumed".to_string(),
+        }];
+
+        assert!(merge_thread_queue(&existing, &[], &[], true).is_empty());
+    }
+
+    #[test]
+    fn merge_thread_queue_drops_entry_consumed_as_user_message() {
+        let existing = vec![QueueEntry {
+            id: "local-queued".to_string(),
+            mode: QueueMode::FollowUp,
+            status: QueueStatus::Pending,
+            text: "now visible".to_string(),
+        }];
+        let messages = vec![MessageRecord {
+            id: "user-message".to_string(),
+            role: MessageRole::User,
+            status: MessageStatus::Ready,
+            text: "now visible".to_string(),
+            timestamp_ms: 10,
+        }];
+
+        assert!(merge_thread_queue(&existing, &[], &messages, false).is_empty());
     }
 
     #[test]

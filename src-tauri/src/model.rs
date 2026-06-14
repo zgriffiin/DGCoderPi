@@ -277,7 +277,7 @@ impl ThreadIntent {
                 "Intent: Implement. Make scoped code changes and report validation."
             }
             Self::Ship => {
-                "Intent: Ship. Validate, fix, commit, push, open or update the PR, and resolve review feedback."
+                "Intent: Ship. Validate, fix, commit, push, open or update the PR, resolve review feedback, merge or close the PR, and clean up local branch state."
             }
         }
     }
@@ -548,6 +548,14 @@ pub struct SendPromptInput {
     pub mode: PromptMode,
     pub prompt_guidance: Option<String>,
     pub text: String,
+    pub thread_id: String,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PromoteQueuedMessageInput {
+    pub queue_id: String,
+    pub text: Option<String>,
     pub thread_id: String,
 }
 

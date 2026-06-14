@@ -9,8 +9,8 @@ use crate::{
         ProviderKeyInput, RemoveAttachmentInput, RemoveProjectInput, RemoveThreadInput,
         RenameProjectInput, RenameThreadInput, SelectIntentInput, SelectModelInput,
         SelectReasoningInput, SendPromptInput, SetCavemanLevelInput, SetDiffAnalysisModelInput,
-        SetMaxContextPercentInput,
-        SpecArtifactDocument, StageAttachmentDataInput, StageAttachmentInput, ToggleFeatureInput,
+        SetMaxContextPercentInput, SpecArtifactDocument, StageAttachmentDataInput,
+        StageAttachmentInput, ToggleFeatureInput,
     },
 };
 
@@ -142,6 +142,14 @@ pub fn complete_kiro_sso_login(runtime: State<'_, AppRuntime>) -> UpdateCommandR
 #[tauri::command]
 pub fn logout_kiro(runtime: State<'_, AppRuntime>) -> UpdateCommandResult {
     runtime.logout_kiro()
+}
+
+#[tauri::command]
+pub fn promote_queued_message(
+    input: crate::model::PromoteQueuedMessageInput,
+    runtime: State<'_, AppRuntime>,
+) -> UpdateCommandResult {
+    runtime.promote_queued_message(input)
 }
 
 #[tauri::command]
@@ -381,7 +389,9 @@ pub async fn copy_entry(input: CopyEntryInput) -> Result<(), String> {
     if source.is_dir() {
         copy_dir_recursive(source, dest).map_err(|e| e.to_string())
     } else {
-        std::fs::copy(source, dest).map(|_| ()).map_err(|e| e.to_string())
+        std::fs::copy(source, dest)
+            .map(|_| ())
+            .map_err(|e| e.to_string())
     }
 }
 

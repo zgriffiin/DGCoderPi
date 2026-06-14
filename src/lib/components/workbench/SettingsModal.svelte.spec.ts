@@ -21,6 +21,11 @@ function mountSettingsModal() {
 			diffAnalysisModelKey: 'openai::gpt-5.4',
 			diagnosticLoggingEnabled: true,
 			docparserEnabled: true,
+			kiroBusy: false,
+			kiroDeviceAuth: null,
+			kiroError: null,
+			kiroRegionDraft: 'us-east-1',
+			kiroStartUrlDraft: '',
 			maxContextPercent: 80,
 			models: [
 				{
@@ -38,6 +43,11 @@ function mountSettingsModal() {
 			onClose: vi.fn(),
 			onDiffAnalysisModelChange: vi.fn(),
 			onImportCodexOpenAiKey: vi.fn(),
+			onKiroCompleteSso: vi.fn(),
+			onKiroLogout: vi.fn(),
+			onKiroRegionChange: vi.fn(),
+			onKiroStartSso: vi.fn(),
+			onKiroStartUrlChange: vi.fn(),
 			onMaxContextPercentChange: vi.fn(),
 			onProviderDraftChange: vi.fn(),
 			onRefreshStatus: vi.fn(),

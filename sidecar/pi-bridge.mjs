@@ -28,23 +28,11 @@ import {
 	shouldWarnStalled,
 	startRun
 } from './bridge-run-state.mjs';
-import { readCodexOauthCredential } from './codex-auth.mjs';
 import { analyzeDiff } from './diff-analysis.mjs';
 import { parseAttachment } from './docparser.mjs';
-import {
-	completeKiroSsoLogin,
-	logoutKiro,
-	startKiroSsoLogin,
-	syncKiroSso
-} from './bridge-kiro.mjs';
-import { buildKiroModelOptions } from './kiro-models.mjs';
-import {
-	isSupportedWorkbenchModel,
-	modelLabel,
-	PREFERRED_MODEL_KEYS,
-	PROVIDERS,
-	SUPPORTED_THINKING_LEVELS
-} from './model-filter.mjs';
+import { completeKiroSsoLogin, logoutKiro, startKiroSsoLogin } from './bridge-kiro.mjs';
+import { buildEnvironment, syncCodexOauth, syncKiroSso } from './bridge-environment.mjs';
+import { isSupportedWorkbenchModel } from './model-filter.mjs';
 import { formatPromptText } from './prompt-format.mjs';
 import {
 	assistantMessageCount,
@@ -53,6 +41,7 @@ import {
 	sessionManagerForPayload,
 	touchSession
 } from './session-history.mjs';
+import { promoteQueuedMessage } from './queue-control.mjs';
 import { runBridge, writeMessage } from './bridge-dispatch.mjs';
 import { buildActivity, buildThreadSnapshot } from './thread-snapshot.mjs';
 const COMPACTION_SETTINGS = { enabled: true, keepRecentTokens: 20_000, reserveTokens: 16_384 };
@@ -149,6 +138,25 @@ class BridgeRuntime {
 		return this.runTurn(payload, (session, prompt, images) => session.followUp(prompt, images));
 	}
 
+	async promoteQueuedMessage(payload) {
+		const sessionEntry = this.sessions.get(payload.threadId);
+		if (!sessionEntry) {
+			throw new Error('Thread session was not found.');
+		}
+		const text = typeof payload.text === 'string' ? payload.text.trim() : '';
+		if (!text) {
+			throw new Error('Queued message text is required.');
+		}
+
+		await promoteQueuedMessage(sessionEntry, text);
+		this.emitThreadUpdate(payload.threadId, sessionEntry.session, {
+			detail: 'A queued follow-up was moved into steering for the active run.',
+			title: 'Queued message promoted',
+			tone: 'system'
+		});
+		return {};
+	}
+
 	async runTurn(payload, executeTurn) {
 		const sessionEntry = await this.ensureSession(payload);
 		touchSession(sessionEntry);
@@ -187,12 +195,20 @@ class BridgeRuntime {
 		const sessionEntry = this.sessions.get(payload.threadId);
 		if (sessionEntry) {
 			touchSession(sessionEntry);
+			sessionEntry.session.clearQueue();
 			await sessionEntry.session.abort();
-			this.emitThreadUpdate(payload.threadId, sessionEntry.session, {
-				detail: 'The current run was stopped.',
-				title: 'Run stopped',
-				tone: 'system'
-			});
+			this.emitThreadUpdate(
+				payload.threadId,
+				sessionEntry.session,
+				{
+					detail: 'The current run was stopped.',
+					title: 'Run stopped',
+					tone: 'system'
+				},
+				{
+					statusOverride: 'idle'
+				}
+			);
 		}
 		return {};
 	}
@@ -206,83 +222,15 @@ class BridgeRuntime {
 	}
 
 	async buildEnvironment() {
-		await this.syncCodexOauth();
-		await this.syncKiroSso();
-		this.modelRegistry.refresh();
-		const codexCredential = this.authStorage.get('openai-codex');
-		const kiroCredential = this.authStorage.get('kiro');
-		const usingChatGptSubscription = codexCredential?.type === 'oauth';
-		const modelRank = new Map(PREFERRED_MODEL_KEYS.map((key, index) => [key, index]));
-		const registryModels = this.modelRegistry
-			.getAvailable()
-			.filter((model) => isSupportedWorkbenchModel(model, usingChatGptSubscription))
-			.map((model) => ({
-				availableThinkingLevels: model.reasoning ? SUPPORTED_THINKING_LEVELS : ['off'],
-				configured: true,
-				id: model.id,
-				key: `${model.provider}::${model.id}`,
-				label: modelLabel(model, codexCredential),
-				provider: model.provider,
-				supportsImages: Array.isArray(model.input) && model.input.includes('image'),
-				supportsReasoning: Boolean(model.reasoning)
-			}));
-
-		const kiroModels = kiroCredential ? buildKiroModelOptions() : [];
-		const allModels = [...registryModels, ...kiroModels].sort((left, right) => {
-			const lr = modelRank.get(left.key) ?? Number.MAX_SAFE_INTEGER;
-			const rr = modelRank.get(right.key) ?? Number.MAX_SAFE_INTEGER;
-			return lr !== rr ? lr - rr : left.label.localeCompare(right.label);
-		});
-
-		return {
-			models: allModels,
-			providers: PROVIDERS.map(([provider, label]) => {
-				if (provider === 'kiro') {
-					const configured = Boolean(kiroCredential);
-					return {
-						configured,
-						label,
-						provider,
-						source: configured ? 'IAM Identity Center SSO' : null
-					};
-				}
-				const status = this.authStorage.getAuthStatus(provider);
-				const cred = this.authStorage.get(provider);
-				const source =
-					cred?.type === 'oauth' && provider === 'openai-codex'
-						? 'ChatGPT subscription'
-						: (status.source ?? null);
-				return { configured: status.configured, label, provider, source };
-			})
-		};
+		return buildEnvironment(this);
 	}
 
 	async syncCodexOauth() {
-		const current = this.authStorage.get('openai-codex');
-		if (current && current.type !== 'oauth') return;
-		const credential = await readCodexOauthCredential();
-		if (!credential) {
-			if (current?.type === 'oauth') {
-				this.authStorage.remove('openai-codex');
-				this.disposeSessions();
-			}
-			return;
-		}
-		if (
-			current?.type === 'oauth' &&
-			current.access === credential.access &&
-			current.refresh === credential.refresh &&
-			current.expires === credential.expires &&
-			current.accountId === credential.accountId
-		) {
-			return;
-		}
-		this.authStorage.set('openai-codex', { type: 'oauth', ...credential });
-		this.disposeSessions();
+		await syncCodexOauth(this);
 	}
 
 	async syncKiroSso() {
-		await syncKiroSso(this.agentDir, this.authStorage, () => this.disposeSessions());
+		await syncKiroSso(this);
 	}
 
 	async startKiroSsoLogin(payload) {

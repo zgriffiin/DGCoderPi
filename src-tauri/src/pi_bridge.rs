@@ -76,6 +76,8 @@ pub struct BridgeQueueEntry {
 #[serde(rename_all = "camelCase")]
 pub struct BridgeActivity {
     pub detail: String,
+    #[serde(default)]
+    pub kind: Option<String>,
     pub title: String,
     pub tone: ActivityTone,
 }
@@ -232,6 +234,17 @@ impl PiBridge {
 
     pub fn abort(&self, thread_id: &str) -> Result<(), String> {
         self.request::<Value>("abort", json!({ "threadId": thread_id }))?;
+        Ok(())
+    }
+
+    pub fn promote_queued_message(&self, thread_id: &str, text: &str) -> Result<(), String> {
+        self.request::<Value>(
+            "promote-queued-message",
+            json!({
+                "text": text,
+                "threadId": thread_id,
+            }),
+        )?;
         Ok(())
     }
 

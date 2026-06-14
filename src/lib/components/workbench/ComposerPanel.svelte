@@ -26,6 +26,7 @@
 		onCompactThread: () => void;
 		onDraftChange: (value: string) => void;
 		onModelChange: (modelKey: string) => void;
+		onPromoteQueuedMessage: (queueId: string, text: string) => void;
 		onReasoningChange: (reasoningLevel: ThinkingLevel) => void;
 		onRemoveAttachment: (attachmentId: string) => void;
 		onSend: (mode: PromptMode) => void;
@@ -38,6 +39,7 @@
 		selectedModel: ModelOption | null;
 		selectedModelKey: string;
 		selectedReasoningLevel: ThinkingLevel;
+		queue: ThreadRecord['queue'];
 		shipReviewDetail: string | null;
 		shipReviewIssueCount: number;
 		shipReviewMaxRiskLevel: string | null;
@@ -191,6 +193,7 @@
 		onCompactThread,
 		onDraftChange,
 		onModelChange,
+		onPromoteQueuedMessage,
 		onReasoningChange,
 		onRemoveAttachment,
 		onSend,
@@ -203,6 +206,7 @@
 		selectedModel,
 		selectedModelKey,
 		selectedReasoningLevel,
+		queue,
 		shipReviewDetail,
 		shipReviewIssueCount,
 		shipReviewMaxRiskLevel,
@@ -325,6 +329,33 @@
 				{/if}
 			</div>
 		</div>
+	{/if}
+
+	{#if queue.length > 0}
+		<section class="queued-message-panel" aria-live="polite">
+			<div class="queued-message-panel__header">
+				<p>{queue.length} queued message{queue.length === 1 ? '' : 's'}</p>
+				<span>Waiting for the active run</span>
+			</div>
+			<ul class="queued-message-list">
+				{#each queue as item (item.id)}
+					<li class="queued-message">
+						<div>
+							<span data-mode={item.mode}>{item.mode}</span>
+							<p>{item.text}</p>
+						</div>
+						<Button
+							disabled={!running}
+							kind="ghost"
+							size="small"
+							on:click={() => onPromoteQueuedMessage(item.id, item.text)}
+						>
+							Steer now
+						</Button>
+					</li>
+				{/each}
+			</ul>
+		</section>
 	{/if}
 
 	<div class="composer-panel__footer">

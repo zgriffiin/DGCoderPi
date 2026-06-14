@@ -8,8 +8,14 @@
 		TextInput,
 		Toggle
 	} from 'carbon-components-svelte';
-	import type { CodexStatus, ModelOption, ProviderStatus } from '$lib/types/workbench';
+	import type {
+		CodexStatus,
+		KiroSsoDeviceAuth,
+		ModelOption,
+		ProviderStatus
+	} from '$lib/types/workbench';
 	import { readEventValue } from '$lib/workbench/read-event-value';
+	import KiroSsoControls from './KiroSsoControls.svelte';
 	import ThemeToggle from './ThemeToggle.svelte';
 
 	type SettingsSection =
@@ -26,12 +32,22 @@
 		diffAnalysisModelKey: string | null;
 		diagnosticLoggingEnabled: boolean;
 		docparserEnabled: boolean;
+		kiroBusy: boolean;
+		kiroDeviceAuth: KiroSsoDeviceAuth | null;
+		kiroError: string | null;
+		kiroRegionDraft: string;
+		kiroStartUrlDraft: string;
 		maxContextPercent: number;
 		models: ModelOption[];
 		onCavemanLevelChange: (level: string) => void;
 		onClose: () => void;
 		onDiffAnalysisModelChange: (modelKey: string | null) => void;
 		onImportCodexOpenAiKey: () => void;
+		onKiroCompleteSso: () => void;
+		onKiroLogout: () => void;
+		onKiroRegionChange: (value: string) => void;
+		onKiroStartSso: () => void;
+		onKiroStartUrlChange: (value: string) => void;
 		onMaxContextPercentChange: (percent: number) => void;
 		onProviderDraftChange: (provider: string, value: string) => void;
 		onRefreshStatus: () => void;
@@ -83,12 +99,22 @@
 		diffAnalysisModelKey,
 		diagnosticLoggingEnabled,
 		docparserEnabled,
+		kiroBusy,
+		kiroDeviceAuth,
+		kiroError,
+		kiroRegionDraft,
+		kiroStartUrlDraft,
 		maxContextPercent,
 		models,
 		onCavemanLevelChange,
 		onClose,
 		onDiffAnalysisModelChange,
 		onImportCodexOpenAiKey,
+		onKiroCompleteSso,
+		onKiroLogout,
+		onKiroRegionChange,
+		onKiroStartSso,
+		onKiroStartUrlChange,
 		onMaxContextPercentChange,
 		onProviderDraftChange,
 		onRefreshStatus,
@@ -292,6 +318,20 @@
 											ChatGPT subscription.
 										</p>
 									</div>
+								{:else if provider.provider === 'kiro'}
+									<KiroSsoControls
+										busy={kiroBusy}
+										configured={provider.configured}
+										deviceAuth={kiroDeviceAuth}
+										error={kiroError}
+										onComplete={onKiroCompleteSso}
+										onLogout={onKiroLogout}
+										onRegionChange={onKiroRegionChange}
+										onStart={onKiroStartSso}
+										onStartUrlChange={onKiroStartUrlChange}
+										regionDraft={kiroRegionDraft}
+										startUrlDraft={kiroStartUrlDraft}
+									/>
 								{:else}
 									<div class="provider-row__controls">
 										<TextInput

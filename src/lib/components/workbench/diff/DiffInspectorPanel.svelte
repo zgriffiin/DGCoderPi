@@ -60,6 +60,7 @@
 	let reviewMode = $state<DiffReviewMode>('ai-review');
 	let viewedFileIds = $state<string[]>([]);
 	let requestVersion = 0;
+	let loadedKey: string | null = null;
 
 	const scopeKey = $derived(thread?.id ?? project?.id ?? 'global');
 
@@ -115,7 +116,8 @@
 		threadId: string | null,
 		nextHideWhitespace: boolean,
 		nextRequestVersion: number,
-		nextScopeKey: string
+		nextScopeKey: string,
+		forceRefresh: boolean
 	) {
 		const nextDiff = await loadDiffSnapshot(
 			projectId,
@@ -127,13 +129,36 @@
 			diffAnalysis = null;
 			return;
 		}
-		void refreshDiffAnalysisNow({
+
+		const request: AnalysisRequest = {
 			hideWhitespace: nextHideWhitespace,
 			projectId,
 			requestVersion: nextRequestVersion,
 			snapshot: nextDiff,
 			threadId
-		});
+		};
+
+		// On automatic reloads, reuse a cached review for the current diff instead of
+		// forcing a new sidecar job. Only the explicit "Refresh review" action forces a run.
+		if (!forceRefresh) {
+			try {
+				const cached = await controller.loadDiffAnalysis(projectId, threadId, nextHideWhitespace);
+				if (nextRequestVersion !== requestVersion) {
+					return;
+				}
+				if (cached.fingerprint === nextDiff.fingerprint && cached.status !== 'pending') {
+					diffAnalysis = mergeVisibleDiffAnalysis(diffAnalysis, cached);
+					return;
+				}
+			} catch {
+				if (nextRequestVersion !== requestVersion) {
+					return;
+				}
+				// Fall through to starting a fresh review when the cache lookup fails.
+			}
+		}
+
+		void refreshDiffAnalysisNow(request);
 	}
 
 	$effect(() => {
@@ -142,6 +167,7 @@
 
 	$effect(() => {
 		if (!project) {
+			loadedKey = null;
 			diff = null;
 			diffAnalysis = null;
 			diffError = null;
@@ -149,15 +175,32 @@
 			return;
 		}
 
-		const nextRequestVersion = requestVersion + 1;
-		requestVersion = nextRequestVersion;
 		const projectId = project.id;
 		const threadId = thread?.id ?? null;
 		const nextHideWhitespace = hideWhitespace;
 		const nextScopeKey = scopeKey;
+		const nextKey = `${projectId}\u0000${threadId ?? ''}\u0000${nextHideWhitespace ? '1' : '0'}\u0000${nextScopeKey}`;
+
+		// Only reset and reload when the meaningful inputs change. Without this guard the
+		// effect re-fires on every controller snapshot (i.e. every agent edit), which resets
+		// the panel and restarts the AI review in an endless starting -> loading -> in-progress loop.
+		if (nextKey === loadedKey) {
+			return;
+		}
+		loadedKey = nextKey;
+
+		const nextRequestVersion = requestVersion + 1;
+		requestVersion = nextRequestVersion;
 
 		diffAnalysis = null;
-		void reloadDiffPanel(projectId, threadId, nextHideWhitespace, nextRequestVersion, nextScopeKey);
+		void reloadDiffPanel(
+			projectId,
+			threadId,
+			nextHideWhitespace,
+			nextRequestVersion,
+			nextScopeKey,
+			false
+		);
 	});
 
 	$effect(() => {
@@ -261,6 +304,26 @@
 			diffAnalysisError = error instanceof Error ? error.message : String(error);
 		}
 	}
+
+	function handleRefreshReview() {
+		if (!project) {
+			return;
+		}
+		// Explicit refresh re-fetches the latest diff snapshot and forces a fresh run so the
+		// patch view and the review stay consistent with the current working tree.
+		const nextRequestVersion = requestVersion + 1;
+		requestVersion = nextRequestVersion;
+		diffAnalysisError = null;
+		diffAnalysis = null;
+		void reloadDiffPanel(
+			project.id,
+			thread?.id ?? null,
+			hideWhitespace,
+			nextRequestVersion,
+			scopeKey,
+			true
+		);
+	}
 </script>
 
 <DiffInspector
@@ -272,7 +335,7 @@
 	{diffLoading}
 	{hideWhitespace}
 	{onClose}
-	onRefreshAnalysis={refreshDiffAnalysisNow}
+	onRefreshAnalysis={handleRefreshReview}
 	onReviewModeChange={handleReviewModeChange}
 	onToggleCollapse={handleToggleCollapsed}
 	onToggleViewed={handleToggleViewed}

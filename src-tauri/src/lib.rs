@@ -96,6 +96,7 @@ pub fn run() {
             commands::load_spec_artifact,
             commands::logout_kiro,
             commands::move_project,
+            commands::promote_queued_message,
             commands::remove_attachment,
             commands::remove_project,
             commands::remove_thread,
