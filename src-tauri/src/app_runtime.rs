@@ -2111,13 +2111,24 @@ fn merge_thread_queue(
     }
 
     let mut merged = snapshot_queue.to_vec();
+    // Track which snapshot entries have already absorbed a matching local entry so identical local
+    // entries are preserved as a multiset rather than collapsed to a single occurrence.
+    let mut consumed = vec![false; snapshot_queue.len()];
     for entry in existing_queue {
-        let represented_in_queue = merged.iter().any(|candidate| {
-            candidate.mode == entry.mode
-                && candidate.status == entry.status
-                && candidate.text == entry.text
-        });
-        if represented_in_queue || user_message_exists(snapshot_messages, &entry.text) {
+        if user_message_exists(snapshot_messages, &entry.text) {
+            continue;
+        }
+        let matched = snapshot_queue
+            .iter()
+            .enumerate()
+            .position(|(index, candidate)| {
+                !consumed[index]
+                    && candidate.mode == entry.mode
+                    && candidate.status == entry.status
+                    && candidate.text == entry.text
+            });
+        if let Some(index) = matched {
+            consumed[index] = true;
             continue;
         }
         merged.push(entry.clone());

@@ -57,14 +57,14 @@ function normalizeRiskItems(items, validHunks) {
 
 function normalizeFocusQueue(items, validHunks) {
 	return (Array.isArray(items) ? items : [])
-		.slice(0, 6)
 		.map((item) => ({
 			file: firstText(item, ['file', 'path']),
 			hunkId: firstText(item, ['hunkId', 'hunk_id', 'id']),
 			priority: normalizePriority(item?.priority),
 			reason: firstText(item, ['reason', 'detail', 'description'])
 		}))
-		.filter((item) => validHunks.get(item.hunkId) === item.file);
+		.filter((item) => validHunks.get(item.hunkId) === item.file)
+		.slice(0, 6);
 }
 
 function normalizeFollowUps(items) {
@@ -76,14 +76,14 @@ function normalizeFollowUps(items) {
 
 function normalizeEvidence(items, validHunks) {
 	return (Array.isArray(items) ? items : [])
-		.slice(0, 3)
 		.map((item) => ({
 			file: firstText(item, ['file', 'path']),
 			hunkId: firstText(item, ['hunkId', 'hunk_id', 'id']),
 			startLine: normalizeLineNumber(firstValue(item, ['startLine', 'start_line', 'lineStart'])),
 			endLine: normalizeLineNumber(firstValue(item, ['endLine', 'end_line', 'lineEnd']))
 		}))
-		.filter((item) => item.file && item.hunkId && validHunks.get(item.hunkId) === item.file);
+		.filter((item) => item.file && item.hunkId && validHunks.get(item.hunkId) === item.file)
+		.slice(0, 3);
 }
 
 function normalizeLineNumber(value) {

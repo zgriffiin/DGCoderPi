@@ -76,7 +76,7 @@ This baseline scopes the diff-review gate as the only fully wired exit condition
 1. WHEN each iteration completes THEN the system SHALL record an inspectable entry containing the iteration number, the gates run, each gate's summary, and the total findings count.
 2. WHEN a loop run is active THEN the system SHALL display a convergence trail showing how the total findings count changed across iterations.
 3. WHEN each iteration runs an agent turn THEN the system SHALL preserve that turn as normal durable thread history that the user can review, interrupt, and revert.
-4. WHEN a loop run ends THEN the system SHALL display the final outcome and the reason the run ended.
+4. WHEN a loop run ends THEN the system SHALL display the final outcome and reason.
 5. WHEN the agent is mid-turn inside a loop THEN the system SHALL distinguish active agent work from between-iteration gate evaluation.
 
 ### Requirement 6: Respect runtime and performance boundaries
