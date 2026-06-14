@@ -11,13 +11,28 @@ export async function promoteQueuedMessage(sessionEntry, text) {
 		}
 		return true;
 	};
-	const steering = queued.steering.filter(takePromoted);
-	const followUp = queued.followUp.filter(takePromoted);
-	await sessionEntry.session.steer(text);
-	for (const message of steering) {
-		await sessionEntry.session.steer(message);
-	}
-	for (const message of followUp) {
-		await sessionEntry.session.followUp(message);
+	// Apply the promoted message first, then the remaining steering and follow-up messages in order.
+	const pending = [
+		{ kind: 'steer', message: text },
+		...queued.steering.filter(takePromoted).map((message) => ({ kind: 'steer', message })),
+		...queued.followUp.filter(takePromoted).map((message) => ({ kind: 'followUp', message }))
+	];
+
+	const apply = ({ kind, message }) =>
+		kind === 'followUp'
+			? sessionEntry.session.followUp(message)
+			: sessionEntry.session.steer(message);
+
+	for (let index = 0; index < pending.length; index += 1) {
+		try {
+			await apply(pending[index]);
+		} catch (error) {
+			// The queue was already cleared above, so re-queue every message that has not been
+			// applied yet to avoid permanently losing pending work when a send fails.
+			for (const operation of pending.slice(index)) {
+				void Promise.resolve(apply(operation)).catch(() => {});
+			}
+			throw error;
+		}
 	}
 }

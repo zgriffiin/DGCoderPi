@@ -2,28 +2,37 @@ import { normalizePriority } from './priority-utils.mjs';
 import { firstValue, safeText } from './review-shape.mjs';
 
 export function normalizeReviewResult(payload, review) {
+	const validHunks = buildValidHunks(payload.diff.files);
 	return {
-		changeBrief: normalizeBriefItems(review.changeBrief),
+		changeBrief: normalizeBriefItems(review.changeBrief, validHunks),
 		continuationToken: null,
 		error: null,
 		fingerprint: payload.diff.fingerprint,
-		focusQueue: normalizeFocusQueue(review.focusQueue, payload.diff.files),
+		focusQueue: normalizeFocusQueue(review.focusQueue, validHunks),
 		impact: normalizeImpactItems(review.impact),
 		modelKey: payload.modelKey,
 		partial: false,
 		progress: 100,
-		risks: normalizeRiskItems(review.risks),
+		risks: normalizeRiskItems(review.risks, validHunks),
 		status: 'complete',
 		suggestedFollowUps: normalizeFollowUps(review.suggestedFollowUps),
 		updatedAtMs: Date.now()
 	};
 }
 
-function normalizeBriefItems(items) {
+function buildValidHunks(files) {
+	return new Map(
+		(Array.isArray(files) ? files : []).flatMap((file) =>
+			file.hunks.map((hunk) => [hunk.id, safeText(file.path)])
+		)
+	);
+}
+
+function normalizeBriefItems(items, validHunks) {
 	return (Array.isArray(items) ? items : []).slice(0, 5).map((item) => ({
 		title: firstText(item, ['title', 'heading', 'summary', 'label']),
 		detail: firstText(item, ['detail', 'description', 'body', 'text']),
-		evidence: normalizeEvidence(item?.evidence)
+		evidence: normalizeEvidence(item?.evidence, validHunks)
 	}));
 }
 
@@ -35,21 +44,18 @@ function normalizeImpactItems(items) {
 	}));
 }
 
-function normalizeRiskItems(items) {
+function normalizeRiskItems(items, validHunks) {
 	return (Array.isArray(items) ? items : []).slice(0, 6).map((item) => ({
 		level: normalizePriority(firstValue(item, ['level', 'severity'])),
 		confidence: normalizePriority(firstValue(item, ['confidence', 'certainty'])),
 		title: firstText(item, ['title', 'heading', 'label']),
 		detail: firstText(item, ['detail', 'description', 'body', 'text']),
 		whyItMatters: firstText(item, ['whyItMatters', 'impact', 'consequence']),
-		evidence: normalizeEvidence(item?.evidence)
+		evidence: normalizeEvidence(item?.evidence, validHunks)
 	}));
 }
 
-function normalizeFocusQueue(items, files) {
-	const validHunks = new Map(
-		files.flatMap((file) => file.hunks.map((hunk) => [hunk.id, safeText(file.path)]))
-	);
+function normalizeFocusQueue(items, validHunks) {
 	return (Array.isArray(items) ? items : [])
 		.slice(0, 6)
 		.map((item) => ({
@@ -68,7 +74,7 @@ function normalizeFollowUps(items) {
 	}));
 }
 
-function normalizeEvidence(items) {
+function normalizeEvidence(items, validHunks) {
 	return (Array.isArray(items) ? items : [])
 		.slice(0, 3)
 		.map((item) => ({
@@ -77,7 +83,7 @@ function normalizeEvidence(items) {
 			startLine: normalizeLineNumber(firstValue(item, ['startLine', 'start_line', 'lineStart'])),
 			endLine: normalizeLineNumber(firstValue(item, ['endLine', 'end_line', 'lineEnd']))
 		}))
-		.filter((item) => item.file && item.hunkId);
+		.filter((item) => item.file && item.hunkId && validHunks.get(item.hunkId) === item.file);
 }
 
 function normalizeLineNumber(value) {

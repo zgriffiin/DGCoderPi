@@ -86,7 +86,3 @@ This baseline scopes the diff-review gate as the only fully wired exit condition
 2. WHEN a gate produces an analysis output THEN the system SHALL key any cached result by the behavior-affecting inputs, including the diff fingerprint and the selected model.
 3. WHEN repository diff content, the selected model, or the review contract changes THEN the system SHALL miss or invalidate the corresponding cached gate result.
 4. WHEN composing an iteration prompt THEN the system SHALL include only task-specific gate findings and SHALL NOT load unrelated project docs, skills, or templates into the loop turn.
-
-```
-
-```

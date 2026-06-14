@@ -25,10 +25,6 @@ export function createShipReviewState(
 		return `${projectId ?? ''}::${threadId ?? ''}`;
 	}
 
-	function currentScopeKey() {
-		return scopeKey(activeProject()?.id ?? null, activeThread()?.id ?? null);
-	}
-
 	function scoped(projectId: string | null, threadId: string | null) {
 		return reviews[scopeKey(projectId, threadId)] ?? createIdleShipReview();
 	}
@@ -62,8 +58,11 @@ export function createShipReviewState(
 		}
 
 		const mode = status === 'running' ? 'follow-up' : 'prompt';
-		await controller.sendPrompt(threadId, buildShipSlicePrompt(), mode);
-		setScoped(projectId, threadId, createIdleShipReview());
+		try {
+			await controller.sendPrompt(threadId, buildShipSlicePrompt(), mode);
+		} finally {
+			setScoped(projectId, threadId, createIdleShipReview());
+		}
 	}
 
 	return {
@@ -71,7 +70,7 @@ export function createShipReviewState(
 			return projectHasRunningShipReview(reviews, activeProject()?.id ?? null);
 		},
 		get review() {
-			return reviews[currentScopeKey()] ?? createIdleShipReview();
+			return scoped(activeProject()?.id ?? null, activeThread()?.id ?? null);
 		},
 		hasRunningProject(projectId: string | null) {
 			return projectHasRunningShipReview(reviews, projectId);
@@ -96,8 +95,9 @@ export function createShipReviewState(
 		slice: async () => {
 			const project = activeProject();
 			const thread = activeThread();
-			if (!project || !thread || scoped(project.id, thread.id).status === 'reviewing') return;
+			if (!project || !thread) return;
 			await runAction(async () => {
+				if (scoped(project.id, thread.id).status === 'reviewing') return;
 				const requestId = nextRequestId(project.id, thread.id);
 				setScoped(project.id, thread.id, createReviewingShipReview(project.id, thread.id));
 				const result = await runShipReviewGate(

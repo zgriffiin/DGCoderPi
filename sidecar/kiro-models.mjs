@@ -55,9 +55,10 @@ export function registerKiroProvider(modelRegistry, credential) {
 		return;
 	}
 
-	const bearerToken = credential.accessToken ?? credential.key;
+	const bearerToken = credential.key;
 	if (!bearerToken || !credential.region) {
 		modelRegistry.unregisterProvider('kiro');
+		delete process.env.AWS_BEARER_TOKEN_BEDROCK;
 		return;
 	}
 

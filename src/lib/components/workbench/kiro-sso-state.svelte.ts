@@ -53,10 +53,12 @@ export function createKiroSsoState(controller: WorkbenchController) {
 		setRegion(value: string) {
 			regionDraft = value;
 			error = null;
+			deviceAuth = null;
 		},
 		setStartUrl(value: string) {
 			startUrlDraft = value;
 			error = null;
+			deviceAuth = null;
 		},
 		start: () =>
 			run(async () => {
