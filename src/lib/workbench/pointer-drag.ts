@@ -26,9 +26,11 @@ export function trackWindowPointerDrag<TDrag extends PointerCaptureDrag>(
 
 	window.addEventListener('pointermove', handlePointerMove);
 	window.addEventListener('pointerup', handlePointerUp);
+	window.addEventListener('pointercancel', handlePointerUp);
 	return () => {
 		releasePointerCapture(drag);
 		window.removeEventListener('pointermove', handlePointerMove);
 		window.removeEventListener('pointerup', handlePointerUp);
+		window.removeEventListener('pointercancel', handlePointerUp);
 	};
 }

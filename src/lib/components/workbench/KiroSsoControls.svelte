@@ -38,7 +38,7 @@
 		window.open(
 			deviceAuth.verificationUriComplete || deviceAuth.verificationUri,
 			'_blank',
-			'noreferrer'
+			'noopener,noreferrer'
 		);
 	}
 </script>

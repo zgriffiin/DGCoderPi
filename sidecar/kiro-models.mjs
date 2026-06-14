@@ -6,12 +6,12 @@
 
 const KIRO_MODELS = [
 	{
-		id: 'us.anthropic.claude-opus-4-6-v1',
+		id: 'us.anthropic.claude-opus-4-6',
 		label: 'Claude Opus 4.6',
 		reasoning: true,
 		input: ['text', 'image'],
 		thinkingLevels: ['off', 'minimal', 'low', 'medium', 'high', 'xhigh'],
-		contextWindow: 200_000,
+		contextWindow: 1_000_000,
 		maxTokens: 32_000
 	},
 	{
@@ -20,7 +20,7 @@ const KIRO_MODELS = [
 		reasoning: true,
 		input: ['text', 'image'],
 		thinkingLevels: ['off', 'minimal', 'low', 'medium', 'high'],
-		contextWindow: 200_000,
+		contextWindow: 1_000_000,
 		maxTokens: 32_000
 	}
 ];
