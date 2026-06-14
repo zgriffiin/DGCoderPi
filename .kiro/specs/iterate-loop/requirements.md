@@ -26,7 +26,7 @@ This baseline scopes the diff-review gate as the only fully wired exit condition
 
 1. WHEN the user composes a prompt in a thread THEN the system SHALL offer a "run as loop" option alongside the normal send action.
 2. WHEN the user enables "run as loop" THEN the system SHALL present a loop configuration with selectable gates, a maximum iteration count, a stop-on-no-improvement toggle, and a time budget.
-3. WHEN the user starts a loop run without changing defaults THEN the system SHALL use the diff-review gate, a maximum of 5 iterations, stop-on-no-improvement enabled, and a default time budget.
+3. WHEN the user starts a loop run without changing defaults THEN the system SHALL use the diff-review gate, a maximum of 5 iterations, stop-on-no-improvement enabled, and a default time budget of 10 minutes.
 4. IF the target thread already has a loop run in progress THEN the system SHALL prevent starting a second concurrent loop run for that thread.
 5. WHEN a loop run starts THEN the system SHALL send the user's prompt as the first iteration's agent turn through the existing thread runtime.
 
