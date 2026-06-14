@@ -25,10 +25,11 @@ This baseline scopes the diff-review gate as the only fully wired exit condition
 #### Acceptance Criteria
 
 1. WHEN the user composes a prompt in a thread THEN the system SHALL offer a "run as loop" option alongside the normal send action.
-2. WHEN the user enables "run as loop" THEN the system SHALL present a loop configuration with selectable gates, a maximum iteration count, a stop-on-no-improvement toggle, and a time budget.
+2. WHEN the user enables "run as loop" THEN the system SHALL present a loop configuration with selectable gates, a maximum iteration count of at least 1, a stop-on-no-improvement toggle, and a time budget of at least 1 minute.
 3. WHEN the user starts a loop run without changing defaults THEN the system SHALL use the diff-review gate, a maximum of 5 iterations, stop-on-no-improvement enabled, and a default time budget of 10 minutes.
-4. IF the target thread already has a loop run in progress THEN the system SHALL prevent starting a second concurrent loop run for that thread.
-5. WHEN a loop run starts THEN the system SHALL send the user's prompt as the first iteration's agent turn through the existing thread runtime.
+4. IF the user enters a maximum iteration count below 1 or a time budget below 1 minute THEN the system SHALL reject the value and SHALL NOT start a loop run with an out-of-bounds setting.
+5. IF the target thread already has a loop run in progress THEN the system SHALL prevent starting a second concurrent loop run for that thread.
+6. WHEN a loop run starts THEN the system SHALL send the user's prompt as the first iteration's agent turn through the existing thread runtime.
 
 ### Requirement 2: Iterate against verifiable gates
 
@@ -83,6 +84,6 @@ This baseline scopes the diff-review gate as the only fully wired exit condition
 #### Acceptance Criteria
 
 1. WHEN a loop run waits for an agent turn to finish THEN the system SHALL observe incremental thread updates from the runtime rather than polling the agent session.
-2. WHEN a gate produces an analysis output THEN the system SHALL key any cached result by the behavior-affecting inputs, including the diff fingerprint and the selected model.
-3. WHEN repository diff content, the selected model, or the review contract changes THEN the system SHALL miss or invalidate the corresponding cached gate result.
+2. WHEN a gate produces an analysis output THEN the system SHALL key any cached result by the behavior-affecting inputs, including the diff fingerprint, the selected model, the gate identity, and the gate-specific configuration.
+3. WHEN repository diff content, the selected model, the gate identity, the gate-specific configuration, or the review contract changes THEN the system SHALL miss or invalidate the corresponding cached gate result.
 4. WHEN composing an iteration prompt THEN the system SHALL include only task-specific gate findings and SHALL NOT load unrelated project docs, skills, or templates into the loop turn.

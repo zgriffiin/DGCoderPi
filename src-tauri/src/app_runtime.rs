@@ -955,7 +955,10 @@ impl AppRuntime {
                     .position(|entry| entry.id == input.queue_id)
                     .or_else(|| {
                         requested_text.and_then(|text| {
-                            thread.queue.iter().position(|entry| entry.text == text)
+                            thread
+                                .queue
+                                .iter()
+                                .position(|entry| entry.text.trim() == text)
                         })
                     });
                 let Some(entry_index) = entry_index else {
@@ -1019,6 +1022,9 @@ impl AppRuntime {
     }
 
     pub fn abort_thread(&self, thread_id: &str) -> Result<AppUpdate, String> {
+        // Acquire the bridge before mutating local state so a bridge failure does not leave the
+        // thread marked Idle while the sidecar run keeps going.
+        let bridge = self.bridge()?;
         let update = self.with_serialized_mutation(|| {
             let update = self.mutate_thread(thread_id, |thread| {
                 thread.status = ThreadStatus::Idle;
@@ -1034,7 +1040,6 @@ impl AppRuntime {
             self.persist_and_return(update)
         })?;
 
-        let bridge = self.bridge()?;
         let thread_id = thread_id.to_string();
         tauri::async_runtime::spawn_blocking(move || {
             if let Err(error) = bridge.abort(&thread_id) {
