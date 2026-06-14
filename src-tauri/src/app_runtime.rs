@@ -968,8 +968,9 @@ impl AppRuntime {
                     return Err("Queued message was not found.".to_string());
                 };
 
+                let thread_status = thread.status.clone();
                 let entry = &mut thread.queue[entry_index];
-                rollback = Some((entry.id.clone(), entry.mode.clone()));
+                rollback = Some((entry.id.clone(), entry.mode.clone(), thread_status));
                 promoted_text = Some(entry.text.clone());
                 entry.mode = crate::model::QueueMode::Steer;
                 thread.status = ThreadStatus::Running;
@@ -991,7 +992,7 @@ impl AppRuntime {
             let bridge_error = error.clone();
             if let Err(rollback_error) = self.with_serialized_mutation(|| {
                 let update = self.mutate_thread(&input.thread_id, |thread| {
-                    if let Some((entry_id, original_mode)) = &rollback {
+                    if let Some((entry_id, original_mode, original_status)) = &rollback {
                         if let Some(entry) = thread
                             .queue
                             .iter_mut()
@@ -999,6 +1000,7 @@ impl AppRuntime {
                         {
                             entry.mode = original_mode.clone();
                         }
+                        thread.status = original_status.clone();
                     }
                     thread.last_error = Some(error.clone());
                     Ok(())

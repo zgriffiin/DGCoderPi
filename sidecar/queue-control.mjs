@@ -27,10 +27,16 @@ export async function promoteQueuedMessage(sessionEntry, text) {
 		try {
 			await apply(pending[index]);
 		} catch (error) {
-			// The queue was already cleared above, so re-queue every message that has not been
-			// applied yet to avoid permanently losing pending work when a send fails.
-			for (const operation of pending.slice(index)) {
-				void Promise.resolve(apply(operation)).catch(() => {});
+			// The queue was already cleared above, so re-queue the messages that were never attempted
+			// (everything after the failed operation) to avoid permanently losing pending work. The
+			// failed operation itself is not re-queued so a permanent error does not repeat forever.
+			for (const operation of pending.slice(index + 1)) {
+				apply(operation).catch((requeueError) => {
+					console.error(
+						'[queue-control] Failed to re-queue message after a send error:',
+						requeueError
+					);
+				});
 			}
 			throw error;
 		}
