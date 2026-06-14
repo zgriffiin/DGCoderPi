@@ -34,8 +34,15 @@ export async function verifyPromptFlow(page: Page) {
 		throw new Error('Expected a selected thread before sending the prompt.');
 	}
 	await expect.poll(() => readThreadState(page, threadId), { timeout: 15_000 }).not.toBeNull();
-	await page.getByLabel('Prompt').fill(promptText);
-	await page.getByRole('button', { name: 'Start' }).click();
+	const promptField = page.getByLabel('Prompt');
+	// The composer disables the prompt/Start controls while a ship review is still running on the
+	// project (canSend === false). Wait for it to become editable before sending so a slow review
+	// settle does not stall the click indefinitely.
+	await expect(promptField).toBeEnabled({ timeout: 90_000 });
+	await promptField.fill(promptText);
+	const startButton = page.getByRole('button', { name: 'Start' });
+	await expect(startButton).toBeEnabled({ timeout: 90_000 });
+	await startButton.click();
 	await expect
 		.poll(() => readSendState(page, threadId, promptText), { timeout: 30_000 })
 		.not.toBe('pending');
