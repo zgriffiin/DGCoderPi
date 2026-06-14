@@ -20,7 +20,7 @@ function thinkingLevelsForModel(model) {
 export async function buildEnvironment(runtime) {
 	await syncCodexOauth(runtime);
 	await syncKiroSso(runtime);
-	runtime.modelRegistry.refresh();
+	await runtime.modelRegistry.refresh();
 	const codexCredential = runtime.authStorage.get('openai-codex');
 	const kiroCredential = runtime.authStorage.get('kiro');
 	registerKiroProvider(runtime.modelRegistry, kiroCredential);
