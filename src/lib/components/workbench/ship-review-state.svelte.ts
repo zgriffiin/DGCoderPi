@@ -11,6 +11,49 @@ import {
 
 type ShipReviewScopeMap = Record<string, ReturnType<typeof createIdleShipReview>>;
 
+type ShipReviewSliceContext = {
+	controller: WorkbenchController;
+	currentRequestId: (projectId: string, threadId: string) => number;
+	nextRequestId: (projectId: string, threadId: string) => number;
+	scoped: (projectId: string, threadId: string) => ReturnType<typeof createIdleShipReview>;
+	setScoped: (
+		projectId: string,
+		threadId: string,
+		nextReview: ReturnType<typeof createIdleShipReview>
+	) => void;
+	sendShipPrompt: (
+		projectId: string,
+		threadId: string,
+		status: ThreadRecord['status']
+	) => Promise<void>;
+	setInspectorMode: () => void;
+};
+
+async function runShipReviewSlice(
+	context: ShipReviewSliceContext,
+	project: ProjectRecord,
+	thread: ThreadRecord
+) {
+	if (context.scoped(project.id, thread.id).status === 'reviewing') return;
+	const requestId = context.nextRequestId(project.id, thread.id);
+	const isCurrent = () => context.currentRequestId(project.id, thread.id) === requestId;
+	context.setScoped(project.id, thread.id, createReviewingShipReview(project.id, thread.id));
+	try {
+		const result = await runShipReviewGate(context.controller, project.id, thread.id, isCurrent);
+		if (!isCurrent()) return;
+		if (!result) {
+			await context.sendShipPrompt(project.id, thread.id, thread.status);
+			return;
+		}
+		context.setScoped(project.id, thread.id, result);
+		if (result.status === 'needs-decision') context.setInspectorMode();
+	} catch (error) {
+		// Reset out of the reviewing state on failure so the thread is not left permanently locked.
+		if (isCurrent()) context.setScoped(project.id, thread.id, createIdleShipReview());
+		throw error;
+	}
+}
+
 export function createShipReviewState(
 	controller: WorkbenchController,
 	activeProject: () => ProjectRecord | null,
@@ -96,24 +139,21 @@ export function createShipReviewState(
 			const project = activeProject();
 			const thread = activeThread();
 			if (!project || !thread) return;
-			await runAction(async () => {
-				if (scoped(project.id, thread.id).status === 'reviewing') return;
-				const requestId = nextRequestId(project.id, thread.id);
-				setScoped(project.id, thread.id, createReviewingShipReview(project.id, thread.id));
-				const result = await runShipReviewGate(
-					controller,
-					project.id,
-					thread.id,
-					() => currentRequestId(project.id, thread.id) === requestId
-				);
-				if (currentRequestId(project.id, thread.id) !== requestId) return;
-				if (!result) {
-					await sendShipPrompt(project.id, thread.id, thread.status);
-					return;
-				}
-				setScoped(project.id, thread.id, result);
-				if (result.status === 'needs-decision') setInspectorMode();
-			});
+			await runAction(() =>
+				runShipReviewSlice(
+					{
+						controller,
+						currentRequestId,
+						nextRequestId,
+						scoped,
+						setScoped,
+						sendShipPrompt,
+						setInspectorMode
+					},
+					project,
+					thread
+				)
+			);
 		}
 	};
 }

@@ -42,7 +42,7 @@ This baseline scopes the diff-review gate as the only fully wired exit condition
 1. WHEN an agent turn in a loop run completes THEN the system SHALL run every selected gate against the resulting repository state.
 2. WHEN all selected gates pass THEN the system SHALL end the loop run with a converged outcome and SHALL NOT start another iteration.
 3. WHEN at least one selected gate fails THEN the system SHALL compose the next iteration's prompt from the failing gates' refinement details.
-4. WHEN the diff-review gate is selected THEN the system SHALL reuse the existing ship-review evaluation and fix-prompt generation rather than a separate review path.
+4. WHEN the diff-review gate is selected THEN the system SHALL reuse the existing ship-review evaluation and its complete fix-prompt generation machinery, including the prompt templates that support it, rather than a separate review path.
 5. IF a gate errors during evaluation THEN the system SHALL end the loop run with a blocked outcome and surface the gate error.
 6. WHERE a gate's required backend capability is unavailable THEN the system SHALL hide or disable that gate in configuration rather than silently skipping it during a run.
 
@@ -88,4 +88,4 @@ This baseline scopes the diff-review gate as the only fully wired exit condition
 1. WHEN a loop run waits for an agent turn to finish THEN the system SHALL observe incremental thread updates from the runtime rather than polling the agent session.
 2. WHEN a gate produces an analysis output THEN the system SHALL key any cached result by the behavior-affecting inputs, including the diff fingerprint, the selected model, the gate identity, and the gate-specific configuration.
 3. WHEN repository diff content, the selected model, the gate identity, the gate-specific configuration, or the review contract changes THEN the system SHALL miss or invalidate the corresponding cached gate result.
-4. WHEN composing an iteration prompt THEN the system SHALL include only task-specific gate findings and SHALL NOT load unrelated project docs, skills, or templates into the loop turn.
+4. WHEN composing an iteration prompt THEN the system SHALL include only task-specific gate findings together with the gate-specific prompt scaffolding required by the reused ship-review fix-prompt generation, and SHALL NOT load unrelated project docs, skills, or templates into the loop turn.
