@@ -28,8 +28,10 @@ This baseline scopes the diff-review gate as the only fully wired exit condition
 2. WHEN the user enables "run as loop" THEN the system SHALL present a loop configuration with selectable gates, a maximum iteration count of at least 1, a stop-on-no-improvement toggle, and a time budget of at least 1 minute.
 3. WHEN the user starts a loop run without changing defaults THEN the system SHALL use the diff-review gate, a maximum of 5 iterations, stop-on-no-improvement enabled, and a default time budget of 10 minutes.
 4. IF the user enters a maximum iteration count below 1 or a time budget below 1 minute THEN the system SHALL reject the value and SHALL NOT start a loop run with an out-of-bounds setting.
-5. IF the target thread already has a loop run in progress THEN the system SHALL prevent starting a second concurrent loop run for that thread.
-6. WHEN a loop run starts THEN the system SHALL send the user's prompt as the first iteration's agent turn through the existing thread runtime.
+5. IF no gate is selected THEN the system SHALL require at least one gate before allowing the loop run to start, so that the convergence condition is never vacuously satisfied.
+6. IF the target thread already has a loop run in progress THEN the system SHALL prevent starting a second concurrent loop run for that thread.
+7. WHILE a loop run is in progress THEN the system SHALL block other mutations to the target thread, including manual sends, queued-message promotion, compaction, and additional loop runs, so iteration history and stop-on-no-improvement tracking are not corrupted.
+8. WHEN a loop run starts THEN the system SHALL send the user's prompt as the first iteration's agent turn through the existing thread runtime.
 
 ### Requirement 2: Iterate against verifiable gates
 
